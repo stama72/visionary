@@ -36,12 +36,14 @@ public sealed class TickTests
     }
 
     /// <summary>
-    /// TDD01 §3.1 が性能予算の根拠にしている「100年 = 876,000 tick」を型の側から固定する。
-    /// tick 粒度を変える判断をしたとき、この数字を更新し忘れると性能目標が破綻するため。
+    /// tick 粒度(ADR-0002)を型の側から固定する。ここを変えると TDD01 §3.1 の性能予算が
+    /// まるごと変わるため、暦(ADR-0003)とは独立に押さえておく。
+    /// 検証地平そのものの tick 数は <see cref="GameDateTests"/> 側で固定する。
     /// </summary>
     [Fact]
-    public void 百年は876000tickである()
+    public void 一日は24tickである()
     {
-        Assert.Equal(876_000, Tick.FromDays(100 * 365).Value);
+        Assert.Equal(24, Tick.HoursPerDay);
+        Assert.Equal(24_000, Tick.FromDays(1_000).Value);
     }
 }

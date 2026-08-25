@@ -4,8 +4,8 @@ namespace Visionary.Sim.Time;
 /// ゲーム内時刻。ADR-0002 により 1 tick = ゲーム内1時間、エポック(<see cref="Zero"/>)からの単調増加。
 /// </summary>
 /// <remarks>
-/// 暦(年・季節・月)への写像はここでは定義しない。日と時刻までが ADR-0002 で確定した範囲であり、
-/// 暦の構造は TDD01 §7 の未決定事項として W1 で決める。
+/// 暦(年・季節)への写像は <see cref="GameDate"/> が持つ(ADR-0003)。
+/// この型は暦の定数に依存しない — 暦を変えても Tick の意味は変わらない。
 /// </remarks>
 public readonly record struct Tick : IComparable<Tick>
 {
