@@ -1,0 +1,33 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+[*.{cs,csproj,props,targets}]
+indent_size = 4
+
+[*.{md,markdown}]
+indent_size = 2
+# Markdownの行末2スペースは改行の意味を持つため削らない
+trim_trailing_whitespace = false
+
+[*.{yml,yaml,json,jsonc}]
+indent_size = 2
+
+[*.cs]
+# using は System を先頭にまとめ、file-scoped namespace を既定とする
+dotnet_sort_system_directives_first = true
+csharp_using_directive_placement = outside_namespace:warning
+csharp_style_namespace_declarations = file_scoped:warning
+
+# 意図しない状態の共有を防ぐ
+dotnet_style_readonly_field = true:warning
+csharp_prefer_static_local_function = true:suggestion
+
+# ADR-0002: 決定論のため、暗黙のカルチャ依存を避ける
+dotnet_diagnostic.CA1305.severity = warning

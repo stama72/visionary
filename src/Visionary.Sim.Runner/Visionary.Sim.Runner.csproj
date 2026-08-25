@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ヘッドレス実験ハーネス(TDD01 §4)。M0の比較実験はすべてここから実行する -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Visionary.Sim.Runner</RootNamespace>
+    <AssemblyName>vsim</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Visionary.Sim\Visionary.Sim.csproj" />
+  </ItemGroup>
+
+</Project>

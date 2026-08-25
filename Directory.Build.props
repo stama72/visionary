@@ -1,0 +1,28 @@
+<Project>
+
+  <!--
+    全プロジェクト共通の設定。プロジェクト側で再定義すれば上書きできる
+    (Directory.Build.props は各 .csproj より先に読み込まれるため)。
+    Godot が生成する src/Visionary.Game の csproj もここを継承する点に注意。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!--
+      警告をエラーにする。ADR-0001「AIが幻覚APIや古いGodot 3系の書き方を生成する
+      リスクをコンパイル段階で機械的に検出する」の一次防衛線。
+    -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+
+    <!-- ADR-0002: 決定論。ビルド出力とカルチャ依存挙動を環境非依存にする -->
+    <Deterministic>true</Deterministic>
+    <InvariantGlobalization>true</InvariantGlobalization>
+
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+</Project>
