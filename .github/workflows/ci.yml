@@ -1,0 +1,78 @@
+name: CI
+
+# 目的(TDD01 §1, ADR-0001):
+#   1. コンパイル段階で幻覚APIや古いAPIの使用を機械的に弾く(警告=エラー)
+#   2. 決定論の破れ(ADR-0002)をテストで常時検出する
+# Godot側(gdUnit4・ヘッドレス起動チェック)はグレーボックス着手(M0 W5)時に別ジョブで追加する。
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+
+jobs:
+  sim:
+    name: Visionary.Sim (build & test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      # ドキュメントのみの変更でも走るが、restore キャッシュにより数秒で終わる
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore Visionary.sln
+
+      - name: Build
+        run: dotnet build Visionary.sln --configuration Release --no-restore
+
+      - name: Test
+        run: >
+          dotnet test Visionary.sln
+          --configuration Release
+          --no-build
+          --logger "trx;LogFileName=test-results.trx"
+          --results-directory artifacts/test-results
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: artifacts/test-results/
+          retention-days: 14
+
+  format:
+    name: Format check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      # 差分が出た場合は `dotnet format` をローカルで実行してコミットする
+      - name: Verify formatting
+        run: dotnet format Visionary.sln --verify-no-changes --severity warn

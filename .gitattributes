@@ -1,0 +1,12 @@
+# 改行コードをLFに統一する。
+# Windowsで開発しCIはUbuntuで走るため、統一しないと `dotnet format --verify-no-changes`
+# の結果が環境によって食い違う(.editorconfig の end_of_line = lf と対応)。
+* text=auto eol=lf
+
+# バイナリ資産(M1以降でアセットを追加した際の誤変換を防ぐ)
+*.png binary
+*.jpg binary
+*.ogg binary
+*.wav binary
+*.ttf binary
+*.otf binary

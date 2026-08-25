@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    経済シミュレーションの中核。ADR-0001 によりエンジン非依存を厳守する。
+    標準ライブラリ以外への参照(とりわけ Godot)を足してはならない。
+  -->
+  <PropertyGroup>
+    <RootNamespace>Visionary.Sim</RootNamespace>
+  </PropertyGroup>
+
+</Project>

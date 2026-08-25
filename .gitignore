@@ -1,0 +1,20 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+[Tt]est[Rr]esult*/
+artifacts/
+.vs/
+
+# 実験ハーネスの出力(結果はコミットせず、設定ファイルのみをGit管理する — TDD01 §4.1)
+results/
+
+# Godot(M0 W5以降で src/Visionary.Game を作成)
+.godot/
+*.translation
+export_presets.cfg
+
+# OS
+Thumbs.db
+.DS_Store
