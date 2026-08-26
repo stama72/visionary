@@ -1,0 +1,43 @@
+# 決定論(ADR-0002)の規約を、CLAUDE.md の散文ではなくビルドエラーとして強制する。
+# 形式: <DocumentationCommentId>;<違反時に表示する理由>
+# 適用範囲は Visionary.Sim のみ。Runner 側の統計計算(CV・Gini・HHI)は浮動小数点でよく、
+# シムの再現性には影響しない。
+
+# --- 浮動小数点 ---
+# ADR-0002: シム状態は int/long。比率係数は千分率(‰)の整数。
+# プラットフォーム・最適化レベル間の再現性リスク(FMA、x87 と SSE の差)を根本から断つ。
+T:System.Single;決定論(ADR-0002): 浮動小数点は使わない。比率は千分率(‰)の int で持つ
+T:System.Double;決定論(ADR-0002): 浮動小数点は使わない。比率は千分率(‰)の int で持つ
+T:System.Decimal;決定論(ADR-0002): 金額は int。10進小数でも丸めの規約(切り上げ)から外れる
+T:System.MathF;決定論(ADR-0002): 浮動小数点の数学関数は使わない
+
+# --- 丸め ---
+# GDD01 §2.3「全計算式の結果は小数点以下切り上げ」。除算は必ず整数の切り上げヘルパーを通す。
+M:System.Math.Ceiling(System.Double);丸め(GDD01 §2.3): 整数の切り上げヘルパーを使う
+M:System.Math.Floor(System.Double);丸め(GDD01 §2.3): 切り捨てではなく切り上げが規約
+M:System.Math.Round(System.Double);丸め(GDD01 §2.3): 四捨五入ではなく切り上げが規約
+
+# --- 乱数 ---
+# ADR-0002: マスターシードから系統別ストリームを派生する。系統をまたいだ借用は
+# 共通乱数法を壊し、A/B 比較を「別世界同士の比較」にする。
+T:System.Random;決定論(ADR-0002): 系統別の乱数ストリームから取る
+
+# --- 実時刻・非決定的な同一性 ---
+# 時刻の真実は Tick のみ(ADR-0002)。壁時計や実行ごとに変わる値はシムに入れない。
+T:System.DateTime;決定論(ADR-0002): 時刻の真実は Tick。暦の表現は GameDate
+T:System.DateTimeOffset;決定論(ADR-0002): 時刻の真実は Tick。暦の表現は GameDate
+T:System.TimeSpan;決定論(ADR-0002): 期間は tick 数(long)で表す
+T:System.Guid;決定論(ADR-0002): Id はシムが決定的に採番する
+P:System.Environment.TickCount;決定論(ADR-0002): 実時間はシムの関心事ではない
+
+# --- 並列実行 ---
+# 並列化は列挙順・浮動小数点の畳み込み順を非決定的にする。
+T:System.Threading.Tasks.Parallel;決定論(ADR-0002): シムは逐次実行。NPC の処理順は Id 昇順
+T:System.Linq.ParallelEnumerable;決定論(ADR-0002): シムは逐次実行。NPC の処理順は Id 昇順
+
+# --- このアナライザで捕まえられない範囲(実測) ---
+# RS0030 は「式の中の記号参照」を見ており、「宣言の型」は見ていない。
+#   捕まる  : new Random() / DateTime.Now / Guid.NewGuid() / Math.Ceiling(x) / double.Parse(s)
+#   捕まらない: double _field; / float Foo(float x) / var x = a / 3.0;
+# 宣言側(状態・シグネチャ・ローカル変数)は DeterminismConventionTests が
+# リフレクションで押さえる。両方があって初めて ADR-0002 の規約が閉じる。
