@@ -9,7 +9,7 @@ ADRの価値は決定そのものより、**却下した選択肢とその理由
 | 0001 | [エンジンとシミュレーション層のアーキテクチャ](0001-engine-and-simulation-architecture.md) | 承認 | 2026-08-19 |
 | 0002 | [シムの時間モデルと決定論・実験再現性の方式](0002-time-model-and-determinism.md)           | 承認 | 2026-08-25 |
 | 0003 | [暦の構造(1年 = 4季 × 30日)](0003-calendar-structure.md)                                  | 承認 | 2026-08-25 |
-| 0004 | [AIエージェントの役割分担と作業単位](0004-ai-driven-development-workflow.md)                     | 提案 | 2026-08-27 |
+| 0004 | [AIエージェントの役割分担と作業単位](0004-ai-driven-development-workflow.md)                     | 承認 | 2026-08-27 |
 
 ## 運用ルール
 
