@@ -19,6 +19,7 @@
 
 - **Godot 4 + C#**([ADR-0001](docs/adr/0001-engine-and-simulation-architecture.md))。`Visionary.Sim` に Godot 依存を持ち込まない。CIをUbuntuで回しているのはこの制約の継続検証を兼ねる
 - Godot の作例は GDScript / Godot 3系が多い。**C# かつ Godot 4 系のAPIであることを公式クラスリファレンスで確認してから書く**
+- **テストメソッド名は英語**。既存の `TickTests` / `GameDateTests` は日本語だが修正予定の負債であり、真似しない
 
 ### 決定論([ADR-0002](docs/adr/0002-time-model-and-determinism.md))
 
