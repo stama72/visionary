@@ -5,7 +5,7 @@
 | 根拠     | [TDD01 §3.1〜3.3](../04-tdd/01-sim-core-and-m0.md) / [ADR-0002](../adr/0002-time-model-and-determinism.md) / [GDD03 §1.3](../03-gdd/03-seasons-and-city.md) |
 | ブランチ | `feat/world-and-scheduler`                                       |
 | worktree | `visionary/`(本体)                                              |
-| 状態     | 未着手                                                           |
+| 状態     | レビュー中                                                       |
 
 > **この文書は使い捨ての作業指示である。**実装完了時点で凍結し、以後の正はコードと TDD。
 
