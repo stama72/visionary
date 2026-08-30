@@ -5,7 +5,7 @@
 | 根拠     | [ADR-0002](../adr/0002-time-model-and-determinism.md) 論点2 / [TDD01 §3.1](../04-tdd/01-sim-core-and-m0.md) |
 | ブランチ | `feat/random-streams`                                    |
 | worktree | `visionary/`(本体)                                      |
-| 状態     | レビュー中                                               |
+| 状態     | レビュー対応済み                                         |
 
 > **この文書は使い捨ての作業指示である。**実装完了時点で凍結し、以後の正はコードと TDD。
 
@@ -124,4 +124,4 @@ public ref struct RandomSequence
 - [X] 「緑にすべきテスト」が全て緑
 - [X] `dotnet build Visionary.sln -c Release` が警告0
 - [X] `dotnet format Visionary.sln --verify-no-changes --severity warn` が通る
-- [ ] レビュアーエージェントの指摘が解消済み
+- [X] レビュアーエージェントの指摘が解消済み
