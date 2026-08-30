@@ -52,4 +52,5 @@ dotnet format Visionary.sln               # CIのフォーマット検証を通�
   - **M0の中で決めたことは、仮仕様でよいのでGDDに書く。実装コメントやADRに仕様を溜めない**(暦のエポックと季節順が実装コメントにしか無い状態を招いたため)
 - 新しい規約を作るときは「**これは機械で守れるか**」を必ず問う。機械で守れない規約は、サブエージェントに任せられる範囲を狭める([ADR-0004](docs/adr/0004-ai-driven-development-workflow.md))
 - 同時に進めるタスクは1つ。状態は [docs/tasks/README.md](docs/tasks/README.md) の一覧が正
+- **どの変更も、開発者のレビューの前にレビュアーエージェントを必ず通す。** 例外を作らない([docs/tasks/README.md](docs/tasks/README.md) レビューの規律)
 - 数値(閾値・係数)は初期値であり調整対象。固定すべきは構造と依存関係
