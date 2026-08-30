@@ -184,7 +184,7 @@ public sealed class DeterminismConventionTests
     /// 状態の保持にはまず配列を検討し、Id が疎な場合に SortedDictionary を使う。
     /// </remarks>
     [Fact]
-    public void シムの状態に列挙順が不定なコレクションを持たない()
+    public void CheckNoUnorderedCollectionsInState()
     {
         var banned = UnorderedCollectionTypes();
         var violations = new List<string>();

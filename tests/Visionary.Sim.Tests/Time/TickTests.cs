@@ -10,7 +10,7 @@ public sealed class TickTests
     [InlineData(24, 1, 0)]
     [InlineData(25, 1, 1)]
     [InlineData(8_760, 365, 0)]
-    public void 時間数から日と時刻を導出する(long value, long expectedDay, int expectedHour)
+    public void DerivesDayAndHourFromHours(long value, long expectedDay, int expectedHour)
     {
         var tick = new Tick(value);
 
@@ -19,13 +19,13 @@ public sealed class TickTests
     }
 
     [Fact]
-    public void 負のtickは構築できない()
+    public void RejectsNegativeValue()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => new Tick(-1));
     }
 
     [Fact]
-    public void 加算と差分が往復する()
+    public void AdditionAndDifferenceRoundTrip()
     {
         var start = Tick.FromDays(10);
         var later = start.AddDays(3).AddHours(5);
@@ -41,7 +41,7 @@ public sealed class TickTests
     /// 検証地平そのものの tick 数は <see cref="GameDateTests"/> 側で固定する。
     /// </summary>
     [Fact]
-    public void 一日は24tickである()
+    public void DayIsTwentyFourTicks()
     {
         Assert.Equal(24, Tick.HoursPerDay);
         Assert.Equal(24_000, Tick.FromDays(1_000).Value);

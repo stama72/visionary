@@ -4,13 +4,20 @@ namespace Visionary.Sim.Time;
 /// <see cref="Tick"/> を暦(ADR-0003)に写した表現。年は1始まり、日は各季1〜30。
 /// </summary>
 /// <remarks>
+/// <para>
 /// 時刻の真実はあくまで <see cref="Tick"/> であり、この型はその読み替えにすぎない。
 /// シムの状態として <see cref="GameDate"/> を保存しない — 保存すると暦の定数を変えたときに
-/// 過去の状態が別の時刻を指し始める。
+/// 過去の状態が別の時刻を指し始める(TDD01 §3.2 の World も Clock は tick のみを持つ)。
+/// </para>
+/// <para>
+/// エポック(<see cref="Tick.Zero"/> = 1年 春1日 0時)と年が1始まりであることの仕様は
+/// <c>docs/03-gdd/03-seasons-and-city.md</c> §1.2 が持つ。エポックを動かすと
+/// 同一シードで生成される世界の中身がすべて変わるため、M0 の比較実験に影響する。
+/// </para>
 /// </remarks>
 public readonly record struct GameDate
 {
-    /// <summary>1始まり。エポック(<see cref="Tick.Zero"/>)は1年の春1日。</summary>
+    /// <summary>1始まり(GDD03 §1.2)。エポック(<see cref="Tick.Zero"/>)は1年の春1日。</summary>
     public int Year { get; }
 
     public Season Season { get; }

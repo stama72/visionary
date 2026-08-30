@@ -6,7 +6,7 @@ public sealed class GameDateTests
 {
     /// <summary>ADR-0003 の決定そのもの。変更は ADR の改訂を伴うべきなので、テストで固定する。</summary>
     [Fact]
-    public void 一年は四季かける三十日である()
+    public void YearIsFourSeasonsOfThirtyDays()
     {
         Assert.Equal(30, Calendar.DaysPerSeason);
         Assert.Equal(4, Calendar.SeasonsPerYear);
@@ -14,7 +14,7 @@ public sealed class GameDateTests
     }
 
     [Fact]
-    public void エポックは一年の春一日零時である()
+    public void EpochIsYearOneSpringDayOneAtHourZero()
     {
         var date = GameDate.FromTick(Tick.Zero);
 
@@ -30,7 +30,7 @@ public sealed class GameDateTests
     // 年の境界
     [InlineData(119, 1, Season.Winter, 30)]
     [InlineData(120, 2, Season.Spring, 1)]
-    public void 季節と年の境界をまたぐ(
+    public void CrossesSeasonAndYearBoundaries(
         long dayIndex, int expectedYear, Season expectedSeason, int expectedDayOfSeason)
     {
         var date = GameDate.FromTick(Tick.FromDays(dayIndex));
@@ -46,7 +46,7 @@ public sealed class GameDateTests
     /// 季節依存の経済(GDD03)が静かに1日ずれる形で壊れる。
     /// </summary>
     [Fact]
-    public void 一年分の全時刻で往復が恒等になる()
+    public void RoundTripsForEveryHourInAYear()
     {
         for (long hour = 0; hour < Calendar.HoursPerYear; hour++)
         {
@@ -57,7 +57,7 @@ public sealed class GameDateTests
     }
 
     [Fact]
-    public void 範囲外の日は構築できない()
+    public void RejectsOutOfRangeComponents()
     {
         Assert.Throws<ArgumentOutOfRangeException>(
             () => new GameDate(1, Season.Spring, Calendar.DaysPerSeason + 1, 0));
@@ -71,7 +71,7 @@ public sealed class GameDateTests
     /// 性能予算の根拠になる tick 数をここで固定する。
     /// </summary>
     [Fact]
-    public void 検証地平は三万六千日で八十六万四千tickである()
+    public void VerificationHorizonIs36000Days()
     {
         const int horizonDays = 36_000;
 

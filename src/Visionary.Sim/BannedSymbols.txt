@@ -13,9 +13,9 @@ T:System.MathF;決定論(ADR-0002): 浮動小数点の数学関数は使わな�
 
 # --- 丸め ---
 # GDD01 §2.3「全計算式の結果は小数点以下切り上げ」。除算は必ず整数の切り上げヘルパーを通す。
-M:System.Math.Ceiling(System.Double);丸め(GDD01 §2.3): 整数の切り上げヘルパーを使う
-M:System.Math.Floor(System.Double);丸め(GDD01 §2.3): 切り捨てではなく切り上げが規約
-M:System.Math.Round(System.Double);丸め(GDD01 §2.3): 四捨五入ではなく切り上げが規約
+M:System.Math.Ceiling(System.Double);丸め(GDD01 §2.3): IntegerMath.CeilDiv / ApplyPermille を使う
+M:System.Math.Floor(System.Double);丸め(GDD01 §2.3): 切り捨てではなく切り上げ。IntegerMath.CeilDiv を使う
+M:System.Math.Round(System.Double);丸め(GDD01 §2.3): 四捨五入ではなく切り上げ。IntegerMath.CeilDiv を使う
 
 # --- 乱数 ---
 # ADR-0002: マスターシードから系統別ストリームを派生する。系統をまたいだ借用は
@@ -30,6 +30,16 @@ T:System.TimeSpan;決定論(ADR-0002): 期間は tick 数(long)で表す
 T:System.Guid;決定論(ADR-0002): Id はシムが決定的に採番する
 P:System.Environment.TickCount;決定論(ADR-0002): 実時間はシムの関心事ではない
 
+# --- 非決定的なハッシュ ---
+# TDD01 §3.8: 状態ハッシュの入力は int/long のみ。string を入れない。
+# .NET Core の string.GetHashCode() と System.HashCode はプロセス起動ごとに
+# ランダム化されたシードを使うため、別プロセス間で値が一致しない。
+# 実測(2026-08-28): 明示呼び出しは捕まる。record struct の == や
+# Dictionary のキー利用、override 宣言は捕まらないため、これらは壊れない。
+M:System.Object.GetHashCode;決定論(TDD01 §3.8): プロセス間で不安定。状態ハッシュは XxHash64 に int/long のみを入れる
+M:System.String.GetHashCode;決定論(TDD01 §3.8): 文字列ハッシュはプロセスごとにランダム化される
+T:System.HashCode;決定論(TDD01 §3.8): シードがランダム化される。XxHash64 を使う
+
 # --- 並列実行 ---
 # 並列化は列挙順・浮動小数点の畳み込み順を非決定的にする。
 T:System.Threading.Tasks.Parallel;決定論(ADR-0002): シムは逐次実行。NPC の処理順は Id 昇順
@@ -40,4 +50,20 @@ T:System.Linq.ParallelEnumerable;決定論(ADR-0002): シムは逐次実行。NP
 #   捕まる  : new Random() / DateTime.Now / Guid.NewGuid() / Math.Ceiling(x) / double.Parse(s)
 #   捕まらない: double _field; / float Foo(float x) / var x = a / 3.0;
 # 宣言側(状態・シグネチャ・ローカル変数)は DeterminismConventionTests が
-# リフレクションで押さえる。両方があって初めて ADR-0002 の規約が閉じる。
+# リフレクションで押さえる。
+#
+# 銘柄は「シグネチャ単位」で照合される。上の Math 3件は double 1引数版だけを
+# 塞いでおり、以下は実測で素通りする(2026-08-28 検証):
+#   (int)Math.Sqrt(n) / (int)Math.Round(x, 2) / Environment.TickCount64
+# System.Half / Stopwatch / DateOnly / TimeOnly も未登録。
+#
+# ADR-0002 の規約のうち、機械化できているのは3つ(浮動小数点の型・System.Random・
+# 列挙順が不定なコレクション)だけである。以下は機械では守れていない:
+#   - 系統をまたいだ乱数の借用の禁止
+#   - 除算が「全式で」切り上げヘルパーを通ること。IntegerMath は用意したが、
+#     `/` 演算子自体は Tick.DayIndex などで正当に使うため禁止できない。
+#     個々の除算が切り上げ規約の対象かどうかは意味の問題であり、機械では判定できない
+#   - ‰係数の単位コメント必須
+#   - 状態ハッシュの回帰テスト(未実装)
+# ADR-0004 は「サブエージェントに委ねられる範囲は機械的ガードの範囲に依存する」と
+# しているため、ここを実態より広く書くと委譲の判断を誤らせる。
