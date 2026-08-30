@@ -28,7 +28,8 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 8.0.x
+          # SDK版は global.json が正。ここに版を書くと二重管理になる
+          global-json-file: global.json
 
       # ドキュメントのみの変更でも走るが、restore キャッシュにより数秒で終わる
       - name: Cache NuGet packages
@@ -71,7 +72,8 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 8.0.x
+          # SDK版は global.json が正。ここに版を書くと二重管理になる
+          global-json-file: global.json
 
       # 差分が出た場合は `dotnet format` をローカルで実行してコミットする
       - name: Verify formatting
