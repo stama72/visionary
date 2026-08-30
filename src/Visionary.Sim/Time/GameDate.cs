@@ -14,6 +14,12 @@ namespace Visionary.Sim.Time;
 /// <c>docs/03-gdd/03-seasons-and-city.md</c> §1.2 が持つ。エポックを動かすと
 /// 同一シードで生成される世界の中身がすべて変わるため、M0 の比較実験に影響する。
 /// </para>
+/// <para>
+/// <b>既定値(<c>default(GameDate)</c>)は不変条件を満たさない。</b>年は1始まりだが
+/// 既定値は 0 になり、コンストラクタの検証を迂回する。構造体である以上これは塞げないため、
+/// 対処せずに「<see cref="FromTick"/> 以外で作らない」規律で運用する。
+/// この型をシムの状態として持たない方針(TDD01 §3.2)が守られる限り、既定値が生まれる経路は無い。
+/// </para>
 /// </remarks>
 public readonly record struct GameDate
 {
