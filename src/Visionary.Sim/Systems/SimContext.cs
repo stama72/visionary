@@ -40,7 +40,7 @@ public sealed class SimContext
     internal SimContext(RandomSource random) => _random = random;
 
     /// <summary>スケジューラが進める現在tick。</summary>
-    public Tick Now { get; internal set; }
+    public Tick Now { get; private set; }
 
     /// <summary>スケジューラが Step の直前に設定する、今実行中のシステムの系統。</summary>
     internal RandomStream CurrentStream { get; set; }

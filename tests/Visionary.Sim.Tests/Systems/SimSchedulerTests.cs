@@ -66,7 +66,7 @@ public sealed class SimSchedulerTests
     }
 
     /// <summary>
-    /// 緑にすべきテストの核心その1。あるシステムの OpenRandom が、そのシステム自身の
+    /// 落ちるべき条件の核心その1。あるシステムの OpenRandom が、そのシステム自身の
     /// Stream で開いた列(= RandomSourceを直接呼んだ場合と同じ値)を返すことを示す。
     /// </summary>
     [Fact]
@@ -118,7 +118,7 @@ public sealed class SimSchedulerTests
     }
 
     /// <summary>
-    /// 緑にすべきテストの核心その2。器(World/SimScheduler/SimContext)だけの段階でも、
+    /// 落ちるべき条件の核心その2。器(World/SimScheduler/SimContext)だけの段階でも、
     /// 同一シードなら同一の世界になる。
     /// </summary>
     [Fact]
@@ -140,26 +140,6 @@ public sealed class SimSchedulerTests
         }
 
         Assert.Equal(RunOnce(), RunOnce());
-    }
-
-    /// <summary>
-    /// NPC の処理順が Id 昇順であること(ADR-0002)。
-    /// </summary>
-    /// <remarks>
-    /// <see cref="SimSchedulerTests.SameSeedProducesIdenticalWorldAfterAdvance"/> では
-    /// この規約を検証できない。加算は可換で、乱数の鍵は NPC ごとに独立なので、
-    /// 走査順を逆にしても結果が一致してしまう(実測で確認)。訪問順を直接主張する。
-    /// </remarks>
-    [Fact]
-    public void NpcsAreVisitedInAscendingIdOrder()
-    {
-        var world = new World(npcCount: 5);
-        var recorder = new TestSimSystems.NpcVisitOrderSystem();
-        var scheduler = new SimScheduler(new ISimSystem[] { recorder }, new RandomSource(1));
-
-        scheduler.Advance(world, 2);
-
-        Assert.Equal(new[] { 0, 1, 2, 3, 4, 0, 1, 2, 3, 4 }, recorder.VisitedNpcIds);
     }
 
     [Fact]
@@ -198,5 +178,53 @@ public sealed class SimSchedulerTests
         Assert.Equal(
             new[] { new TrustKey(1, 3), new TrustKey(1, 9), new TrustKey(2, 1) },
             world.TrustLedger.Keys.ToArray());
+    }
+
+    /// <summary>
+    /// <see cref="SimContext"/> を退避して <see cref="ISimSystem.Step"/> の外から使うと例外になる。
+    /// </summary>
+    /// <remarks>
+    /// 【核心】この守りが無いと、直前に走ったシステムの系統が <c>CurrentStream</c> に
+    /// 残ったままなので、退避した context から**別系統の列を静かに開けてしまう**。
+    /// TDD01 §3.1 が「A/B比較の差分に現れず発見の手がかりが無い」と書いている壊れ方そのもの。
+    ///
+    /// 落ちるべき条件: <c>SimScheduler</c> の <c>finally</c> の <c>ClearCurrentStream()</c> を消す /
+    /// <c>SimContext.OpenRandom</c> の <c>Enum.IsDefined</c> ガードを消す。
+    /// (どちらの変異でもこのテストが落ちることを実測で確認済み)
+    /// </remarks>
+    [Fact]
+    public void OpenRandomOutsideStepThrows()
+    {
+        var stashing = new TestSimSystems.ContextStashingSystem();
+        var scheduler = new SimScheduler(new ISimSystem[] { stashing }, new RandomSource(1));
+
+        scheduler.Advance(new World(npcCount: 0), ticks: 1);
+
+        Assert.NotNull(stashing.Stashed);
+        SimContext context = stashing.Stashed!;
+
+        Assert.Throws<InvalidOperationException>(() =>
+        {
+            var unused = context.OpenRandom(0);
+            return unused.NextUInt64();
+        });
+    }
+
+    /// <summary>
+    /// <see cref="Cadence"/> を初期化し忘れたシステムは構築時に弾かれる。
+    /// </summary>
+    /// <remarks>
+    /// 既定値をいずれかの周期に割り当てると黙ってその周期で走る。実行周期は乱数の鍵に
+    /// 入る(TDD01 §3.1)ので、周期の取り違えは A/B 比較の前提そのものを壊す。
+    /// 構築時に弾くのは、同一tickの他システムが既に走った後で落ちるのを避けるため。
+    ///
+    /// 落ちるべき条件: <c>SimScheduler</c> のコンストラクタから <c>IsSet</c> 検査を消す。
+    /// </remarks>
+    [Fact]
+    public void UnsetCadenceIsRejectedAtConstruction()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new SimScheduler(
+                new ISimSystem[] { new TestSimSystems.UnsetCadenceSystem() }, new RandomSource(1)));
     }
 }

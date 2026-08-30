@@ -36,6 +36,18 @@ public sealed class SimScheduler
             }
         }
 
+        foreach (var system in systemsInPipelineOrder)
+        {
+            if (!system.Cadence.IsSet)
+            {
+                throw new ArgumentException(
+                    $"系統 {system.Stream} のシステムの Cadence が未設定。"
+                        + "EveryTick / Daily / Weekly のいずれかで明示的に構築すること。"
+                        + "実行周期は乱数の鍵に入る(TDD01 §3.1)ので、既定値で走らせてはならない。",
+                    nameof(systemsInPipelineOrder));
+            }
+        }
+
         // 防御的コピー。呼び出し側が List を渡していると、構築後に系統を重複追加して
         // 検証を素通りさせたり、順序を変えたりできてしまう。「登録順が仕様」(TDD01 §3.3)は
         // 構築時点で固定する。

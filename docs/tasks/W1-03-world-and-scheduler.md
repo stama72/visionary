@@ -5,7 +5,7 @@
 | 根拠     | [TDD01 §3.1〜3.3](../04-tdd/01-sim-core-and-m0.md) / [ADR-0002](../adr/0002-time-model-and-determinism.md) / [GDD03 §1.3](../03-gdd/03-seasons-and-city.md) |
 | ブランチ | `feat/world-and-scheduler`                                       |
 | worktree | `visionary/`(本体)                                              |
-| 状態     | レビュー対応済み                                                 |
+| 状態     | レビュー中                                                       |
 
 > **この文書は使い捨ての作業指示である。**実装完了時点で凍結し、以後の正はコードと TDD。
 
@@ -52,7 +52,9 @@ public interface ISimSystem
 }
 ```
 
-**`Stream` を持たせるのが要点。** システムの識別子を系統そのものにすることで、`SimContext` が「今動いているシステムの系統」しか開けなくなり、**系統をまたいだ乱数の借用が API として不可能になる**(ADR-0002 の規約を規律ではなく型で守る)。
+**`Stream` を持たせるのが要点。** システムの識別子を系統そのものにすることで、`SimContext` が「今動いているシステムの系統」しか開けなくなる。
+
+**ただし防げるのはアセンブリの外からだけである。**(当初「API として不可能になる」と書いたのは誤り) 実際のシステムは `Visionary.Sim` 内に置かれ、そこからは `internal` が素通しなので `CurrentStream` を書き換えれば借用できる。残る穴は TDD01 §3.1 の危険表に記録済み。
 
 ### `SimContext`(sealed class、`Visionary.Sim.Systems`)
 
@@ -109,7 +111,8 @@ public sealed class SimScheduler
 
 - `Advance` は1tickずつ進める。各tickで **登録順に** 全システムを見て、`Cadence.ShouldRunAt(now)` が真のものだけ `Step` する
 - **登録順が仕様**(TDD01 §3.3)。登録順ではなく明示順で固定する、という記述はこの「呼び出し側が §3.3 の順に並べた配列を渡す」ことを指す
-- `world.Now` は各tickの処理の**前**に更新する
+- **現在tickを処理してから `world.Now` を進める。**(当初「処理の**前**に更新する」と書いたのは誤り。先に進めるとエポック `Tick.Zero` が永久に処理されず、`Daily(hour: 0)` が春1日を飛ばす)
+  具体例で固定する: `Advance(3)` を `Tick.Zero` から呼ぶと、処理されるのは tick 0・1・2 で、終了時 `Now = 3`。tick 3 は次回の `Advance` で処理される
 - `ticks` が0以下なら `ArgumentOutOfRangeException`
 - 同じ `RandomStream` を持つシステムを2つ以上登録したら `ArgumentException`(系統の重複は共通乱数法を壊す)
 
@@ -147,7 +150,7 @@ public sealed class SimScheduler
 ## このタスクで特に効く規約
 
 - **NPC の処理順は Id 昇順で固定**(ADR-0002)。`Npcs` 配列を添字順に走査すれば満たされるが、後から `where`/`OrderBy` を挟むときは順序が保たれることを確認する
-- **系統をまたいで乱数を借用しない。** `SimContext` の API がこれを構造的に防ぐ設計になっているので、その設計を崩さない
+- **系統をまたいで乱数を借用しない。** `SimContext` がアセンブリ外からの借用を防ぐ設計になっているので、その設計を崩さない。アセンブリ内からは防げないため、ここはレビュー観点
 - 機械で捕まる規約(浮動小数点・`Dictionary`・`System.Random` など)はここに書かない
 
 ## 完了条件

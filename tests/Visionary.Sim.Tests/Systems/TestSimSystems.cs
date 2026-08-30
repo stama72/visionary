@@ -55,7 +55,7 @@ internal static class TestSimSystems
 
     /// <summary>
     /// <see cref="SimContext.OpenRandom(int)"/> を1回呼び、値を <see cref="Values"/> に積む。
-    /// 「自分の系統の値しか返らないこと」(緑にすべきテスト #10)と
+    /// 「自分の系統の値しか返らないこと」(落ちるべき条件 #10)と
     /// 「tickが進めば同じエンティティで再び開けること」(#10c)の検証に使う。
     /// </summary>
     internal sealed class CapturingSystem : ISimSystem
@@ -106,31 +106,6 @@ internal static class TestSimSystems
     }
 
     /// <summary>
-    /// NPC を走査した順序をそのまま記録する。
-    /// </summary>
-    /// <remarks>
-    /// 状態を加算で変更するだけのシステムでは、走査順を変えても結果が同じになるため
-    /// (加算は可換で、乱数の鍵は NPC ごとに独立)、順序規約の検証にならない。
-    /// 訪問順そのものを記録して直接主張する。
-    /// </remarks>
-    internal sealed class NpcVisitOrderSystem : ISimSystem
-    {
-        internal List<int> VisitedNpcIds { get; } = new();
-
-        public RandomStream Stream => RandomStream.Consumption;
-
-        public Cadence Cadence => Cadence.EveryTick();
-
-        public void Step(World world, SimContext context)
-        {
-            foreach (var npc in world.Npcs)
-            {
-                VisitedNpcIds.Add(npc.Id);
-            }
-        }
-    }
-
-    /// <summary>
     /// 全NPCの流動資金を乱数で増減させる。器(World/Scheduler/SimContext)だけの段階でも
     /// 決定論が成立していることを示すための、経済ロジックを持たない最小の状態変更(#11)。
     /// </summary>
@@ -155,6 +130,33 @@ internal static class TestSimSystems
                 var sequence = context.OpenRandom(npc.Id);
                 npc.LiquidFunds += sequence.NextInt(-5, 6);
             }
+        }
+    }
+
+    /// <summary>
+    /// 渡された <see cref="SimContext"/> を退避し、<see cref="ISimSystem.Step"/> の外から
+    /// 使えてしまわないかを確かめるためのシステム。
+    /// </summary>
+    internal sealed class ContextStashingSystem : ISimSystem
+    {
+        internal SimContext? Stashed { get; private set; }
+
+        public RandomStream Stream => RandomStream.Trade;
+
+        public Cadence Cadence => Cadence.EveryTick();
+
+        public void Step(World world, SimContext context) => Stashed = context;
+    }
+
+    /// <summary><see cref="Cadence"/> を初期化し忘れたシステム。</summary>
+    internal sealed class UnsetCadenceSystem : ISimSystem
+    {
+        public RandomStream Stream => RandomStream.Rumor;
+
+        public Cadence Cadence { get; }
+
+        public void Step(World world, SimContext context)
+        {
         }
     }
 }

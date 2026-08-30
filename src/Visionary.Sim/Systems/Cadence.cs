@@ -18,6 +18,9 @@ public readonly struct Cadence
         Weekly,
     }
 
+    /// <summary>明示的に構築されたか。<see cref="SimScheduler"/> が構築時に検査する。</summary>
+    internal bool IsSet => _kind != Kind.Unset;
+
     private readonly Kind _kind;
     private readonly int _hour;
     private readonly int _dayOfWeekIndex;
