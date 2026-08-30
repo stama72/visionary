@@ -7,7 +7,7 @@ namespace Visionary.Sim.Systems;
 /// </summary>
 public sealed class SimScheduler
 {
-    private readonly IReadOnlyList<ISimSystem> _systemsInPipelineOrder;
+    private readonly ISimSystem[] _systemsInPipelineOrder;
     private readonly SimContext _context;
 
     /// <summary>
@@ -36,7 +36,10 @@ public sealed class SimScheduler
             }
         }
 
-        _systemsInPipelineOrder = systemsInPipelineOrder;
+        // 防御的コピー。呼び出し側が List を渡していると、構築後に系統を重複追加して
+        // 検証を素通りさせたり、順序を変えたりできてしまう。「登録順が仕様」(TDD01 §3.3)は
+        // 構築時点で固定する。
+        _systemsInPipelineOrder = systemsInPipelineOrder.ToArray();
         _context = new SimContext(random);
     }
 
@@ -54,10 +57,11 @@ public sealed class SimScheduler
             throw new ArgumentOutOfRangeException(nameof(ticks), ticks, "進めるtick数は正の値。");
         }
 
+        // 現在tickを処理してから次へ進める。先に進めてから処理すると、エポック
+        // (1年 春1日 0時 = Tick.Zero)が永久に処理されず、Daily(hour: 0) のシステムが
+        // 春1日を飛ばして春2日から始まる。
         for (int i = 0; i < ticks; i++)
         {
-            // world.Now は各tickの処理の前に更新する(タスク仕様)。
-            world.Now = world.Now.AddHours(1);
             _context.AdvanceTo(world.Now);
 
             foreach (var system in _systemsInPipelineOrder)
@@ -68,8 +72,19 @@ public sealed class SimScheduler
                 }
 
                 _context.CurrentStream = system.Stream;
-                system.Step(world, _context);
+
+                try
+                {
+                    system.Step(world, _context);
+                }
+                finally
+                {
+                    // Step を抜けたら系統を無効値に戻す
+                    _context.ClearCurrentStream();
+                }
             }
+
+            world.Now = world.Now.AddHours(1);
         }
     }
 }

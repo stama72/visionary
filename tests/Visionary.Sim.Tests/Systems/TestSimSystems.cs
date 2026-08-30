@@ -106,6 +106,31 @@ internal static class TestSimSystems
     }
 
     /// <summary>
+    /// NPC を走査した順序をそのまま記録する。
+    /// </summary>
+    /// <remarks>
+    /// 状態を加算で変更するだけのシステムでは、走査順を変えても結果が同じになるため
+    /// (加算は可換で、乱数の鍵は NPC ごとに独立)、順序規約の検証にならない。
+    /// 訪問順そのものを記録して直接主張する。
+    /// </remarks>
+    internal sealed class NpcVisitOrderSystem : ISimSystem
+    {
+        internal List<int> VisitedNpcIds { get; } = new();
+
+        public RandomStream Stream => RandomStream.Consumption;
+
+        public Cadence Cadence => Cadence.EveryTick();
+
+        public void Step(World world, SimContext context)
+        {
+            foreach (var npc in world.Npcs)
+            {
+                VisitedNpcIds.Add(npc.Id);
+            }
+        }
+    }
+
+    /// <summary>
     /// 全NPCの流動資金を乱数で増減させる。器(World/Scheduler/SimContext)だけの段階でも
     /// 決定論が成立していることを示すための、経済ロジックを持たない最小の状態変更(#11)。
     /// </summary>

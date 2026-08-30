@@ -34,9 +34,10 @@ public sealed class SimSchedulerTests
 
         scheduler.Advance(world, ticks: 3);
 
-        // Advanceは世界のNowを各tickの処理の前に更新するので、Stepから見えるworld.Nowは
-        // 「これから処理するtick」自身であり、1つ前のtickではない。
-        Assert.Equal(new[] { new Tick(1), new Tick(2), new Tick(3) }, recorder.RunAtWorldNow);
+        // 現在tickを処理してから次へ進めるので、エポック(Tick.Zero = 1年 春1日 0時)から
+        // 処理が始まる。先に進めてから処理する実装では春1日が永久に飛ばされ、
+        // Daily(hour: 0) のシステムが春2日から始まってしまう。
+        Assert.Equal(new[] { Tick.Zero, new Tick(1), new Tick(2) }, recorder.RunAtWorldNow);
         Assert.Equal(recorder.RunAtWorldNow, recorder.RunAtContextNow);
         Assert.Equal(new Tick(3), world.Now);
     }
@@ -73,16 +74,21 @@ public sealed class SimSchedulerTests
     {
         const long seed = 999;
         var tradeSystem = new CapturingSystem(RandomStream.Trade, Cadence.EveryTick(), entityId: 1);
-        var trustSystem = new CapturingSystem(RandomStream.Trust, Cadence.EveryTick(), entityId: 2);
+        // 同じ entityId を与える。系統が違えば別の組なので、これは正当な使い方であり、
+        // かつ「系統が違えば別の値が返る」ことを最も鋭く示す形になる。
+        // entityId をずらすと、二重オープン検出のキーの誤りを見逃す。
+        var trustSystem = new CapturingSystem(RandomStream.Trust, Cadence.EveryTick(), entityId: 1);
         var scheduler = new SimScheduler(
             new ISimSystem[] { tradeSystem, trustSystem }, new RandomSource(seed));
         var world = new World(npcCount: 0);
 
         scheduler.Advance(world, ticks: 1);
 
-        var expectedTick = new Tick(1);
+        var expectedTick = Tick.Zero;
         ulong expectedTrade = new RandomSource(seed).Open(RandomStream.Trade, expectedTick, 1).NextUInt64();
-        ulong expectedTrust = new RandomSource(seed).Open(RandomStream.Trust, expectedTick, 2).NextUInt64();
+        ulong expectedTrust = new RandomSource(seed).Open(RandomStream.Trust, expectedTick, 1).NextUInt64();
+
+        Assert.NotEqual(expectedTrade, expectedTrust);
 
         Assert.Equal(expectedTrade, Assert.Single(tradeSystem.Values));
         Assert.Equal(expectedTrust, Assert.Single(trustSystem.Values));
@@ -134,6 +140,26 @@ public sealed class SimSchedulerTests
         }
 
         Assert.Equal(RunOnce(), RunOnce());
+    }
+
+    /// <summary>
+    /// NPC の処理順が Id 昇順であること(ADR-0002)。
+    /// </summary>
+    /// <remarks>
+    /// <see cref="SimSchedulerTests.SameSeedProducesIdenticalWorldAfterAdvance"/> では
+    /// この規約を検証できない。加算は可換で、乱数の鍵は NPC ごとに独立なので、
+    /// 走査順を逆にしても結果が一致してしまう(実測で確認)。訪問順を直接主張する。
+    /// </remarks>
+    [Fact]
+    public void NpcsAreVisitedInAscendingIdOrder()
+    {
+        var world = new World(npcCount: 5);
+        var recorder = new TestSimSystems.NpcVisitOrderSystem();
+        var scheduler = new SimScheduler(new ISimSystem[] { recorder }, new RandomSource(1));
+
+        scheduler.Advance(world, 2);
+
+        Assert.Equal(new[] { 0, 1, 2, 3, 4, 0, 1, 2, 3, 4 }, recorder.VisitedNpcIds);
     }
 
     [Fact]
