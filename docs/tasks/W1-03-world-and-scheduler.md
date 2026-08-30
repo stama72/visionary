@@ -113,9 +113,11 @@ public sealed class SimScheduler
 - `ticks` が0以下なら `ArgumentOutOfRangeException`
 - 同じ `RandomStream` を持つシステムを2つ以上登録したら `ArgumentException`(系統の重複は共通乱数法を壊す)
 
-## 緑にすべきテスト
+## 落ちるべき条件(テスト)
 
 **この節が完了条件そのもの。**
+
+> 当初は「緑にすべきテスト」という節名だった。通ることを目標に据えたために検出力の無いテストを生んだため、[書き方の規則](README.md#タスク仕様の書き方)とともに改めた。
 
 | #  | テスト                                              | 検証内容                                                              |
 | -- | --------------------------------------------------- | --------------------------------------------------------------------- |
@@ -150,7 +152,7 @@ public sealed class SimScheduler
 
 ## 完了条件
 
-- [ ] 「緑にすべきテスト」が全て緑
+- [ ] 「落ちるべき条件」のテストが全て緑
 - [ ] `dotnet build Visionary.sln -c Release` が警告0
 - [ ] `dotnet test Visionary.sln -c Release` が緑
 - [ ] `dotnet format Visionary.sln --verify-no-changes --severity warn` が通る

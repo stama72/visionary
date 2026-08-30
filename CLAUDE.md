@@ -53,4 +53,5 @@ dotnet format Visionary.sln               # CIのフォーマット検証を通�
 - 新しい規約を作るときは「**これは機械で守れるか**」を必ず問う。機械で守れない規約は、サブエージェントに任せられる範囲を狭める([ADR-0004](docs/adr/0004-ai-driven-development-workflow.md))
 - 同時に進めるタスクは1つ。状態は [docs/tasks/README.md](docs/tasks/README.md) の一覧が正
 - **どの変更も、開発者のレビューの前にレビュアーエージェントを必ず通す。** 例外を作らない([docs/tasks/README.md](docs/tasks/README.md) レビューの規律)
+- **タスク仕様のテスト節は「落ちるべき条件」を書く。** 目標は通すことではなく、壊したときに落ちること。書き方の規則は [docs/tasks/README.md](docs/tasks/README.md)「タスク仕様の書き方」
 - 数値(閾値・係数)は初期値であり調整対象。固定すべきは構造と依存関係
