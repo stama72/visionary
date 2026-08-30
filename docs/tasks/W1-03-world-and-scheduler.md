@@ -5,7 +5,7 @@
 | 根拠     | [TDD01 §3.1〜3.3](../04-tdd/01-sim-core-and-m0.md) / [ADR-0002](../adr/0002-time-model-and-determinism.md) / [GDD03 §1.3](../03-gdd/03-seasons-and-city.md) |
 | ブランチ | `feat/world-and-scheduler`                                       |
 | worktree | `visionary/`(本体)                                              |
-| 状態     | レビュー中                                                       |
+| 状態     | レビュー対応済み                                                 |
 
 > **この文書は使い捨ての作業指示である。**実装完了時点で凍結し、以後の正はコードと TDD。
 
@@ -68,7 +68,7 @@ public sealed class SimContext
 - `OpenRandom` は**現在実行中のシステムの `Stream`** で `RandomSource.Open` を呼ぶ。呼び出し側が系統を指定する口を作らない
 - 現在のシステムはスケジューラが `Step` の直前に設定する(`internal` なセッターでよい)
 - `Now` はスケジューラが進める現在tick
-- **同一tick内で同じ `entityId` に対して2度 `OpenRandom` を呼んだら `InvalidOperationException`。** 同じ組を2度開くと同じ値列が返るため(TDD01 §3.1「機械で守れていない残りの危険」)。tick が進むたびに記録をクリアする。記録は `SortedSet<int>` など列挙順が定まるコレクションで持つ
+- **同一tick内で同じ (系統, `entityId`) の組に対して2度 `OpenRandom` を呼んだら `InvalidOperationException`。**(当初「同じ `entityId`」と書いたのは誤り。系統が違えば別の組であり、日次フェーズは同一tickに複数システムが走る) 同じ組を2度開くと同じ値列が返るため(TDD01 §3.1「機械で守れていない残りの危険」)。tick が進むたびに記録をクリアする。記録は `SortedSet<int>` など列挙順が定まるコレクションで持つ
 - **`RandomSequence` を引数に渡すときは必ず `ref` を付ける。** 値コピーは元と独立に進み、同じ値が2度返る
 
 ### `World`(sealed class、`Visionary.Sim`)
@@ -154,4 +154,4 @@ public sealed class SimScheduler
 - [ ] `dotnet build Visionary.sln -c Release` が警告0
 - [ ] `dotnet test Visionary.sln -c Release` が緑
 - [ ] `dotnet format Visionary.sln --verify-no-changes --severity warn` が通る
-- [ ] レビュアーエージェントの指摘が解消済み
+- [X] レビュアーエージェントの指摘が解消済み

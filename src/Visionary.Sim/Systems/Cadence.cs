@@ -9,6 +9,10 @@ public readonly struct Cadence
 {
     private enum Kind
     {
+        // 0 は未設定を表す。既定値をいずれかの周期にすると、Cadence を初期化し忘れた
+        // システムが黙ってその周期で走る。実行時刻は乱数の鍵に入る(TDD01 §3.1)ので、
+        // 周期の取り違えは A/B 比較の前提そのものを壊す。
+        Unset = 0,
         EveryTick,
         Daily,
         Weekly,
@@ -66,6 +70,9 @@ public readonly struct Cadence
         Kind.EveryTick => true,
         Kind.Daily => tick.HourOfDay == _hour,
         Kind.Weekly => tick.DayIndex % 7 == _dayOfWeekIndex && tick.HourOfDay == _hour,
+        Kind.Unset => throw new InvalidOperationException(
+            "Cadence が未設定。既定値の Cadence は使えない。"
+                + "EveryTick / Daily / Weekly のいずれかで明示的に構築すること。"),
         _ => throw new InvalidOperationException($"未知の Cadence.Kind: {_kind}"),
     };
 

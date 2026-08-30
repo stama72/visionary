@@ -118,4 +118,15 @@ public sealed class CadenceTests
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => Cadence.Weekly(dayOfWeekIndex, hour));
     }
+
+    /// <summary>
+    /// 既定値の <see cref="Cadence"/> は使えない。0 をいずれかの周期に割り当てると、
+    /// 初期化を忘れたシステムが黙ってその周期で走る。実行時刻は乱数の鍵に入る
+    /// (TDD01 §3.1)ため、周期の取り違えは A/B 比較の前提を壊す。
+    /// </summary>
+    [Fact]
+    public void DefaultCadenceIsRejected()
+    {
+        Assert.Throws<InvalidOperationException>(() => default(Cadence).ShouldRunAt(Tick.Zero));
+    }
 }
