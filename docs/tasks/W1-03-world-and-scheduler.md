@@ -68,6 +68,8 @@ public sealed class SimContext
 - `OpenRandom` は**現在実行中のシステムの `Stream`** で `RandomSource.Open` を呼ぶ。呼び出し側が系統を指定する口を作らない
 - 現在のシステムはスケジューラが `Step` の直前に設定する(`internal` なセッターでよい)
 - `Now` はスケジューラが進める現在tick
+- **同一tick内で同じ `entityId` に対して2度 `OpenRandom` を呼んだら `InvalidOperationException`。** 同じ組を2度開くと同じ値列が返るため(TDD01 §3.1「機械で守れていない残りの危険」)。tick が進むたびに記録をクリアする。記録は `SortedSet<int>` など列挙順が定まるコレクションで持つ
+- **`RandomSequence` を引数に渡すときは必ず `ref` を付ける。** 値コピーは元と独立に進み、同じ値が2度返る
 
 ### `World`(sealed class、`Visionary.Sim`)
 
@@ -127,6 +129,8 @@ public sealed class SimScheduler
 | 8  | `AdvanceRejectsNonPositiveTicks`                    | 0以下は例外                                                           |
 | 9  | `DuplicateRandomStreamIsRejected`                   | 同一系統の二重登録は例外                                              |
 | 10 | **`SystemReceivesOnlyItsOwnRandomStream`**          | あるシステムの `OpenRandom` が、そのシステムの `Stream` の列を返す     |
+| 10b | `DoubleOpenForSameEntityInSameTickThrows`          | 同一tick・同一エンティティの2度目の `OpenRandom` は例外                |
+| 10c | `OpenRandomIsAllowedAgainOnTheNextTick`            | tick が進めば同じエンティティで再び開ける                             |
 | 11 | `SameSeedProducesIdenticalWorldAfterAdvance`        | 同一シード2回実行で `Npcs` の内容が完全一致                           |
 | 12 | `NpcsAreIndexedByAscendingId`                       | `Npcs[i].Id == i`                                                     |
 | 13 | `WorldCollectionsAreDeterministicallyOrdered`       | `SortedDictionary` の列挙がキー昇順(`Dictionary` に差し替えたら落ちる) |
