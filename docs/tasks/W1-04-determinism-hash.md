@@ -80,7 +80,7 @@ public static class StateHasher
   >
   > よってテストは書ける(下の表 #13)。この誤りは `BannedSymbols.txt` 末尾の
   > 「機械で守れていない」一覧にも転記されており、そちらも直すこと
-  - **残る穴**: W1 の `World` には同じ要素型の可変長区画が隣接していないため、**この規約を落とせるテストは書けない**(下の「書けないテスト」を参照)。W2 で Actor 別の `Knowledge`(TDD01 §3.6 の仮決め表)が入り、区画が入れ子の可変長になった時点でテストを追加すること
+  - **残る穴**: テスト13 の検出力は **`MarketKey`+値 と `PriceObservation` の現在のバイト幅**(12バイト × 2 = 24バイト)に依存する。どちらかの型にフィールドが1つ増えた瞬間、2つの `World` は別のバイト列になり、**ヘッダを外してもテストは緑のまま通る**。TDD01 §3.6 の仮決め表は W2 での型の変更を予告しているので、これは現実に起きる。テスト13 に「この2つの型のフィールド数」を凍結する検査を同居させて、型が変わったらテスト13 自身が落ちるようにすること(下の表 #13)
 - **順序非依存の畳み込み(XOR・加算)を使ってはならない**(§3.8)。単一の `XxHash64` に前から順に `Append` する
 
 **走査順**:
@@ -201,7 +201,7 @@ vsim hash --seed <long> --ticks <int> [--npcs <int>]
 
 - `--seed` / `--ticks` は必須。`--npcs` の既定は **40**(TDD01 §3.6「NPC 30〜50体」の中央)
 - `--ticks` は 1 以上(`SimScheduler.Advance` が 0 以下を拒否する)。`--npcs` は **2 以上**(`SyntheticLoadSystem` が `rng.NextInt(0, Npcs.Length)` で相手 NPC を選ぶため、1体だと自分しか選べず `TrustLedger` が退化する)
-- 数値の解釈は `long.Parse(s, CultureInfo.InvariantCulture)`。`InvariantGlobalization` が有効なので実質不変だが明示する
+- 数値の解釈は `long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v)`。`InvariantGlobalization` が有効なので実質不変だが明示する。**`Parse` ではなく `TryParse` を使う** — 不正な引数は例外ではなく `PrintUsage()` + 終了コード64 で返す必要があるため
 - 不正な引数・未知のオプションは `PrintUsage()` して終了コード **64**(既存の `ExitUsage`)
 - 実行手順: `new World(npcs)` → `new RandomSource(seed)` → `new SimScheduler([load, decay], random)` → `Advance(world, ticks)` → `StateHasher.Compute(world)`
 - **合成システムを組み立てている箇所にコメントを置く。** `hash` は TDD01 §4.1 と CI に載る恒久的なコマンドだが、その中身は W1 限りの合成システムに依存している。W2 でそれを消す人が「TDD01 §3.3 の本物のシステム群を §3.3 の登録順で差し替える」と読み取れる必要がある。合成システム側のファイル冒頭の注記だけでは、削除の起点であるこの配線に届かない
@@ -253,9 +253,13 @@ vsim hash --seed <long> --ticks <int> [--npcs <int>]
 **テスト12 の実装上の注意。** `XxHash64`(seed 0)の**空入力のハッシュは `0xEF46DB3751D8E999` であり 0 ではない**(2026-09-04 実測)。したがって `Assert.NotEqual(0UL, hash)` では `Append` を呼ばない実装を捕まえられない — 当初この表はそう書いていたが誤りだった。空入力の値そのものと比較すること:
 
 ```csharp
-// XXH64(seed 0) の空入力のハッシュ。0 ではない(2026-09-04 実測)。
+// XXH64(seed 0) の空入力のハッシュ(実測値は 0xEF46DB3751D8E999。0 ではない)。
 // この値と一致するなら Compute は1バイトも Append していない。
-private const ulong XxHash64OfNoInput = 0xEF46DB3751D8E999UL;
+//
+// リテラルで書かず XxHash64 から導くこと。Assert.NotEqual(定数, hash) の形なので、
+// 定数を書き間違えるとテストは常に緑になり、「Append を全て消す」変異が素通りする
+// (真の空入力ハッシュは誤った定数と一致しないため)。
+private static readonly ulong XxHash64OfNoInput = new XxHash64().GetCurrentHashAsUInt64();
 ```
 
 **テスト13 の構成**(上の訂正註記の実測ペア。いずれも `npcCount: 0`、`Now = Tick.Zero`、他区画は空):
@@ -263,7 +267,9 @@ private const ulong XxHash64OfNoInput = 0xEF46DB3751D8E999UL;
 - A: `Market = { (ItemId:1, SellerId:2) -> 3, (ItemId:5, SellerId:0) -> 0 }`
 - B: `Knowledge = [ { ItemId:1, LocationId:2, Price:3, ObservedAt: new Tick(5), Source: Direct } ]`
 
-ヘッダ有りの現実装では当然異なるので今は緑で通り、ヘッダを外した瞬間に赤になる。**この2つの値の組は恣意的ではなく、バイト列が一致するよう選んである。** 変更するときは32バイトが一致することを再確認すること。
+ヘッダ有りの現実装では当然異なるので今は緑で通り、ヘッダを外した瞬間に赤になる。**この2つの値の組は恣意的ではなく、バイト列が一致するよう選んである。**
+
+**テスト13 には型の幅を凍結する検査を同居させる。** バイト列が一致するのは `MarketKey`(int×2)+ 値(int)= 12バイト × 2 と、`PriceObservation`(int×3 + `Tick` + enum)= 24バイト × 1 が釣り合っているからである。どちらかの型にフィールドが増えるとこの前提が崩れ、**ヘッダを外してもテストが緑のまま通る**(静かに空虚化する)。危険なのはテストを変更するときではなく**型を変更するとき**であり、そのときテスト側は何も変わらないので注意書きは読まれない。リフレクションで両型のフィールド数を検査し、変わったらこのテストが落ちるようにすること。失敗メッセージに「バイト幅の釣り合いが崩れた。テスト13 の World の組を選び直せ」と書く。
 
 ### 14. `World` の区画追加漏れを落とす(`tests/Visionary.Sim.Tests/Determinism/StateHasherCoverageTests.cs`)
 
@@ -271,7 +277,9 @@ private const ulong XxHash64OfNoInput = 0xEF46DB3751D8E999UL;
 | - | ------ | -------- | -------------------- | ---- |
 | 14 | `WorldSectionsAreFrozenSoNewOnesMustBeHashed` | `World` の公開区画の一覧が凍結されている | W2 で `World` に区画を足し、`StateHasher` の更新を忘れる。ハッシュに入らない状態が増え、2プロセス検証が静かに緩む(破れているのに緑になる)。**CI の3実行では見えない** | |
 
-既存の `DeterminismConventionTests` と同じくリフレクションで `World` の公開プロパティ名を列挙し、期待する一覧(`Now` / `Npcs` / `Market` / `TrustLedger` / `Needs` / `Promises` / `Knowledge` / `Ledgers` / `EventLog`)と突き合わせる。失敗メッセージに「`StateHasher` を更新したか、意図的な除外なら §3.8 の除外表とこの一覧を更新せよ」と書く。
+既存の `DeterminismConventionTests` と同じくリフレクションで `World` のメンバ名を列挙し、期待する一覧(`Now` / `Npcs` / `Market` / `TrustLedger` / `Needs` / `Promises` / `Knowledge` / `Ledgers` / `EventLog`)と突き合わせる。失敗メッセージに「`StateHasher` を更新したか、意図的な除外なら §3.8 の除外表とこの一覧を更新せよ」と書く。
+
+**束縛は `Public | NonPublic | Instance | Static` とし、プロパティとフィールドの両方を見る。** `public` インスタンスプロパティだけに絞ってはならない。`StateHasher` は `Visionary.Sim` 内にあるので `internal` な区画もハッシュでき、W2 の本物のシステム群も TDD01 §3.3 により同じアセンブリに置かれるため、「アセンブリ内でしか使わない区画を `internal` で足す」は現実的な書き方である。既存の `DeterminismConventionTests` はこの広さで束縛しており、そこだけ狭めると「同じ方式を踏襲した」という doc コメントが実態と食い違う。
 
 **残る穴**: 既存の型に**フィールドが増えた**場合(TDD01 §3.6 の仮決め表が `Need.TypeCode` の enum 化などを予告している)は、このテストでは落ちない。区画の増減しか見ていない。フィールド単位の凍結はリフレクションで書けるが、`record struct` の位置引数と `init` プロパティが混在しており誤検出が多くなるため W1 では採らない。**W2 で仮決めを確定させるときに再訪すること。**
 
@@ -318,7 +326,7 @@ private const ulong XxHash64OfNoInput = 0xEF46DB3751D8E999UL;
 ## 完了条件
 
 - [ ] 「落ちるべき条件」のテスト14件が全て緑
-- [ ] **テスト2・3・12 に変異を当てて落ちることを確認し、当てた変異と結果をコミットメッセージに残した**
+- [ ] **テスト2・3・12・13 に変異を当てて落ちることを確認し、当てた変異と結果をコミットメッセージに残した**
 - [ ] `dotnet build Visionary.sln -c Release` が警告0
 - [ ] `dotnet test Visionary.sln -c Release` が緑
 - [ ] `dotnet format Visionary.sln --verify-no-changes --severity warn` が通る
