@@ -275,13 +275,13 @@ private static readonly ulong XxHash64OfNoInput = new XxHash64().GetCurrentHashA
 
 | # | テスト | 検証内容 | この実装ミスで落ちる | 核心 |
 | - | ------ | -------- | -------------------- | ---- |
-| 14 | `WorldSectionsAreFrozenSoNewOnesMustBeHashed` | `World` の公開区画の一覧が凍結されている | W2 で `World` に区画を足し、`StateHasher` の更新を忘れる。ハッシュに入らない状態が増え、2プロセス検証が静かに緩む(破れているのに緑になる)。**CI の3実行では見えない** | |
+| 14 | `WorldSectionsAreFrozenSoNewOnesMustBeHashed` | `World` の区画(`internal`・フィールドを含む)の一覧が凍結されている | W2 で `World` に区画を足し、`StateHasher` の更新を忘れる。ハッシュに入らない状態が増え、2プロセス検証が静かに緩む(破れているのに緑になる)。**CI の3実行では見えない** | |
 
 既存の `DeterminismConventionTests` と同じくリフレクションで `World` のメンバ名を列挙し、期待する一覧(`Now` / `Npcs` / `Market` / `TrustLedger` / `Needs` / `Promises` / `Knowledge` / `Ledgers` / `EventLog`)と突き合わせる。失敗メッセージに「`StateHasher` を更新したか、意図的な除外なら §3.8 の除外表とこの一覧を更新せよ」と書く。
 
 **束縛は `Public | NonPublic | Instance | Static` とし、プロパティとフィールドの両方を見る。** `public` インスタンスプロパティだけに絞ってはならない。`StateHasher` は `Visionary.Sim` 内にあるので `internal` な区画もハッシュでき、W2 の本物のシステム群も TDD01 §3.3 により同じアセンブリに置かれるため、「アセンブリ内でしか使わない区画を `internal` で足す」は現実的な書き方である。既存の `DeterminismConventionTests` はこの広さで束縛しており、そこだけ狭めると「同じ方式を踏襲した」という doc コメントが実態と食い違う。
 
-**残る穴**: 既存の型に**フィールドが増えた**場合(TDD01 §3.6 の仮決め表が `Need.TypeCode` の enum 化などを予告している)は、このテストでは落ちない。区画の増減しか見ていない。フィールド単位の凍結はリフレクションで書けるが、`record struct` の位置引数と `init` プロパティが混在しており誤検出が多くなるため W1 では採らない。**W2 で仮決めを確定させるときに再訪すること。**
+**残る穴**: 既存の型に**フィールドが増えた**場合(TDD01 §3.6 の仮決め表が `Need.TypeCode` の enum 化などを予告している)は、このテストでは落ちない。区画の増減しか見ていない。フィールド単位の凍結はリフレクションで書けるが、W1 では範囲を絞って採らない。**却下理由に注意**: 「`record struct` の位置引数と `init` プロパティの混在」は理由にならない — テスト13 の `CountInstanceFields` がその混在を一様に数えて成立している。成り立つ理由は「フィールド**名**単位の凍結は生成名(`<ItemId>k__BackingField`)で誤検出を出す」ことであり、**数え上げベースなら書ける**。**W2 で仮決めを確定させるときに再訪すること。**
 
 **書けないテストとその理由**([docs/process/02-task-spec.md](../process/02-task-spec.md) 規則4「保証には残る穴も書く」):
 

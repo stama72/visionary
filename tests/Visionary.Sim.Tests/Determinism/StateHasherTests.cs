@@ -260,8 +260,16 @@ public sealed class StateHasherTests
     // MarketKey(int×2) + 値(int) = 12バイト × 2件 と PriceObservation(int×3 + Tick + enum) =
     // 24バイト × 1件 が釣り合うことで、下のテストの衝突ペア(A/B)が成立している。
     // どちらかの型にフィールドが増減すると釣り合いが崩れ、ヘッダを外しても
-    // このテストが緑のまま通ってしまう(静かに空虚化する)。型を変更したときに気づけるよう、
-    // 釣り合いの前提そのものをここで凍結する。
+    // このテストが緑のまま通ってしまう(静かに空虚化する)。それに気づけるよう
+    // 2型のフィールド「数」を凍結する。
+    //
+    // 凍結できているのは数だけである。以下は素通りするため、釣り合いが崩れても落ちない:
+    //   - World.Market の値型が int 以外になる(SortedDictionary<MarketKey, int> の int)。
+    //     Market エントリが12バイトを超えるが、MarketKey も PriceObservation も無傷
+    //   - フィールドの幅が変わる(int -> long、Tick の幅変更)。数は変わらない
+    // 幅で凍結するのが本来だが、シリアライズ幅は手書きなので managed な型サイズとは
+    // 一致せず、素直な検査にならない。W2 で Knowledge に観測者Id・所有者Idが入り
+    // (TDD01 §3.6)、この衝突ペアを選び直すときに併せて再訪すること。
     private const int ExpectedMarketKeyFieldCount = 2;
     private const int ExpectedPriceObservationFieldCount = 5;
 
