@@ -113,6 +113,11 @@ internal static class Program
 
         var world = new World((int)npcs);
         var random = new RandomSource(seed.Value);
+
+        // `hash` は TDD01 §4.1 と CI に載る恒久コマンドだが、中身は W1 限りの合成システムに
+        // 依存している。W2 で TDD01 §3.3 の本物のシステム群が揃ったら、ここを §3.3 の登録順で
+        // 差し替えること(合成システム側のファイル冒頭の注記だけでは、削除の起点であるこの配線に
+        // 気づけないため、ここにも書く)。
         var scheduler = new SimScheduler(
             new ISimSystem[] { new SyntheticLoadSystem(), new SyntheticDecaySystem() }, random);
 
@@ -126,8 +131,9 @@ internal static class Program
 
     /// <summary>
     /// <paramref name="args"/>[<paramref name="index"/> + 1] を消費して <see cref="long"/> として解釈する。
-    /// 値の解釈は <see cref="long.Parse(string, IFormatProvider?)"/> + <see cref="CultureInfo.InvariantCulture"/>
-    /// (仕様。<c>InvariantGlobalization</c> が有効なので実質不変だが明示する)。
+    /// <see cref="long.TryParse(string?, NumberStyles, IFormatProvider?, out long)"/> +
+    /// <see cref="CultureInfo.InvariantCulture"/> で解釈する(<c>InvariantGlobalization</c> が
+    /// 有効なので実質不変だが明示する)。
     /// </summary>
     private static bool TryParseLongArgument(string[] args, ref int index, out long value)
     {

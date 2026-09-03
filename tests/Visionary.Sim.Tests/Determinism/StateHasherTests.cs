@@ -8,10 +8,14 @@ namespace Visionary.Sim.Tests.Determinism;
 /// <summary>
 /// <see cref="StateHasher"/> の回帰テスト(TDD01 §3.8)。合成システム(<c>SyntheticLoadSystem</c> /
 /// <c>SyntheticDecaySystem</c>)は <c>Visionary.Sim.Runner</c> 側にあるため、
-/// ここでは触らず <see cref="World"/> を直接組み立てる(docs/tasks/W1-04-determinism-hash.md)。
+/// ここでは触らず <see cref="World"/> を直接組み立てる。
 /// </summary>
 public sealed class StateHasherTests
 {
+    // XXH64(seed 0) の空入力のハッシュ。0 ではない(2026-09-04 実測)。
+    // この値と一致するなら Compute は1バイトも Append していない(テスト12)。
+    private const ulong XxHash64OfNoInput = 0xEF46DB3751D8E999UL;
+
     [Fact]
     public void HashChangesWhenClockAdvances()
     {
@@ -203,6 +207,16 @@ public sealed class StateHasherTests
         Assert.NotEqual(before, after);
     }
 
+    /// <summary>
+    /// <see cref="StateHasher.Compute"/> が共有可変状態を持たないこと。
+    /// </summary>
+    /// <remarks>
+    /// 現在の実装形状(<c>XxHash64</c> インスタンスもバッファもすべてローカル変数)では
+    /// このテストは自明に緑である — 呼び出しごとに新しい状態から始まるので、共有状態を持たない
+    /// 実装で壊れようがない。検出力を持つのは、将来誰かが速度目的などで <c>hasher</c> や
+    /// <c>buffer</c> を <c>static</c> フィールドへ持ち出す**退行**が起きたときだけである。
+    /// それでもテストとして残すのは、退行が起きた瞬間に赤くするための安全網として安価だから。
+    /// </remarks>
     [Fact]
     public void HashIsStableWhenComputedTwiceOnTheSameWorld()
     {
@@ -215,16 +229,55 @@ public sealed class StateHasherTests
         Assert.Equal(first, second);
     }
 
-    /// <summary>【核心】Append を素通りして定数を返すと、テスト11(安定性)が常に緑になり空虚化する。</summary>
+    /// <summary>
+    /// 【核心】<c>Compute</c> が入力を1バイトも <c>Append</c> せずに返していないこと。
+    /// </summary>
+    /// <remarks>
+    /// <c>XxHash64</c>(seed 0)の空入力のハッシュは <see cref="XxHash64OfNoInput"/> であり
+    /// 0 ではない(2026-09-04 実測)。したがって <c>Assert.NotEqual(0UL, hash)</c> では
+    /// <c>Append</c> を一度も呼ばない実装を検出できない。空入力の値そのものと比較する。
+    /// </remarks>
     [Fact]
-    public void HashIsNotZeroForAPopulatedWorld()
+    public void HashOfAnEmptyWorldDiffersFromTheHashOfNoInput()
     {
-        var world = new World(npcCount: 3);
-        world.Npcs[0].LiquidFunds = 100;
-        world.Market[new MarketKey(0, 0)] = 5;
+        var world = new World(npcCount: 0);
 
         ulong hash = StateHasher.Compute(world);
 
-        Assert.NotEqual(0UL, hash);
+        Assert.NotEqual(XxHash64OfNoInput, hash);
+    }
+
+    /// <summary>
+    /// 【核心】区画タグ・要素数の前置(ヘッダ)が実際に効いていること。
+    /// </summary>
+    /// <remarks>
+    /// ヘッダを外すと、総バイト幅が一致する区画は要素型が違っても衝突しうる。
+    /// <c>Market</c> エントリは int×3 = 12バイト、<c>Knowledge</c> エントリは
+    /// int×3 + long + int = 24バイトなので、<c>Market</c> 2件と <c>Knowledge</c> 1件が
+    /// ちょうど32バイトで一致する。この2つの値の組は恣意的ではなく、ヘッダ無しでバイト列が
+    /// 一致するよう選んである(2026-09-04 実測)。変更するときは32バイトが一致することを
+    /// 再確認すること。
+    /// </remarks>
+    [Fact]
+    public void HashDistinguishesSectionsOfEqualTotalByteWidth()
+    {
+        var marketOnly = new World(npcCount: 0);
+        marketOnly.Market[new MarketKey(ItemId: 1, SellerId: 2)] = 3;
+        marketOnly.Market[new MarketKey(ItemId: 5, SellerId: 0)] = 0;
+
+        var knowledgeOnly = new World(npcCount: 0);
+        knowledgeOnly.Knowledge.Add(new PriceObservation
+        {
+            ItemId = 1,
+            LocationId = 2,
+            Price = 3,
+            ObservedAt = new Tick(5),
+            Source = ObservationSource.Direct,
+        });
+
+        ulong marketHash = StateHasher.Compute(marketOnly);
+        ulong knowledgeHash = StateHasher.Compute(knowledgeOnly);
+
+        Assert.NotEqual(marketHash, knowledgeHash);
     }
 }

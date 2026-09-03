@@ -272,7 +272,7 @@ W1 は器だけを作ったため、`World` の各区画の要素型は宣言の
 vsim run --config configs/m0-trust-ab.json --out results/2026-09-xx/
 vsim promise-table                # §2.8の式の感度表(B×L×謝罪日)を標準出力に表示
 vsim dialogue-sample --npc <id> --repeat 10   # 同一NPC10回会話の台詞出力(§6-3レビュー用)
-vsim hash --seed <n> --ticks <n> [--npcs <n>]   # 状態ハッシュを標準出力に1行(§3.8 の2プロセス検証用)
+vsim hash --seed <n> --ticks <n> [--npcs <n>]  # 状態ハッシュを標準出力に1行(§3.8 の2プロセス検証用。--npcs 既定40・2以上)
 ```
 
 同一シード集合でフラグだけ変えた2条件は、共通乱数法(ADR-0002)によりペア比較として扱える。

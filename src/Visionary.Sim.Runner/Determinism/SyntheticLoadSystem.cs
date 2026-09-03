@@ -4,7 +4,7 @@ using Visionary.Sim.Systems;
 namespace Visionary.Sim.Runner.Determinism;
 
 /// <summary>
-/// W1 限りの合成負荷(docs/tasks/W1-04-determinism-hash.md)。
+/// W1 限りの合成負荷(TDD01 §3.8 の決定論ハッシュ回帰テスト用)。
 /// W2 で TDD01 §3.3 の本物のシステム群に差し替え、このファイルは削除する。
 /// </summary>
 /// <remarks>

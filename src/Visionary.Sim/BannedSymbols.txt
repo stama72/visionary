@@ -66,9 +66,9 @@ T:System.Linq.ParallelEnumerable;決定論(ADR-0002): シムは逐次実行。NP
 #     許可リスト方式のアーキテクチャテストは形骸化するため採らず、
 #     レビュアー憲章に残すと決めた(.claude/agents/reviewer.md)
 #   - ‰係数の単位コメント必須
-#   - 状態ハッシュの回帰テスト(tests/Visionary.Sim.Tests/Determinism/StateHasherTests.cs で
-#     実装済み。ただし区画タグ・要素数の前置と、プロセス間の不一致はテストで捕まえられない。
-#     前者はW2で同型の可変長区画が隣接した時点で追加、後者は `vsim hash` + CIの2プロセス実行が
-#     唯一の検証手段。docs/tasks/W1-04-determinism-hash.md 参照)
+#   - 状態ハッシュの回帰テスト(tests/Visionary.Sim.Tests/Determinism/ で実装済み。
+#     区画タグ・要素数の前置もテストで捕まえられる — 総バイト幅が一致すれば要素型が違っても
+#     衝突しうるため。ただしプロセス間の不一致はテストで捕まえられない。
+#     `vsim hash` + CIの2プロセス実行が唯一の検証手段。TDD01 §3.8 参照)
 # ADR-0004 は「サブエージェントに委ねられる範囲は機械的ガードの範囲に依存する」と
 # しているため、ここを実態より広く書くと委譲の判断を誤らせる。
