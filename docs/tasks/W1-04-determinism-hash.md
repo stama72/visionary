@@ -47,7 +47,26 @@ public static class StateHasher
 - `int` は4バイト、`long` は8バイト、いずれも**リトルエンディアン固定**。`BinaryPrimitives.Write*LittleEndian` を使い、`BitConverter` は使わない(`BitConverter` は実行環境のエンディアンに従う)
 - `enum` は基になる `int` として書く
 - `Tick` は `Tick.Value`(`long`)として書く
-- **各区画の先頭に「区画タグ(int)」と「要素数(int)」を書く。** 区画タグは区画ごとに異なる定数。これが無いと、隣接する同型の可変長区画の境界が曖昧になり、片方が空でもう片方に要素がある2つの状態が同じバイト列になりうる
+- **各区画の先頭に「区画タグ(int)」と「要素数(int)」を書く。** これが無いと、隣接する同型の可変長区画の境界が曖昧になり、片方が空でもう片方に要素がある2つの状態が同じバイト列になりうる。区画タグは `StateHasher` に入れ子の `private enum` として置き、**固定値を明示する**:
+
+  ```csharp
+  // 値は仕様である。振り直してはならない(RandomStream と同じ理由)。
+  // 0 を使わないのは、既定値の Section が有効な区画に見えるのを避けるため。
+  // W2 で区画を追加するときは、既存の値を動かさずに末尾へ足す。
+  private enum Section
+  {
+      Clock       = 1,
+      Npcs        = 2,
+      Market      = 3,
+      TrustLedger = 4,
+      Needs       = 5,
+      Promises    = 6,
+      Knowledge   = 7,
+      Ledgers     = 8,
+  }
+  ```
+
+  連番をその場で振る書き方(`tag++`)は採らない。W2 で区画を途中に挿入すると以降のタグが全部ずれ、「タグは安定している」という読み手の期待を裏切る。ゴールデン値を固定しない方針(§3.8)なのでずれても壊れはしないが、壊れないことと誤解を招かないことは別である
   - **残る穴**: W1 の `World` には同じ要素型の可変長区画が隣接していないため、**この規約を落とせるテストは書けない**(下の「書けないテスト」を参照)。W2 で Actor 別の `Knowledge`(TDD01 §3.6 の仮決め表)が入り、区画が入れ子の可変長になった時点でテストを追加すること
 - **順序非依存の畳み込み(XOR・加算)を使ってはならない**(§3.8)。単一の `XxHash64` に前から順に `Append` する
 
@@ -80,9 +99,68 @@ internal sealed class SyntheticLoadSystem : ISimSystem
 1. `npc.LiquidFunds += rng.NextInt(-50, 51);` — 単位: 貨幣(int)
 2. `world.Market[new MarketKey(itemId: rng.NextInt(0, 5), sellerId: npc.Id)] = rng.NextInt(1, 101);` — 品目5種は TDD01 §3.6
 3. `world.TrustLedger[new TrustKey(npc.Id, rng.NextInt(0, world.Npcs.Length))] = new TrustScore { Value = rng.NextInt(0, 101), LastMet = world.Now };`
-4. `rng.NextBool(100)`(100‰ = 10%)が真なら `world.Needs` に1件、`world.Promises` に1件追加する。フィールドは `rng` から埋め、`Deadline` / `T0` / `T1` は `world.Now` からの相対で決める
-5. `rng.NextBool(200)`(200‰ = 20%)が真なら `world.Knowledge` に `PriceObservation` を1件、`world.Ledgers` に `LedgerEntry` を1件追加する
-6. `world.EventLog` に `DomainEvent` を1件追加する — **ハッシュに入らない区画を実行時にも踏むため**に必ず追加する
+4. `rng.NextBool(100)`(100‰ = 10%)が真なら、`world.Needs` と `world.Promises` に1件ずつ追加する。**全フィールドを以下で埋める**:
+
+   ```csharp
+   world.Needs.Add(new Need
+   {
+       TypeCode     = rng.NextInt(0, 6),                 // W2 で enum 化(TDD01 §3.6 仮決め表)
+       TargetNpcId  = rng.NextInt(0, world.Npcs.Length),
+       ItemId       = rng.NextInt(0, 5),                 // 品目5種(TDD01 §3.6)
+       Quantity     = rng.NextInt(1, 11),                // 単位: 個
+       Deadline     = world.Now.AddDays(rng.NextInt(1, 8)),
+       Urgency      = rng.NextInt(0, 101),               // 単位: 0〜100 の素の整数(‰ ではない)
+       ReasonCode   = rng.NextInt(0, 4),
+   });
+
+   world.Promises.Add(new Promise
+   {
+       NeedIndex = world.Needs.Count - 1,                // W2 で Id 参照へ(TDD01 §3.6 仮決め表)
+       T0        = world.Now,
+       T1        = world.Now.AddDays(rng.NextInt(1, 8)),
+       B         = rng.NextInt(1, 1001),                 // 単位: 貨幣(GDD01 §2.8 の B)
+       State     = (PromiseState)rng.NextInt(0, 4),
+   });
+   ```
+
+5. `rng.NextBool(200)`(200‰ = 20%)が真なら、`world.Knowledge` と `world.Ledgers` に1件ずつ追加する:
+
+   ```csharp
+   world.Knowledge.Add(new PriceObservation
+   {
+       ItemId     = rng.NextInt(0, 5),
+       LocationId = rng.NextInt(0, 9),                   // 9区画(TDD01 §3.2)
+       Price      = rng.NextInt(1, 101),                 // 単位: 貨幣
+       ObservedAt = world.Now,
+       Source     = (ObservationSource)rng.NextInt(0, 2),
+   });
+
+   world.Ledgers.Add(new LedgerEntry
+   {
+       CounterpartyId = rng.NextInt(0, world.Npcs.Length),
+       ItemId         = rng.NextInt(0, 5),
+       Quantity       = rng.NextInt(1, 11),              // 単位: 個
+       UnitPrice      = rng.NextInt(1, 101),             // 単位: 貨幣
+       OccurredAt     = world.Now,
+       Terms          = (LedgerTerms)rng.NextInt(0, 2),
+       CreditDueAt    = world.Now.AddDays(rng.NextInt(1, 31)),
+   });
+   ```
+
+6. `world.EventLog` に `DomainEvent` を1件追加する — **ハッシュに入らない区画を実行時にも踏むため**に必ず追加する:
+
+   ```csharp
+   world.EventLog.Add(new DomainEvent
+   {
+       KindCode  = rng.NextInt(0, 6),                    // W2 で設計(TDD01 §3.6 仮決め表)
+       At        = world.Now,
+       SubjectId = npc.Id,
+       RelatedId = rng.NextInt(0, world.Npcs.Length),
+       Payload   = rng.NextInt(0, 1000),
+   });
+   ```
+
+**`rng` の消費回数は分岐によって変わる**(手順4・5 が確率で発火するため)。これは正しい。1つの `RandomSequence` から順に引いている限り決定的であり、「分岐の有無で消費回数を揃える」ような細工はしない。
 
 ### 4. `src/Visionary.Sim.Runner/Determinism/SyntheticDecaySystem.cs`
 
@@ -174,8 +252,15 @@ vsim hash --seed <long> --ticks <int> [--npcs <int>]
 - `src/Visionary.Sim/BannedSymbols.txt` の末尾コメント — 「機械では守れていない」一覧の「状態ハッシュの回帰テスト(**未実装**)」を実態に合わせる。この一覧は ADR-0004 の「委譲できる範囲は機械的ガードの範囲に依存する」判断の入力なので、実態より狭くも広くも書かない
 - `src/Visionary.Sim/Visionary.Sim.csproj` のコメント — 「現在の実行時依存: なし。予定: System.IO.Hashing」を実態に合わせる
 - `.github/workflows/ci.yml`
+- **`docs/04-tdd/01-sim-core-and-m0.md` §4.1 の CLI ブロックに `hash` を1行足す。この1行だけ。** 足す内容は以下で確定しており、文面を変えない:
 
-**TDD01 §3.8 は触らない。** 契約は確定済みであり、乖離を見つけたら実装せず設計セッションへ戻す。
+  ```
+  vsim hash --seed <n> --ticks <n> [--npcs <n>]   # 状態ハッシュを標準出力に1行(§3.8 の2プロセス検証用)
+  ```
+
+  §4.1 は M0 のCLI表面を持つ育てる文書である。ここに載せずにコマンドを足すと、仕様がコードにしか存在しない状態になる(CLAUDE.md「実装コメントやADRに仕様を溜めない」)
+
+**TDD01 の §4.1 以外は触らない。とくに §3.8 は触らない。** 契約は確定済みであり、乖離を見つけたら実装せず設計セッションへ戻す。
 
 ## このタスクで特に効く規約
 
