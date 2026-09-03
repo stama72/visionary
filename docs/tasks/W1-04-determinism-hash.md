@@ -67,6 +67,19 @@ public static class StateHasher
   ```
 
   連番をその場で振る書き方(`tag++`)は採らない。W2 で区画を途中に挿入すると以降のタグが全部ずれ、「タグは安定している」という読み手の期待を裏切る。ゴールデン値を固定しない方針(§3.8)なのでずれても壊れはしないが、壊れないことと誤解を招かないことは別である
+
+  > **【2026-09-04 訂正】この規約は当初「W1 ではテストで落とせない」と書いていた。誤りである。**
+  > 曖昧化が起きる条件を「同じ*要素型*の可変長区画が隣接するとき」と限定していたが、実際は
+  > **総バイト幅が一致すれば要素型が違っても衝突する**。`Market` エントリは int×3 = 12バイト、
+  > `Knowledge` エントリは int×3 + long + int = 24バイトなので、`Market` 2件と `Knowledge` 1件が
+  > ちょうど一致する。ヘッダを外した実装に対して、以下の2つの `World`(いずれも `npcCount: 0`、
+  > `Now = Tick.Zero`、他区画は空)は**同一の32バイト列**になることを実測で確認した:
+  >
+  > - A: `Market = { (ItemId:1, SellerId:2) -> 3, (ItemId:5, SellerId:0) -> 0 }`
+  > - B: `Knowledge = [ { ItemId:1, LocationId:2, Price:3, ObservedAt: new Tick(5), Source: Direct } ]`
+  >
+  > よってテストは書ける(下の表 #13)。この誤りは `BannedSymbols.txt` 末尾の
+  > 「機械で守れていない」一覧にも転記されており、そちらも直すこと
   - **残る穴**: W1 の `World` には同じ要素型の可変長区画が隣接していないため、**この規約を落とせるテストは書けない**(下の「書けないテスト」を参照)。W2 で Actor 別の `Knowledge`(TDD01 §3.6 の仮決め表)が入り、区画が入れ子の可変長になった時点でテストを追加すること
 - **順序非依存の畳み込み(XOR・加算)を使ってはならない**(§3.8)。単一の `XxHash64` に前から順に `Append` する
 
@@ -191,6 +204,8 @@ vsim hash --seed <long> --ticks <int> [--npcs <int>]
 - 数値の解釈は `long.Parse(s, CultureInfo.InvariantCulture)`。`InvariantGlobalization` が有効なので実質不変だが明示する
 - 不正な引数・未知のオプションは `PrintUsage()` して終了コード **64**(既存の `ExitUsage`)
 - 実行手順: `new World(npcs)` → `new RandomSource(seed)` → `new SimScheduler([load, decay], random)` → `Advance(world, ticks)` → `StateHasher.Compute(world)`
+- **合成システムを組み立てている箇所にコメントを置く。** `hash` は TDD01 §4.1 と CI に載る恒久的なコマンドだが、その中身は W1 限りの合成システムに依存している。W2 でそれを消す人が「TDD01 §3.3 の本物のシステム群を §3.3 の登録順で差し替える」と読み取れる必要がある。合成システム側のファイル冒頭の注記だけでは、削除の起点であるこの配線に届かない
+- doc コメントに書く API 名は、実際に呼んでいるものと一致させる(`TryParse` を呼ぶなら `Parse` と書かない)
 - **stdout には16桁の大文字hex(`X16`)を1行だけ書く。** 診断情報を出す場合は stderr へ。CI がシェルで比較するため、stdout に他の文字を混ぜない
 - 使い方表示の「未実装」一覧から `hash` を外し、「実装済み」へ移す
 
@@ -231,32 +246,62 @@ vsim hash --seed <long> --ticks <int> [--npcs <int>]
 | 8 | `HashChangesWhenPromiseStateChanges` | `Promises` 区画が入力に入っている。かつ `enum` が基の int として書かれている | `Promise.State` を書き忘れる。`Active` と `Completed` が同じハッシュになる | |
 | 9 | `HashChangesWhenLedgerEntryIsAdded` | `Ledgers` 区画が入力に入っている | 同上(`Ledgers`) | |
 | 10 | `HashChangesWhenTrustScoreLastMetChanges` | `Tick` フィールドが `long` として書かれている | `TrustScore.LastMet` を書き忘れる。`Tick` を持つ他の型でも同じ落とし方をしていることの代表 | |
-| 11 | `HashIsStableWhenComputedTwiceOnTheSameWorld` | `Compute` が副作用を持たない | バッファや `XxHash64` インスタンスを静的に使い回して状態を残す。2回目以降が違う値になる | |
-| 12 | `HashIsNotZeroForAPopulatedWorld` | `Compute` が定数や既定値を返していない | `Append` を一切呼ばずに `GetCurrentHashAsUInt64()` を返す。テスト11 が常に緑になり空虚化する | **核心** |
+| 11 | `HashIsStableWhenComputedTwiceOnTheSameWorld` | `Compute` が共有可変状態を持たない | `XxHash64` インスタンスやバッファを `static` にして状態を残す。**現在の実装形状(すべてローカル)では自明に緑であり、検出力は将来の退行に対してのみ働く。** この点をテストの doc コメントに書くこと | |
+| 12 | `HashOfAnEmptyWorldDiffersFromTheHashOfNoInput` | `Compute` が入力を1バイトも書かずに返していない | `Append` を一切呼ばずに `GetCurrentHashAsUInt64()` を返す | **核心** |
+| 13 | `HashDistinguishesSectionsOfEqualTotalByteWidth` | 区画タグ・要素数の前置が実際に効いている | `WriteSectionHeader` を廃し、要素の本体だけを書く。`Market` 2件だけの World と `Knowledge` 1件だけの World が同じ値になる | **核心** |
+
+**テスト12 の実装上の注意。** `XxHash64`(seed 0)の**空入力のハッシュは `0xEF46DB3751D8E999` であり 0 ではない**(2026-09-04 実測)。したがって `Assert.NotEqual(0UL, hash)` では `Append` を呼ばない実装を捕まえられない — 当初この表はそう書いていたが誤りだった。空入力の値そのものと比較すること:
+
+```csharp
+// XXH64(seed 0) の空入力のハッシュ。0 ではない(2026-09-04 実測)。
+// この値と一致するなら Compute は1バイトも Append していない。
+private const ulong XxHash64OfNoInput = 0xEF46DB3751D8E999UL;
+```
+
+**テスト13 の構成**(上の訂正註記の実測ペア。いずれも `npcCount: 0`、`Now = Tick.Zero`、他区画は空):
+
+- A: `Market = { (ItemId:1, SellerId:2) -> 3, (ItemId:5, SellerId:0) -> 0 }`
+- B: `Knowledge = [ { ItemId:1, LocationId:2, Price:3, ObservedAt: new Tick(5), Source: Direct } ]`
+
+ヘッダ有りの現実装では当然異なるので今は緑で通り、ヘッダを外した瞬間に赤になる。**この2つの値の組は恣意的ではなく、バイト列が一致するよう選んである。** 変更するときは32バイトが一致することを再確認すること。
+
+### 14. `World` の区画追加漏れを落とす(`tests/Visionary.Sim.Tests/Determinism/StateHasherCoverageTests.cs`)
+
+| # | テスト | 検証内容 | この実装ミスで落ちる | 核心 |
+| - | ------ | -------- | -------------------- | ---- |
+| 14 | `WorldSectionsAreFrozenSoNewOnesMustBeHashed` | `World` の公開区画の一覧が凍結されている | W2 で `World` に区画を足し、`StateHasher` の更新を忘れる。ハッシュに入らない状態が増え、2プロセス検証が静かに緩む(破れているのに緑になる)。**CI の3実行では見えない** | |
+
+既存の `DeterminismConventionTests` と同じくリフレクションで `World` の公開プロパティ名を列挙し、期待する一覧(`Now` / `Npcs` / `Market` / `TrustLedger` / `Needs` / `Promises` / `Knowledge` / `Ledgers` / `EventLog`)と突き合わせる。失敗メッセージに「`StateHasher` を更新したか、意図的な除外なら §3.8 の除外表とこの一覧を更新せよ」と書く。
+
+**残る穴**: 既存の型に**フィールドが増えた**場合(TDD01 §3.6 の仮決め表が `Need.TypeCode` の enum 化などを予告している)は、このテストでは落ちない。区画の増減しか見ていない。フィールド単位の凍結はリフレクションで書けるが、`record struct` の位置引数と `init` プロパティが混在しており誤検出が多くなるため W1 では採らない。**W2 で仮決めを確定させるときに再訪すること。**
 
 **書けないテストとその理由**([docs/process/02-task-spec.md](../process/02-task-spec.md) 規則4「保証には残る穴も書く」):
 
-- **区画タグ・要素数の前置**を落とせるテストは W1 では書けない。前置が無くても曖昧になるのは「同じ要素型の可変長区画が隣接する」ときだけで、現在の `World` にその形が無いため、規約を破っても衝突する `World` の組を構成できない。W2 で Actor 別 `Knowledge` が入った時点でテストを追加すること
 - **プロセス間の不一致**はテストでは書かない(§3.8「同一プロセス内の2回では回帰テストとして無意味」)。CI ステップが唯一の検証手段である
+- **`SyntheticDecaySystem` が実際に発火したこと**は主張されない。`Daily(hour: 0)` なので `--ticks` が 24 未満だとこの経路は死ぬが、CI は 720 tick で回すため現在は成立している。死んでも CI は緑のままである点は穴として残る(`Cadence.Daily` 自体は W1-03 のテストが押さえているため実害は小さいと判断した)
 
 ### 変異テスト
 
-「核心」印のテスト2・3・12 について、実際に変異を当てて落ちることを確認し、**当てた変異と結果をコミットメッセージに残す**([docs/process/02-task-spec.md](../process/02-task-spec.md))。当てる変異の例:
+「核心」印のテスト2・3・12・13 について、実際に変異を当てて落ちることを確認し、**当てた変異と結果をコミットメッセージに残す**([docs/process/02-task-spec.md](../process/02-task-spec.md))。当てる変異の例:
 
 - テスト2 → `Npcs` の走査を単純加算の畳み込みに変える
 - テスト3 → `Knowledge` の走査前に `OrderBy(o => o.ItemId)` を挟む
-- テスト12 → `Compute` の本体を `return 0;` にする
+- テスト12 → `Compute` の `Append` 呼び出しを全て消し、`new XxHash64().GetCurrentHashAsUInt64()` を返す。**`return 0;` にする変異ではテスト12 を当てたことにならない** — それはテスト1〜10 も同時に落とすので、テスト12 固有の検出力を示さない
+- テスト13 → `WriteSectionHeader` の中身を空にする
 
 ## 編集してよい文書
 
 - `src/Visionary.Sim/BannedSymbols.txt` の末尾コメント — 「機械では守れていない」一覧の「状態ハッシュの回帰テスト(**未実装**)」を実態に合わせる。この一覧は ADR-0004 の「委譲できる範囲は機械的ガードの範囲に依存する」判断の入力なので、実態より狭くも広くも書かない
+  - **このファイルから本タスク仕様(`docs/tasks/W1-04-*.md`)へリンクしてはならない。** `BannedSymbols.txt` は永続する規約ファイルであるのに対し、タスク仕様は PR マージ時点で凍結する使い捨て文書である([docs/tasks/README.md](README.md)「タスク仕様の位置づけ」)。永続ファイルから凍結文書へ飛ばすと、W2 の読み手が「当時の指示」を現行仕様として読む経路ができる。参照先は **TDD01 §3.8**(育てる文書)にすること。同じ理由で `Synthetic*System.cs` の冒頭コメントの参照先も TDD01 §3.8 にする
 - `src/Visionary.Sim/Visionary.Sim.csproj` のコメント — 「現在の実行時依存: なし。予定: System.IO.Hashing」を実態に合わせる
 - `.github/workflows/ci.yml`
 - **`docs/04-tdd/01-sim-core-and-m0.md` §4.1 の CLI ブロックに `hash` を1行足す。この1行だけ。** 足す内容は以下で確定しており、文面を変えない:
 
   ```
-  vsim hash --seed <n> --ticks <n> [--npcs <n>]   # 状態ハッシュを標準出力に1行(§3.8 の2プロセス検証用)
+  vsim hash --seed <n> --ticks <n> [--npcs <n>]  # 状態ハッシュを標準出力に1行(§3.8 の2プロセス検証用。--npcs 既定40・2以上)
   ```
+
+  **既定値と下限を文面に入れているのは意図的である。** タスク仕様は PR マージ時点で凍結する使い捨て文書なので、既定値がここに無いと `Program.cs` にしか存在しなくなる(CLAUDE.md「実装コメントに仕様を溜めない」)
 
   §4.1 は M0 のCLI表面を持つ育てる文書である。ここに載せずにコマンドを足すと、仕様がコードにしか存在しない状態になる(CLAUDE.md「実装コメントやADRに仕様を溜めない」)
 
@@ -272,7 +317,7 @@ vsim hash --seed <long> --ticks <int> [--npcs <int>]
 
 ## 完了条件
 
-- [ ] 「落ちるべき条件」のテスト12件が全て緑
+- [ ] 「落ちるべき条件」のテスト14件が全て緑
 - [ ] **テスト2・3・12 に変異を当てて落ちることを確認し、当てた変異と結果をコミットメッセージに残した**
 - [ ] `dotnet build Visionary.sln -c Release` が警告0
 - [ ] `dotnet test Visionary.sln -c Release` が緑
