@@ -10,7 +10,7 @@ ADRの価値は決定そのものより、**却下した選択肢とその理由
 | 0002 | [シムの時間モデルと決定論・実験再現性の方式](0002-time-model-and-determinism.md)           | 承認 | 2026-08-25 |
 | 0003 | [暦の構造(1年 = 4季 × 30日)](0003-calendar-structure.md)                                  | 承認 | 2026-08-25 |
 | 0004 | [AIエージェントの役割分担と作業単位](0004-ai-driven-development-workflow.md)                     | 承認(憲章リストは 0005 で棄却) | 2026-08-27 |
-| 0005 | [レビュアーの守備範囲と憲章の所在](0005-reviewer-scope-includes-spec-defects.md)                 | **起案中** | 2026-08-31 |
+| 0005 | [レビュアーの守備範囲と憲章の所在](0005-reviewer-scope-includes-spec-defects.md)                 | 承認 | 2026-08-31 |
 
 ## 運用ルール
 
