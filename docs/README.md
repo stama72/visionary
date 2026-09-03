@@ -23,7 +23,7 @@
 
 - 文書は Markdown で管理し、Git で変更履歴を残す
 - 大きな技術的決定は必ず ADR に「背景・選択肢・決定・理由」を記録する
-- `.claude/agents/` と `.claude/commands/` は**実行される仕様**である。ハーネスが読んで動くため、それ自体が正であり本文を docs に複製しない([process/README.md](process/README.md))
-- GDD/TDD は「育てる文書」。マイルストーンごとに実態と乖離していないか見直す
+- `.claude/agents/` と `.claude/commands/` は**実行される仕様**であり、それ自体が正。本文を docs に複製しない([process/README.md](process/README.md#実行される仕様という位置づけ))
+- GDD/TDD と [process/](process/) は「育てる文書」。マイルストーンごとに実態と乖離していないか見直す
 - 各マイルストーンの完了判定は 05 に定義した Exit Criteria で行う
-- 文書は**寿命**で三層に分かれる。ADR は覆るまで永続、GDD/TDD は育てる、タスク仕様は PR とともに終わる([ADR-0004](adr/0004-ai-driven-development-workflow.md))
+- 文書は**寿命**で三層に分かれる。ADR は覆るまで永続、GDD/TDD と process/ は育てる、タスク仕様は PR とともに終わる([ADR-0004](adr/0004-ai-driven-development-workflow.md))
