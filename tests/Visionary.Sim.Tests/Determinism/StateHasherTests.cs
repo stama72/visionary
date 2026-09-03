@@ -1,3 +1,5 @@
+using System.IO.Hashing;
+using System.Reflection;
 using Visionary.Sim.Determinism;
 using Visionary.Sim.Randomness;
 using Visionary.Sim.Systems;
@@ -12,9 +14,13 @@ namespace Visionary.Sim.Tests.Determinism;
 /// </summary>
 public sealed class StateHasherTests
 {
-    // XXH64(seed 0) の空入力のハッシュ。0 ではない(2026-09-04 実測)。
+    // XXH64(seed 0) の空入力のハッシュ(実測値は 0xEF46DB3751D8E999。0 ではない)。
     // この値と一致するなら Compute は1バイトも Append していない(テスト12)。
-    private const ulong XxHash64OfNoInput = 0xEF46DB3751D8E999UL;
+    //
+    // リテラルで書かず XxHash64 から導く。Assert.NotEqual(定数, hash) の形なので、
+    // 定数を書き間違えるとテストは常に緑になり、「Append を全て消す」変異が素通りする
+    // (真の空入力ハッシュは誤った定数と一致しないため)。
+    private static readonly ulong XxHash64OfNoInput = new XxHash64().GetCurrentHashAsUInt64();
 
     [Fact]
     public void HashChangesWhenClockAdvances()
@@ -214,8 +220,12 @@ public sealed class StateHasherTests
     /// 現在の実装形状(<c>XxHash64</c> インスタンスもバッファもすべてローカル変数)では
     /// このテストは自明に緑である — 呼び出しごとに新しい状態から始まるので、共有状態を持たない
     /// 実装で壊れようがない。検出力を持つのは、将来誰かが速度目的などで <c>hasher</c> や
-    /// <c>buffer</c> を <c>static</c> フィールドへ持ち出す**退行**が起きたときだけである。
-    /// それでもテストとして残すのは、退行が起きた瞬間に赤くするための安全網として安価だから。
+    /// <c>buffer</c> を <c>static</c> フィールドへ持ち出す退行が起きたときだけである。
+    /// <b>ただし、その退行はこのテスト固有の検出力ではない。</b>
+    /// 同じ退行は同一 World に2回 <c>Compute</c> する <see cref="HashIgnoresEventLog"/> も
+    /// 同時に壊す(1回目の <c>Append</c> が2回目に持ち越され、EventLog を足していないのに
+    /// ハッシュが変わって見える)。このテストは「安価な重複した安全網」であり、
+    /// 「これが無いと検出できない壊れ方」を持つわけではない。
     /// </remarks>
     [Fact]
     public void HashIsStableWhenComputedTwiceOnTheSameWorld()
@@ -247,6 +257,17 @@ public sealed class StateHasherTests
         Assert.NotEqual(XxHash64OfNoInput, hash);
     }
 
+    // MarketKey(int×2) + 値(int) = 12バイト × 2件 と PriceObservation(int×3 + Tick + enum) =
+    // 24バイト × 1件 が釣り合うことで、下のテストの衝突ペア(A/B)が成立している。
+    // どちらかの型にフィールドが増減すると釣り合いが崩れ、ヘッダを外しても
+    // このテストが緑のまま通ってしまう(静かに空虚化する)。型を変更したときに気づけるよう、
+    // 釣り合いの前提そのものをここで凍結する。
+    private const int ExpectedMarketKeyFieldCount = 2;
+    private const int ExpectedPriceObservationFieldCount = 5;
+
+    private static int CountInstanceFields(Type type) =>
+        type.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance).Length;
+
     /// <summary>
     /// 【核心】区画タグ・要素数の前置(ヘッダ)が実際に効いていること。
     /// </summary>
@@ -255,12 +276,26 @@ public sealed class StateHasherTests
     /// <c>Market</c> エントリは int×3 = 12バイト、<c>Knowledge</c> エントリは
     /// int×3 + long + int = 24バイトなので、<c>Market</c> 2件と <c>Knowledge</c> 1件が
     /// ちょうど32バイトで一致する。この2つの値の組は恣意的ではなく、ヘッダ無しでバイト列が
-    /// 一致するよう選んである(2026-09-04 実測)。変更するときは32バイトが一致することを
-    /// 再確認すること。
+    /// 一致するよう選んである(2026-09-04 実測)。
+    /// <b>危険なのはこのテストを変更するときではなく、<see cref="MarketKey"/> /
+    /// <see cref="PriceObservation"/> を変更するときである。</b>
+    /// そのときテスト自体は書き換わらないため、上のコメントは読まれない。だから
+    /// フィールド数を機械的に凍結し、型が変わったらこのテスト自身が落ちるようにしてある。
     /// </remarks>
     [Fact]
     public void HashDistinguishesSectionsOfEqualTotalByteWidth()
     {
+        int marketKeyFieldCount = CountInstanceFields(typeof(MarketKey));
+        int priceObservationFieldCount = CountInstanceFields(typeof(PriceObservation));
+
+        Assert.True(
+            marketKeyFieldCount == ExpectedMarketKeyFieldCount
+                && priceObservationFieldCount == ExpectedPriceObservationFieldCount,
+            "バイト幅の釣り合いが崩れた。テスト13 の World の組を選び直せ。"
+                + $" MarketKey フィールド数={marketKeyFieldCount}(期待{ExpectedMarketKeyFieldCount}),"
+                + $" PriceObservation フィールド数={priceObservationFieldCount}"
+                + $"(期待{ExpectedPriceObservationFieldCount})");
+
         var marketOnly = new World(npcCount: 0);
         marketOnly.Market[new MarketKey(ItemId: 1, SellerId: 2)] = 3;
         marketOnly.Market[new MarketKey(ItemId: 5, SellerId: 0)] = 0;
