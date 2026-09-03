@@ -8,14 +8,18 @@
     Microsoft 公式の小規模パッケージは決定論の検証などに必要なら例外とする。
     ただし追加時は、なぜ標準ライブラリで足りないかを必ずここにコメントで書くこと。
 
-    現在の実行時依存: なし。
-    予定: System.IO.Hashing(XxHash64)。状態ハッシュに使う(TDD01 §3.8)。
+    現在の実行時依存: System.IO.Hashing(XxHash64)。状態ハッシュに使う(TDD01 §3.8)。
       標準の System.HashCode / string.GetHashCode はプロセスごとにシードが
-      ランダム化され、別プロセス間で値が一致しないため代用できない。W1 で追加する。
+      ランダム化され、別プロセス間で値が一致しないため代用できない。
+      版は 8.0.0 に固定する。TFM(net8.0)と global.json の SDK 8.0.424 に帯を揃える。
   -->
   <PropertyGroup>
     <RootNamespace>Visionary.Sim</RootNamespace>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.IO.Hashing" Version="8.0.0" />
+  </ItemGroup>
 
   <!--
     ADR-0002 の決定論規約を、CLAUDE.md の散文ではなくビルドエラーとして強制する。
