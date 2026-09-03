@@ -238,7 +238,7 @@ vsim hash --seed <long> --ticks <int> [--npcs <int>]
 | - | ------ | -------- | -------------------- | ---- |
 | 1 | `HashChangesWhenClockAdvances` | `Now` が入力に含まれる | `Now` を書き忘れる。「同じ状態に違う時刻で到達した」が検出できなくなる(§3.8 が `Clock` を含める理由そのもの) | |
 | 2 | `HashChangesWhenTwoNpcsSwapTheirFunds` | `Npcs` の走査が順序依存 | 順序非依存の畳み込み(XOR・加算)にする。NPC#3 と NPC#5 の `LiquidFunds` を入れ替えても同じ値になり、Id 昇順規約の破れが検出できなくなる | **核心** |
-| 3 | `HashChangesWhenKnowledgeListIsPermuted` | `List` 区画の格納順が状態の一部 | 走査前に `OrderBy` などで正規化する。W2 の Rumor(§3.3-9)の列挙順の破れが検出範囲の外に出る | **核心** |
+| 3 | `HashChangesWhenKnowledgeListIsPermuted` | `Knowledge` の格納順が状態の一部(`Needs` / `Promises` / `Ledgers` は被覆しない) | 走査前に `OrderBy` などで正規化する。W2 の Rumor(§3.3-9)の列挙順の破れが検出範囲の外に出る | **核心** |
 | 4 | `HashIgnoresEventLog` | `EventLog` が入力から除外されている | `EventLog` を含める。§3.8 の除外表に反し、追記専用で巨大な列を毎回走ることになる | |
 | 5 | `HashChangesWhenMarketPriceChanges` | `Market` 区画が実際に入力に入っている | `Market` の書き込みを丸ごと落とす。W2 の価格形成の破れを検出できなくなる | |
 | 6 | `HashChangesWhenTrustScoreChanges` | `TrustLedger` 区画が入力に入っている | 同上(`TrustLedger`) | |

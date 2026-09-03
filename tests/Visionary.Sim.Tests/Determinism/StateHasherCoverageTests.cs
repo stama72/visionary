@@ -12,7 +12,12 @@ namespace Visionary.Sim.Tests.Determinism;
 /// W2 で <see cref="World"/> に区画が増えても、<c>StateHasher.Compute</c> の更新を忘れれば
 /// ビルドもテストもコンパイルは通り、2プロセス検証(CI の3回実行)も緑のまま進む —
 /// 新しい区画がハッシュに入らないだけで「一致する」ことに変わりはないため。
-/// この静かな緩みを検出するのがこのテストの役目。
+/// その緩みに気づく機会を作るのがこのテストの役目である。
+/// </para>
+/// <para>
+/// <b>ただし検出しているのは「区画の一覧が変わったこと」だけで、<c>StateHasher</c> が
+/// 追随したことは見ていない。</b>下の期待一覧だけを更新して <c>Compute</c> を触らなければ
+/// このテストは緑になる。ハッシャ本体の追随は人が確認すること。
 /// </para>
 /// <para>
 /// <see cref="Architecture.DeterminismConventionTests"/> と同じ束縛(<c>Public | NonPublic |

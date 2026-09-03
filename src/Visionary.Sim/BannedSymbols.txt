@@ -81,7 +81,12 @@ T:System.Linq.ParallelEnumerable;決定論(ADR-0002): シムは逐次実行。NP
 #
 # 逆に、状態ハッシュ(TDD01 §3.8)まわりで機械化できたものは以下。
 # tests/Visionary.Sim.Tests/Determinism/ が押さえる:
+#   - Clock が入力に入っていること
 #   - Npcs の走査が順序依存であること(順序非依存の畳み込みへの退行)
+#   - 各区画(Market / TrustLedger / Needs / Promises / Knowledge / Ledgers)が
+#     入力に入っていること。enum が int として、Tick が long として書かれていること
+#   - EventLog が入力から除外されていること
+#   - Compute が1バイトも Append しない実装でないこと
 #   - Knowledge の格納順が状態の一部であること(走査前の正規化への退行)。
 #     Needs / Promises / Ledgers に同じ退行が入っても落ちない
 #   - 区画タグ・要素数の前置が効いていること
