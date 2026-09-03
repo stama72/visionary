@@ -243,9 +243,9 @@ vsim hash --seed <long> --ticks <int> [--npcs <int>]
 | 5 | `HashChangesWhenMarketPriceChanges` | `Market` 区画が実際に入力に入っている | `Market` の書き込みを丸ごと落とす。W2 の価格形成の破れを検出できなくなる | |
 | 6 | `HashChangesWhenTrustScoreChanges` | `TrustLedger` 区画が入力に入っている | 同上(`TrustLedger`) | |
 | 7 | `HashChangesWhenNeedIsAdded` | `Needs` 区画が入力に入っている | 同上(`Needs`) | |
-| 8 | `HashChangesWhenPromiseStateChanges` | `Promises` 区画が入力に入っている。かつ `enum` が基の int として書かれている | `Promise.State` を書き忘れる。`Active` と `Completed` が同じハッシュになる | |
+| 8 | `HashChangesWhenPromiseStateChanges` | `Promises` 区画と `enum` フィールドが入力に入っている | `Promise.State` を書き忘れる。`Active` と `Completed` が同じハッシュになる。**幅は主張しない** — `(long)promise.State` に変えても緑のまま(2026-09-04 実測) | |
 | 9 | `HashChangesWhenLedgerEntryIsAdded` | `Ledgers` 区画が入力に入っている | 同上(`Ledgers`) | |
-| 10 | `HashChangesWhenTrustScoreLastMetChanges` | `Tick` フィールドが `long` として書かれている | `TrustScore.LastMet` を書き忘れる。`Tick` を持つ他の型でも同じ落とし方をしていることの代表 | |
+| 10 | `HashChangesWhenTrustScoreLastMetChanges` | `Tick` フィールドが入力に入っている | `TrustScore.LastMet` を書き忘れる。`Tick` を持つ他の型でも同じ落とし方をしていることの代表。**幅は主張しない** — 下位32bitだけ書く実装でも、テストが使う `Tick.Zero` と `Tick(5)` は下位で既に違うので緑のまま | |
 | 11 | `HashIsStableWhenComputedTwiceOnTheSameWorld` | `Compute` が共有可変状態を持たない | `XxHash64` インスタンスやバッファを `static` にして状態を残す。**現在の実装形状(すべてローカル)では自明に緑であり、検出力は将来の退行に対してのみ働く。** この点をテストの doc コメントに書くこと | |
 | 12 | `HashOfAnEmptyWorldDiffersFromTheHashOfNoInput` | `Compute` が入力を1バイトも書かずに返していない | `Append` を一切呼ばずに `GetCurrentHashAsUInt64()` を返す | **核心** |
 | 13 | `HashDistinguishesSectionsOfEqualTotalByteWidth` | 区画タグ・要素数の前置が実際に効いている | `WriteSectionHeader` を廃し、要素の本体だけを書く。`Market` 2件だけの World と `Knowledge` 1件だけの World が同じ値になる | **核心** |
@@ -275,7 +275,7 @@ private static readonly ulong XxHash64OfNoInput = new XxHash64().GetCurrentHashA
 
 | # | テスト | 検証内容 | この実装ミスで落ちる | 核心 |
 | - | ------ | -------- | -------------------- | ---- |
-| 14 | `WorldSectionsAreFrozenSoNewOnesMustBeHashed` | `World` の区画(`internal`・フィールドを含む)の一覧が凍結されている | W2 で `World` に区画を足し、`StateHasher` の更新を忘れる。ハッシュに入らない状態が増え、2プロセス検証が静かに緩む(破れているのに緑になる)。**CI の3実行では見えない** | |
+| 14 | `WorldSectionsAreFrozenSoNewOnesMustBeHashed` | `World` の区画(`internal`・フィールドを含む)の一覧が凍結されている | W2 で `World` に区画を足す。落ちる原因はこれだけで、**`StateHasher` の更新を忘れたことは落ちる理由ではない**(期待一覧だけ更新すれば緑になる)。区画が増えたのにハッシュに入らないと2プロセス検証が静かに緩む — **CI の3実行では見えない** | |
 
 既存の `DeterminismConventionTests` と同じくリフレクションで `World` のメンバ名を列挙し、期待する一覧(`Now` / `Npcs` / `Market` / `TrustLedger` / `Needs` / `Promises` / `Knowledge` / `Ledgers` / `EventLog`)と突き合わせる。失敗メッセージに「`StateHasher` を更新したか、意図的な除外なら §3.8 の除外表とこの一覧を更新せよ」と書く。
 
