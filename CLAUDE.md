@@ -56,4 +56,5 @@ dotnet format Visionary.sln               # CIのフォーマット検証を通�
 - 同時に進めるタスクは1つ。状態は [docs/tasks/README.md](docs/tasks/README.md) の一覧が正
 - **どの変更も、開発者のレビューの前にレビュアーエージェントを必ず通す。** 例外を作らない([docs/process/01-review.md](docs/process/01-review.md))
 - **タスク仕様のテスト節は「落ちるべき条件」を書く。** 目標は通すことではなく、壊したときに落ちること。書き方の規則は [docs/process/02-task-spec.md](docs/process/02-task-spec.md)
+- **レビュー指摘を直すときは、追記ではなく上書きする。訂正前の語で grep して残存を確認する。** 同じ主張は仕様の表・散文・規約ファイル・docコメントの複数層に散っている。規則は [docs/process/03-corrections.md](docs/process/03-corrections.md)
 - 数値(閾値・係数)は初期値であり調整対象。固定すべきは構造と依存関係
