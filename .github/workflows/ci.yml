@@ -61,6 +61,21 @@ jobs:
           path: artifacts/test-results/
           retention-days: 14
 
+      - name: Determinism (cross-process state hash)
+        run: |
+          ARGS="hash --seed 20260904 --ticks 720 --npcs 40"
+          RUN="dotnet run --project src/Visionary.Sim.Runner -c Release --no-build --"
+          A=$($RUN $ARGS)
+          B=$($RUN $ARGS)
+          C=$($RUN hash --seed 20260905 --ticks 720 --npcs 40)
+          echo "same-seed run1=$A run2=$B / other-seed=$C"
+          if [ "$A" != "$B" ]; then
+            echo "::error::同一シードの状態ハッシュが別プロセス間で一致しない (TDD01 §3.8)"; exit 1
+          fi
+          if [ "$A" = "$C" ]; then
+            echo "::error::シードを変えても状態ハッシュが変わらない。ハッシュが状態を見ていない (TDD01 §3.8)"; exit 1
+          fi
+
   format:
     name: Format check
     runs-on: ubuntu-latest
