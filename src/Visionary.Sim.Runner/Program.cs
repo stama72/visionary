@@ -16,7 +16,7 @@ internal static class Program
     private const int ExitSuccess = 0;
     private const int ExitUsage = 64;
 
-    // NPC 30〜50体(TDD01 §3.6)の中央。
+    // 合成負荷の任意の値。M0 の規模は GDD02 §2.4(都市16世帯・NPC 約48体)。
     private const int DefaultNpcCount = 40;
 
     private static int Main(string[] args)

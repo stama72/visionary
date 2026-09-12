@@ -277,10 +277,10 @@ public sealed class StateHasherTests
         type.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance).Length;
 
     /// <summary>
-    /// 【核心】区画タグ・要素数の前置(ヘッダ)が実際に効いていること。
+    /// 【核心】区分タグ・要素数の前置(ヘッダ)が実際に効いていること。
     /// </summary>
     /// <remarks>
-    /// ヘッダを外すと、総バイト幅が一致する区画は要素型が違っても衝突しうる。
+    /// ヘッダを外すと、総バイト幅が一致する区分は要素型が違っても衝突しうる。
     /// <c>Market</c> エントリは int×3 = 12バイト、<c>Knowledge</c> エントリは
     /// int×3 + long + int = 24バイトなので、<c>Market</c> 2件と <c>Knowledge</c> 1件が
     /// ちょうど32バイトで一致する。この2つの値の組は恣意的ではなく、ヘッダ無しでバイト列が

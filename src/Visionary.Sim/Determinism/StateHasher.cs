@@ -17,9 +17,9 @@ namespace Visionary.Sim.Determinism;
 /// <see cref="BitConverter"/> は実行環境のエンディアンに従うため使わない。</description></item>
 /// <item><description><c>enum</c> は基になる <c>int</c> として書く。</description></item>
 /// <item><description><c>Tick</c> は <c>Tick.Value</c>(<c>long</c>)として書く。</description></item>
-/// <item><description>各区画の先頭に区画タグ(<see cref="Section"/>、int)と要素数(int)を書く。
-/// <see cref="Section.Clock"/> のようにスカラー1個しか持たない区画も要素数=1として同じ形式に
-/// 揃える。特例を作らないことで、区画ごとに違う読み方を覚えずに済む。</description></item>
+/// <item><description>各区分の先頭に区分タグ(<see cref="Section"/>、int)と要素数(int)を書く。
+/// <see cref="Section.Clock"/> のようにスカラー1個しか持たない区分も要素数=1として同じ形式に
+/// 揃える。特例を作らないことで、区分ごとに違う読み方を覚えずに済む。</description></item>
 /// <item><description><b>順序非依存の畳み込み(XOR・加算)は使わない。</b>単一の
 /// <see cref="XxHash64"/> インスタンスに前から順に <c>Append</c> する(§3.8)。</description></item>
 /// </list>
@@ -27,8 +27,9 @@ namespace Visionary.Sim.Determinism;
 public static class StateHasher
 {
     // 値は仕様である。振り直してはならない(RandomStream と同じ理由)。
-    // 0 を使わないのは、既定値の Section が有効な区画に見えるのを避けるため。
-    // W2 で区画を追加するときは、既存の値を動かさずに末尾へ足す。
+    // 0 を使わないのは、既定値の Section が有効な区分に見えるのを避けるため。
+    // W2 で区分を追加するときは、既存の値を動かさずに末尾へ足す(Households = 9)。
+    // 「区分」は World の内訳。都市の空間的な「区画」(GDD02 §4.3)とは別概念(TDD01 §3.2)。
     private enum Section
     {
         Clock = 1,
