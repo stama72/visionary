@@ -12,7 +12,7 @@
 | 02a   | [アイデンティティと販売戦略の検討](02a-identity-and-positioning.md) | 決定済み | 作品の本質定義と3戦略(経済シム寄り/ライフシム寄り/中間)の比較検討(事業視点)                |
 | 03    | [GDD(ゲームデザイン仕様書)](03-gdd/)                                | 執筆中   | 実装の設計図。システム別に分冊(開発者視点)                                                 |
 | 04    | [TDD(技術設計書)](04-tdd/)                                          | 執筆中   | アーキテクチャと技術リスクの潰し込み(開発者視点)                                           |
-| 05/06 | ~~マイルストーン計画 / リスク管理表~~                               | **作らない** | **進捗・スコープ・優先順位・リスクは [GitHub の issue と Milestone](https://github.com/stama72/visionary/issues) が持つ**([ADR-0006](adr/0006-issue-driven-task-management.md) 論点1)。マイルストーンの**定義**は 02 企画書 §5 |
+| 05/06 | ~~マイルストーン計画 / リスク管理表~~                               | **作らない** | **進捗・スコープ・優先順位・リスクは [GitHub の issue と Milestone](https://github.com/stama72/visionary/issues) が持つ**([ADR-0006](adr/0006-issue-driven-task-management.md) 論点1)。マイルストーンの**定義**は 02 企画書 §6 |
 | ADR   | [adr/](adr/)                                                        | 運用中   | 技術的意思決定の記録(1決定1ファイル)(開発者視点)                                           |
 | proc  | [process/](process/)                                                | 運用中   | **開発プロセスの現行仕様**。エージェント運用・レビュー規律・仕様の書き方・**issue 運用**(開発者視点) |
 | idea  | [idea/](idea/)                                                      | 運用中   | GDDに書き起こす前のメモ(開発者視点)                                                        |
@@ -24,6 +24,6 @@
 - 大きな技術的決定は必ず ADR に「背景・選択肢・決定・理由」を記録する
 - `.claude/agents/` と `.claude/commands/` は**実行される仕様**であり、それ自体が正。本文を docs に複製しない([process/README.md](process/README.md#実行される仕様という位置づけ))
 - GDD/TDD と [process/](process/) は「育てる文書」。マイルストーンごとに実態と乖離していないか見直す
-- 各マイルストーンの完了判定は [企画書 §5](02-project-proposal.md) の Exit Criteria で行う。期日と進捗は GitHub Milestone が持つ
+- 各マイルストーンの完了判定は [企画書 §6](02-project-proposal.md) の Exit Criteria で行う。期日と進捗は GitHub Milestone が持つ
 - 文書は**寿命**で四層に分かれる。ADR は覆るまで永続、GDD/TDD と process/ は育てる、**issue は閉じるまで**、タスク仕様は PR とともに終わる([ADR-0004](adr/0004-ai-driven-development-workflow.md) 論点2 / [ADR-0006](adr/0006-issue-driven-task-management.md))
-- **`docs/` に `## 未決定事項` 節を置かない。** 未決事項・進捗・更新履歴を持つのは issue だけである。`- [ ]` は完了条件のチェックリストとしてのみ使う([process/04-issue-driven.md](process/04-issue-driven.md))
+- **`docs/` に「未決定事項」を節見出しとして置かない**(番号付きも含む。凍る ADR は対象外)。未決事項・進捗・更新履歴を持つのは issue だけである。`- [ ]` は完了条件のチェックリストとしてのみ使う([process/04-issue-driven.md](process/04-issue-driven.md))

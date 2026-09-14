@@ -3,7 +3,7 @@
 中近世都市を舞台にした商人ライフシム。エージェントベースの経済シミュレーションが中核。
 プロジェクト全体は [docs/README.md](docs/README.md) を参照。
 
-現在は **M0プロトタイプ**(〜2026-10上旬)。計画は [TDD01 §5.4](docs/04-tdd/01-sim-core-and-m0.md) を正とする。
+現在は **M0プロトタイプ**。**期日と進捗の正は [GitHub Milestone](https://github.com/stama72/visionary/milestones)**、各段階で何を作るかは [TDD01 §5.4](docs/04-tdd/01-sim-core-and-m0.md)、マイルストーンの定義と Exit Criteria は [企画書 §6](docs/02-project-proposal.md) が持つ。
 
 ## 構成
 
@@ -45,10 +45,10 @@ dotnet format Visionary.sln               # CIのフォーマット検証を通�
 
 - **進行・スコープ・優先順位・未決事項・更新履歴を持つのは [GitHub の issue](https://github.com/stama72/visionary/issues) だけ。** 文書は「なぜ」と「今の仕様」だけを持つ。運用の正は [docs/process/04-issue-driven.md](docs/process/04-issue-driven.md)
 - **指摘・提案は「今のマイルストーンの Exit Criteria を脅かすか」で仕分ける。** 脅かさないものは**直さずに issue へ落とす**。正しい指摘であることと、今直すべきことは別である
-- **マイルストーンの定義と Exit Criteria は [企画書 §5](docs/02-project-proposal.md) が正。** 期日と進捗は GitHub Milestone が持つ。`docs/` にマイルストーン計画やリスク管理表を作らない
+- **マイルストーンの定義と Exit Criteria は [企画書 §6](docs/02-project-proposal.md) が正。** 期日と進捗は GitHub Milestone が持つ。`docs/` にマイルストーン計画やリスク管理表を作らない
 - **スコープが膨らんだら、上げるのは並行度ではなくスコープ削減で対応する**(ADR-0004 帰結)
 - **開発者の判断を要するタスクの WIP は 1**(設計・ADR・ゲームデザイン)。仕様が凍結済みの実装タスクに限り 2 本まで
-- **`docs/` に `## 未決定事項` 節を置かない。** `- [ ]` は完了条件のチェックリストとしてのみ使う
+- **`docs/` に「未決定事項」を節見出しとして置かない**(番号付きも含む。凍る ADR は対象外)。`- [ ]` は完了条件のチェックリストとしてのみ使う
 
 ## ドキュメント運用
 

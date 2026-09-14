@@ -1,8 +1,8 @@
-# 実装タスク仕様と状態管理
+# 実装タスク仕様
 
 設計セッションが実装エージェントに渡す作業指示。運用は [ADR-0004](../adr/0004-ai-driven-development-workflow.md) と [ADR-0006](../adr/0006-issue-driven-task-management.md) による。
 
-> **仕様の「書き方」は [docs/process/02-task-spec.md](../process/02-task-spec.md)、レビューの規律は [docs/process/01-review.md](../process/01-review.md) に移した。** 本書は置き場所・ファイル名・状態管理・テンプレートを持つ。
+> **仕様の「書き方」は [docs/process/02-task-spec.md](../process/02-task-spec.md)、レビューの規律は [docs/process/01-review.md](../process/01-review.md) に移した。** 本書は置き場所・ファイル名・テンプレートを持つ。**状態は issue が持つ**(下記)。
 
 ## 状態は GitHub の issue が持つ
 
