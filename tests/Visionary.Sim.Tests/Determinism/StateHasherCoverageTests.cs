@@ -1,5 +1,7 @@
+using System.Globalization;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using Visionary.Sim.Determinism;
 
 namespace Visionary.Sim.Tests.Determinism;
 
@@ -43,6 +45,7 @@ public sealed class StateHasherCoverageTests
     {
         "Now",
         "Npcs",
+        "Households",
         "Market",
         "TrustLedger",
         "Needs",
@@ -51,6 +54,48 @@ public sealed class StateHasherCoverageTests
         "Ledgers",
         "EventLog",
     };
+
+    /// <summary>
+    /// 区分タグの期待値(TDD01 §3.8「既存の値を動かさず末尾へ足す」)。
+    /// </summary>
+    /// <remarks>
+    /// <b>途中に挿入して既存の値をずらす変更を捕まえるためにある。</b>区分タグは
+    /// ハッシュへ書き込まれる仕様値なので、値がずれると「同一シード・同一設定の2回実行」の
+    /// 比較そのものは緑のまま、過去の実行と比較できない状態になる。
+    /// <c>Section</c> は <c>StateHasher</c> の private な入れ子 enum なのでリフレクションで読む。
+    /// </remarks>
+    private static readonly (string Name, int Value)[] ExpectedSectionTags =
+    {
+        ("Clock", 1),
+        ("Npcs", 2),
+        ("Market", 3),
+        ("TrustLedger", 4),
+        ("Needs", 5),
+        ("Promises", 6),
+        ("Knowledge", 7),
+        ("Ledgers", 8),
+        ("Households", 9),
+    };
+
+    [Fact]
+    public void SectionTagsAreFrozenAndHouseholdsIsNine()
+    {
+        var sectionType = typeof(StateHasher)
+            .GetNestedType("Section", BindingFlags.NonPublic);
+
+        Assert.NotNull(sectionType);
+
+        var actual = Enum.GetValues(sectionType!)
+            .Cast<object>()
+            // ボックス化された enum は (int) で直接アンボックスできない。
+            .Select(value => (
+                Name: value.ToString()!,
+                Value: Convert.ToInt32(value, CultureInfo.InvariantCulture)))
+            .OrderBy(tag => tag.Value)
+            .ToArray();
+
+        Assert.Equal(ExpectedSectionTags, actual);
+    }
 
     [Fact]
     public void WorldSectionsAreFrozenSoNewOnesMustBeHashed()

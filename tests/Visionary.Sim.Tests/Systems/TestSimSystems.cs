@@ -128,7 +128,10 @@ internal static class TestSimSystems
             foreach (var npc in world.Npcs)
             {
                 var sequence = context.OpenRandom(npc.Id);
-                npc.LiquidFunds += sequence.NextInt(-5, 6);
+
+                // 流動資金は世帯へ移った(TDD01 §3.2)ので、個人持ちで残っている可変の
+                // スカラーである熟練度‰ を動かす。0〜1000 に収まる必要がある(GDD08 §4.1)。
+                npc.SkillPermille = Math.Clamp(npc.SkillPermille + sequence.NextInt(-5, 6), 0, 1000);
             }
         }
     }

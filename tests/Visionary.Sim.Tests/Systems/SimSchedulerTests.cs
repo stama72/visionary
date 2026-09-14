@@ -18,7 +18,7 @@ public sealed class SimSchedulerTests
             new OrderRecordingSystem("C", RandomStream.Trade, Cadence.EveryTick(), log),
         };
         var scheduler = new SimScheduler(systems, new RandomSource(1));
-        var world = new World(npcCount: 0);
+        var world = new World(npcCount: 0, householdCount: 0, itemCount: 0);
 
         scheduler.Advance(world, ticks: 1);
 
@@ -30,7 +30,7 @@ public sealed class SimSchedulerTests
     {
         var recorder = new RecordingSystem(RandomStream.Production, Cadence.EveryTick());
         var scheduler = new SimScheduler(new ISimSystem[] { recorder }, new RandomSource(1));
-        var world = new World(npcCount: 0);
+        var world = new World(npcCount: 0, householdCount: 0, itemCount: 0);
 
         scheduler.Advance(world, ticks: 3);
 
@@ -48,7 +48,7 @@ public sealed class SimSchedulerTests
     public void AdvanceRejectsNonPositiveTicks(int ticks)
     {
         var scheduler = new SimScheduler(Array.Empty<ISimSystem>(), new RandomSource(1));
-        var world = new World(npcCount: 0);
+        var world = new World(npcCount: 0, householdCount: 0, itemCount: 0);
 
         Assert.Throws<ArgumentOutOfRangeException>(() => scheduler.Advance(world, ticks));
     }
@@ -80,7 +80,7 @@ public sealed class SimSchedulerTests
         var trustSystem = new CapturingSystem(RandomStream.Trust, Cadence.EveryTick(), entityId: 1);
         var scheduler = new SimScheduler(
             new ISimSystem[] { tradeSystem, trustSystem }, new RandomSource(seed));
-        var world = new World(npcCount: 0);
+        var world = new World(npcCount: 0, householdCount: 0, itemCount: 0);
 
         scheduler.Advance(world, ticks: 1);
 
@@ -99,7 +99,7 @@ public sealed class SimSchedulerTests
     {
         var system = new DoubleOpeningSystem(RandomStream.Trade, Cadence.EveryTick(), entityId: 5);
         var scheduler = new SimScheduler(new ISimSystem[] { system }, new RandomSource(1));
-        var world = new World(npcCount: 0);
+        var world = new World(npcCount: 0, householdCount: 0, itemCount: 0);
 
         Assert.Throws<InvalidOperationException>(() => scheduler.Advance(world, ticks: 1));
     }
@@ -109,7 +109,7 @@ public sealed class SimSchedulerTests
     {
         var system = new CapturingSystem(RandomStream.Trade, Cadence.EveryTick(), entityId: 5);
         var scheduler = new SimScheduler(new ISimSystem[] { system }, new RandomSource(1));
-        var world = new World(npcCount: 0);
+        var world = new World(npcCount: 0, householdCount: 0, itemCount: 0);
 
         scheduler.Advance(world, ticks: 2);
 
@@ -128,15 +128,15 @@ public sealed class SimSchedulerTests
         const int npcCount = 12;
         const int ticks = 50;
 
-        (int Id, int LiquidFunds)[] RunOnce()
+        (int Id, int SkillPermille)[] RunOnce()
         {
-            var world = new World(npcCount);
+            var world = new World(npcCount, householdCount: 0, itemCount: 0);
             var system = new MutatingSystem(RandomStream.Trade, Cadence.EveryTick());
             var scheduler = new SimScheduler(new ISimSystem[] { system }, new RandomSource(seed));
 
             scheduler.Advance(world, ticks);
 
-            return world.Npcs.Select(npc => (npc.Id, npc.LiquidFunds)).ToArray();
+            return world.Npcs.Select(npc => (npc.Id, npc.SkillPermille)).ToArray();
         }
 
         Assert.Equal(RunOnce(), RunOnce());
@@ -145,7 +145,7 @@ public sealed class SimSchedulerTests
     [Fact]
     public void NpcsAreIndexedByAscendingId()
     {
-        var world = new World(npcCount: 10);
+        var world = new World(npcCount: 10, householdCount: 0, itemCount: 0);
 
         for (int i = 0; i < world.Npcs.Length; i++)
         {
@@ -156,7 +156,7 @@ public sealed class SimSchedulerTests
     [Fact]
     public void WorldCollectionsAreDeterministicallyOrdered()
     {
-        var world = new World(npcCount: 0);
+        var world = new World(npcCount: 0, householdCount: 0, itemCount: 0);
 
         // 挿入順をキーの昇順とは逆にする。SortedDictionary なら列挙は常に昇順になる
         // (Dictionary に差し替えると、この主張は成立しなくなる)。
@@ -198,7 +198,7 @@ public sealed class SimSchedulerTests
         var stashing = new TestSimSystems.ContextStashingSystem();
         var scheduler = new SimScheduler(new ISimSystem[] { stashing }, new RandomSource(1));
 
-        scheduler.Advance(new World(npcCount: 0), ticks: 1);
+        scheduler.Advance(new World(npcCount: 0, householdCount: 0, itemCount: 0), ticks: 1);
 
         Assert.NotNull(stashing.Stashed);
         SimContext context = stashing.Stashed!;

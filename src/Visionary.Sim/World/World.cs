@@ -3,35 +3,75 @@ using Visionary.Sim.Time;
 namespace Visionary.Sim;
 
 /// <summary>
-/// 全状態を保持する単一の集約(TDD01 §3.2)。W1 では中身を持つのは
-/// <see cref="Now"/> と <see cref="Npcs"/> のみ。残りは空のコンテナとして用意し、
-/// 中身は W2 以降の経済システムが埋める。
+/// 全状態を保持する単一の集約(TDD01 §3.2)。
 /// </summary>
+/// <remarks>
+/// <para>
+/// <b>本書でいう「区分」は World の内訳である。</b>GDD02 以降の「区画」は都市の空間的な
+/// 3×3 の9区画(GDD02 §4.3)を指し、別概念である(TDD01 §3.2)。
+/// </para>
+/// <para>
+/// <b>経済主体は世帯である。</b>流動資金・在庫・帳簿・職業は <see cref="Households"/> が持ち、
+/// 個人に残るのは相場知識・信用・熟練度・階層だけである(TDD01 §3.2 / GDD08 §2.2)。
+/// </para>
+/// </remarks>
 public sealed class World
 {
     /// <summary>
-    /// NPC を <paramref name="npcCount"/> 体、Id 昇順(0始まり)で用意する。
+    /// NPC を <paramref name="npcCount"/> 体、世帯を <paramref name="householdCount"/> 戸、
+    /// それぞれ Id 昇順(0始まり)で用意する。在庫は <paramref name="itemCount"/> 品目ぶん確保する。
     /// </summary>
-    public World(int npcCount)
+    /// <remarks>
+    /// <b>中身は入れない。</b>職業・区画・構成員・初期在庫・初期資金の値は初期配置の担当
+    /// (GDD02 §2.4)であり、ここでは器だけを確保する。
+    /// </remarks>
+    public World(int npcCount, int householdCount, int itemCount)
     {
         if (npcCount < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(npcCount), npcCount, "NPC数は非負。");
         }
 
-        Npcs = new NpcState[npcCount];
-
-        for (int id = 0; id < npcCount; id++)
+        if (householdCount < 0)
         {
-            Npcs[id] = new NpcState(id);
+            throw new ArgumentOutOfRangeException(
+                nameof(householdCount), householdCount, "世帯数は非負。");
+        }
+
+        if (itemCount < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(itemCount), itemCount, "品目数は非負(GDD02 §2.2)。");
+        }
+
+        Npcs = new NpcState[npcCount];
+        Knowledge = new List<PriceObservation>[npcCount];
+
+        for (int npcId = 0; npcId < npcCount; npcId++)
+        {
+            Npcs[npcId] = new NpcState(npcId);
+            Knowledge[npcId] = new List<PriceObservation>();
+        }
+
+        Households = new HouseholdState[householdCount];
+        Ledgers = new List<LedgerEntry>[householdCount];
+
+        for (int householdId = 0; householdId < householdCount; householdId++)
+        {
+            Households[householdId] = new HouseholdState(
+                id: householdId,
+                districtId: 0,
+                headNpcId: 0,
+                memberNpcIds: new[] { 0 },
+                itemCount: itemCount);
+
+            Ledgers[householdId] = new List<LedgerEntry>();
         }
 
         Market = new SortedDictionary<MarketKey, int>();
         TrustLedger = new SortedDictionary<TrustKey, TrustScore>();
         Needs = new List<Need>();
         Promises = new List<Promise>();
-        Knowledge = new List<PriceObservation>();
-        Ledgers = new List<LedgerEntry>();
         EventLog = new List<DomainEvent>();
     }
 
@@ -41,24 +81,44 @@ public sealed class World
     /// <summary>Id 昇順。添字 = NpcId(TDD01 §3.2)。</summary>
     public NpcState[] Npcs { get; }
 
-    /// <summary>品目 × 売り手 → 提示価格。W2 以降で中身が入る(TDD01 §3.2)。</summary>
+    /// <summary>Id 昇順。添字 = 世帯Id(TDD01 §3.2)。</summary>
+    public HouseholdState[] Households { get; }
+
+    /// <summary>品目 × 売り手世帯 → 提示価格。Id昇順の疎構造(TDD01 §3.2 / GDD02 §8.1)。</summary>
     public SortedDictionary<MarketKey, int> Market { get; }
 
-    /// <summary>信用の疎マップ。W2 以降で中身が入る(GDD01 §2.1)。</summary>
+    /// <summary>信用の疎マップ(GDD01 §2.1)。</summary>
     public SortedDictionary<TrustKey, TrustScore> TrustLedger { get; }
 
-    /// <summary>W2 以降で中身が入る(GDD01 §3.2)。</summary>
+    /// <summary>不足(GDD01 §3.2)。主体は世帯(<see cref="Need.TargetHouseholdId"/>)。</summary>
     public List<Need> Needs { get; }
 
-    /// <summary>W2 以降で中身が入る(GDD01 §2.8)。</summary>
+    /// <summary>約束(GDD01 §2.8)。</summary>
     public List<Promise> Promises { get; }
 
-    /// <summary>W2 以降で中身が入る(GDD01 §4.1)。</summary>
-    public List<PriceObservation> Knowledge { get; }
+    /// <summary>
+    /// 相場知識。<b>添字 = NpcId</b>(GDD01 §4.1 / TDD01 §3.2)。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>所有者は個人である。</b>「その人が何を見たか」に依存する(GDD08 §2.2)。
+    /// 添字が Id 昇順そのものなので、走査が ADR-0002 の列挙順規約を構造で満たす。
+    /// </para>
+    /// <para>
+    /// <b><see cref="Ledgers"/> と型を共通化してはならない</b>(TDD01 §3.2)。どちらも
+    /// <c>List&lt;T&gt;[]</c> だが添字の意味が違う — こちらは NpcId、あちらは世帯Id である。
+    /// <b>取り違えを型で防ぐことはできない。</b><c>Knowledge[世帯Id]</c> と書いてもコンパイルは
+    /// 通る。検出は「所有者を取り違えるとハッシュが変わる」回帰テストに頼る。
+    /// </para>
+    /// </remarks>
+    public List<PriceObservation>[] Knowledge { get; }
 
-    /// <summary>W2 以降で中身が入る(GDD01 §4.4)。</summary>
-    public List<LedgerEntry> Ledgers { get; }
+    /// <summary>
+    /// 帳簿(取引履歴)。<b>添字 = 世帯Id</b>(GDD01 §4.4 / TDD01 §3.2)。
+    /// 資金の増減と突合するため所有者は世帯である(GDD08 §2.2)。
+    /// </summary>
+    public List<LedgerEntry>[] Ledgers { get; }
 
-    /// <summary>ドメインイベントの追記専用列。W2 以降で中身が入る(TDD01 §3.4)。</summary>
+    /// <summary>ドメインイベントの追記専用列。ハッシュ対象外(TDD01 §3.4 / §3.8)。</summary>
     public List<DomainEvent> EventLog { get; }
 }
