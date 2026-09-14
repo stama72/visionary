@@ -171,10 +171,12 @@ Households = 9,
 
 - `World` のコンストラクタ変更に合わせ、`--households`(既定 10)と `--items`(既定 9)を足す。**既定値の出典は [GDD02 §2.4](../03-gdd/02-economy.md)(5職業 × 2世帯 = 10世帯)と [GDD02 §2.2](../03-gdd/02-economy.md)(M0 は9品目)**
 - `SyntheticLoadSystem` / `SyntheticDecaySystem` を追随させる:
-  - `npc.LiquidFunds` → `world.Households[...].LiquidFunds`(**世帯 Id 昇順で走査する**)
+  - `npc.LiquidFunds` → `world.Households[npc.HouseholdId].LiquidFunds`。**走査は NPC Id 昇順のまま**とし、世帯へは `npc.HouseholdId` を経由して書く。複数の NPC が同じ世帯を指すので書き込みの順序が結果を変えるが、NPC の走査順が固定されていれば決定的である。**これは [GDD02 §6.2.1](../03-gdd/02-economy.md)(世帯内の購入の決済順)の前触れなので、合成負荷のうちに踏ませる**
   - `Need.TargetNpcId` → `TargetHouseholdId`
   - `world.Knowledge.Add(...)` → `world.Knowledge[npcId].Add(...)`、`world.Ledgers.Add(...)` → `world.Ledgers[householdId].Add(...)`
   - 世帯在庫・工房在庫にも合成負荷を掛ける(**片方だけだと2本の区別がハッシュ回帰で一度も動かない**)
+- **合成の初期配置を `Program.cs` に置く**(`PlaceSyntheticPopulation`)。NPC を世帯へ割り当て、階層・熟練度‰・区画Id を散らす。**全員が既定値のままだと、ハッシュから `HouseholdId` や `Rank` を落としても値が変わらず回帰が素通りする。** 乱数は使わない — シードに依存しない配置にして、「同一シード2プロセス実行の一致」が配置の再現性に左右されないようにする
+- **`SyntheticDecaySystem` で熟練度‰ を動かす。** `Npcs` 区分が時刻とともに変わらないと、ハッシュから熟練度を落としても「初期値のぶんだけ違う」状態が残り続けて回帰が鈍る
 - **合成システムは W1 限りのものであり、[GDD02 §2.2](../03-gdd/02-economy.md) の品目でも [GDD02 §2.4](../03-gdd/02-economy.md) の職業でもない。** `Program.cs` の既存の注記(「W2 で §3.3 の本物のシステム群が揃ったら差し替える」)はそのまま残す
 
 ## 落ちるべき条件(テスト)

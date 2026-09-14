@@ -17,6 +17,8 @@ namespace Visionary.Sim;
 /// </remarks>
 public sealed class HouseholdState
 {
+    private int isBankrupt;
+
     /// <summary><see cref="World.Households"/> の添字と一致する、非負の Id(TDD01 §3.2)。</summary>
     public int Id { get; }
 
@@ -63,7 +65,25 @@ public sealed class HouseholdState
     /// 破産中フラグ(GDD02 §6.2.2)。0 / 1。<b>bool を使わない</b> —
     /// 状態はすべて int/long(TDD01 §3.2)、ハッシュ入力も int/long のみ(§3.8)。
     /// </summary>
-    public int IsBankrupt { get; set; }
+    /// <remarks>
+    /// <b>0 / 1 以外を setter で拒む。</b>bool の代わりに int を使う以上、値域は型では守れない。
+    /// 2 や -1 が入ると、GDD02 §6.2.2 の②(値付けで原価下限を 500‰ へ下げる)と④のゲートを
+    /// <c>== 1</c> で書いた実装と <c>!= 0</c> で書いた実装が食い違う。
+    /// </remarks>
+    public int IsBankrupt
+    {
+        get => isBankrupt;
+        set
+        {
+            if (value is not (0 or 1))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(value), value, "破産中フラグは 0 / 1(GDD02 §6.2.2)。");
+            }
+
+            isBankrupt = value;
+        }
+    }
 
     /// <summary>
     /// 都市外市場の窓口を指す、予約済みの売り手 Id(TDD01 §3.2 / GDD02 §10.2)。

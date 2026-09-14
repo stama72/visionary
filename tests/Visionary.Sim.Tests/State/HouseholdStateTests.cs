@@ -88,6 +88,24 @@ public sealed class HouseholdStateTests
     }
 
     /// <summary>
+    /// 破産中フラグは 0 / 1 以外を受け付けない(GDD02 §6.2.2)。
+    /// </summary>
+    /// <remarks>
+    /// doc が「0 / 1」と断定している以上、素の <c>{ get; set; }</c> だと「検証されている」と
+    /// 読まれる。bool の代わりに int を使う判断(TDD01 §3.2 / §3.8)の裏返しの負債である。
+    /// </remarks>
+    [Theory]
+    [InlineData(2)]
+    [InlineData(-1)]
+    public void BankruptFlagRejectsValuesOtherThanZeroAndOne(int invalid)
+    {
+        var household = new HouseholdState(
+            id: 0, districtId: 0, headNpcId: 0, memberNpcIds: new[] { 0 }, itemCount: 0);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => household.IsBankrupt = invalid);
+    }
+
+    /// <summary>
     /// 在庫は2本とも品目数ぶん確保される(TDD01 §3.2)。
     /// </summary>
     /// <remarks>

@@ -210,6 +210,86 @@ public sealed class StateHasherTests
         Assert.NotEqual(before, after);
     }
 
+    /// <summary>
+    /// 世帯を1戸だけ持ち、その不変欄を指定した世界を作る。
+    /// </summary>
+    /// <remarks>
+    /// 区画Id・世帯主・構成員は不変(GDD02 §4.3 / GDD08 §2.1)なので、後から変えて比べられない。
+    /// 違う引数で組み立てた2つの世界を比べる形でしか、これらの欄がハッシュに乗っているかを
+    /// 確かめられない。
+    /// </remarks>
+    private static World WorldWithOneHousehold(int districtId, int headNpcId, int[] memberNpcIds)
+    {
+        var world = new World(npcCount: 3, householdCount: 1, itemCount: 0);
+
+        world.Households[0] = new HouseholdState(
+            id: 0,
+            districtId: districtId,
+            headNpcId: headNpcId,
+            memberNpcIds: memberNpcIds,
+            itemCount: 0);
+
+        return world;
+    }
+
+    /// <summary>
+    /// 世帯の不変欄がハッシュに乗ること。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>2プロセス比較では原理的に検出できない欄である。</b>同一ビルド同士を比べるので、
+    /// ハッシュが状態の一部を見ていなくても「一致」は成立する。したがってここで押さえるしかない。
+    /// </para>
+    /// <para>
+    /// <b>区画Id を含めるのは §3.8 の明示的な要求である</b> — 「不変だが初期配置の一部であり、
+    /// シードから決まる世界の同一性に属する」。<b>構成員列</b>は世帯内の処理順
+    /// (GDD02 §6.2.1 の購入の決済順)を決めるデータなので、落ちると並びの違う世界が
+    /// 同じハッシュになる。
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("district")]
+    [InlineData("head")]
+    [InlineData("memberIds")]
+    [InlineData("memberCount")]
+    public void HashDistinguishesHouseholdsByTheirImmutableFields(string field)
+    {
+        var baseline = WorldWithOneHousehold(districtId: 0, headNpcId: 0, memberNpcIds: new[] { 0, 1 });
+
+        var varied = field switch
+        {
+            "district" => WorldWithOneHousehold(3, headNpcId: 0, memberNpcIds: new[] { 0, 1 }),
+            "head" => WorldWithOneHousehold(0, headNpcId: 1, memberNpcIds: new[] { 0, 1 }),
+            "memberIds" => WorldWithOneHousehold(0, headNpcId: 0, memberNpcIds: new[] { 0, 2 }),
+            "memberCount" => WorldWithOneHousehold(0, headNpcId: 0, memberNpcIds: new[] { 0 }),
+            _ => throw new ArgumentOutOfRangeException(nameof(field), field, "未知のフィールド。"),
+        };
+
+        Assert.NotEqual(StateHasher.Compute(baseline), StateHasher.Compute(varied));
+    }
+
+    /// <summary>
+    /// 世帯 Id は添字と一致する(TDD01 §3.2)。
+    /// </summary>
+    /// <remarks>
+    /// <b>この不変条件があるために、<c>StateHasher</c> が書く <c>household.Id</c> は冗長である</b> —
+    /// 添字順に走査している以上、Id を書かなくても到達できるハッシュの集合は変わらない。
+    /// したがって「Id の書き忘れ」を値で検出するテストは書けない(書けば、World が作らない
+    /// 不正な状態を組み立てることになる)。<c>Npcs</c> 区分の <c>npc.Id</c> と
+    /// 所有者別区分の所有者Id も同じ性質を持つ。<b>書いているのは形式を自己記述的にするため</b>
+    /// であって、検出のためではない。ここで押さえるのは不変条件のほうである。
+    /// </remarks>
+    [Fact]
+    public void HouseholdIdMatchesItsIndex()
+    {
+        var world = new World(npcCount: 2, householdCount: 5, itemCount: 0);
+
+        for (int householdId = 0; householdId < world.Households.Length; householdId++)
+        {
+            Assert.Equal(householdId, world.Households[householdId].Id);
+        }
+    }
+
     /// <summary>世帯の流動資金がハッシュに乗ること(テスト4)。Households 区分の書き忘れで落ちる。</summary>
     [Fact]
     public void HashChangesWhenHouseholdFundsChange()
