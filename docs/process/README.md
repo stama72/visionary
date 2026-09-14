@@ -6,9 +6,9 @@
 
 | #  | 文書 | 内容 |
 | -- | ---- | ---- |
-| 01 | [レビューの規律](01-review.md) | レビュアー憲章の所在、レビューを回す規律、開発者との分担 |
+| 01 | [レビューの規律](01-review.md) | 守備範囲(「気付けない × 影響大」)、工程ごとの分担、減衰と打ち切り、「気付いたら直す」 |
 | 02 | [タスク仕様の書き方](02-task-spec.md) | 実装エージェントに渡す仕様の書き方。W1-02/W1-03 の失敗8件から作った規則 |
-| 03 | [訂正の作法](03-corrections.md) | 指摘を受けて**直すとき**の規則。W1-04 のレビュー5巡で、訂正が原因だった指摘8件から作った |
+| 03 | [訂正の作法](03-corrections.md) | 指摘を受けて**直すとき**の規則2つ(広い保証 / 却下理由の空洞化)。W1-04 の8件のうち、踏んでも気付けないものだけを残した |
 | 04 | [issue 運用](04-issue-driven.md) | 進行・スコープ・優先順位を issue が持つときの運用。切り分け・階層・ラベル・WIP・未決事項の仕分け |
 
 関連:
@@ -16,6 +16,7 @@
 - [docs/tasks/](../tasks/) — タスク仕様のファイル名とテンプレート(**使い捨て層**)。**状態一覧は GitHub の issue へ移した**([ADR-0006](../adr/0006-issue-driven-task-management.md) 論点1)
 - [`.claude/agents/`](../../.claude/agents/) — 各エージェントの憲章(**実行される仕様**)
 - [`.claude/commands/learn.md`](../../.claude/commands/learn.md) — 学習セッションの枠づけ
+- [`.claude/commands/advise.md`](../../.claude/commands/advise.md) — 設計アドバイザーの枠づけ(設計・プロセス工程でレビュアーの代わりに使う)
 
 ## 「実行される仕様」という位置づけ
 
@@ -29,7 +30,7 @@
 
 ## ADR との関係
 
-- **ADR は「選択肢と理由」を記録して凍る。** プロセスに関する ADR は [ADR-0004](../adr/0004-ai-driven-development-workflow.md)(エージェントの役割分担)、[ADR-0005](../adr/0005-reviewer-scope-includes-spec-defects.md)(レビュアーの守備範囲)、[ADR-0006](../adr/0006-issue-driven-task-management.md)(issue 駆動のタスク管理)
+- **ADR は「選択肢と理由」を記録して凍る。** プロセスに関する ADR は [ADR-0004](../adr/0004-ai-driven-development-workflow.md)(エージェントの役割分担)、[ADR-0005](../adr/0005-reviewer-scope-includes-spec-defects.md)(レビュアーの守備範囲)、[ADR-0006](../adr/0006-issue-driven-task-management.md)(issue 駆動のタスク管理)、[ADR-0008](../adr/0008-review-scope-narrowed-to-unnoticeable-defects.md)(レビューの守備範囲と効率と質の両立)
 - **本ディレクトリは「今の運用」を持って育つ。** 運用のフィードバックは、まずここと `.claude/` に反映する。**プロセスについて新たに ADR を起こすのは、過去の ADR の決定を覆すときに限る**
 
 この分業がなかったため、W1-03 のフィードバックを反映する場所が構造上なく、ADR-0005 を起こすしかなかった。
