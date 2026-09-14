@@ -18,8 +18,11 @@ internal sealed class SyntheticDecaySystem : ISimSystem
     private const int MinDecay = 1;
     private const int MaxDecayExclusive = 4;
 
-    // Knowledge の保持本数上限(GDD01 §4.1 の保持ポリシーの合成版)。
-    private const int KnowledgeRetentionLimit = 500;
+    // Knowledge の保持本数上限。所有者1人あたり(GDD01 §4.1 の保持ポリシーの合成版)。
+    private const int KnowledgeRetentionLimit = 50;
+
+    // 熟練度‰ の1日あたりの振れ幅。合成負荷の都合で選んだ値(GDD08 §4.1 の式ではない)。
+    private const int SkillDrift = 5;
 
     public RandomStream Stream => RandomStream.Trust;
 
@@ -43,13 +46,20 @@ internal sealed class SyntheticDecaySystem : ISimSystem
                 var score = world.TrustLedger[key];
                 world.TrustLedger[key] = score with { Value = Math.Max(0, score.Value - decay) };
             }
-        }
 
-        // 保持本数の上限。状態が単調増加でなくなることで List の順序変化がハッシュに効く。
-        if (world.Knowledge.Count > KnowledgeRetentionLimit)
-        {
-            int excess = world.Knowledge.Count - KnowledgeRetentionLimit;
-            world.Knowledge.RemoveRange(0, excess);
+            // 熟練度を動かす。Npcs 区分が時刻とともに変わらないと、ハッシュから熟練度を
+            // 落としても「初期値のぶんだけ違う」状態が残り続けて回帰が鈍る。
+            npc.SkillPermille = Math.Clamp(
+                npc.SkillPermille + rng.NextInt(-SkillDrift, SkillDrift + 1), 0, 1000);
+
+            // 保持本数の上限は所有者ごとに掛ける。相場知識の所有者は個人(TDD01 §3.2)。
+            // 状態が単調増加でなくなることで List の順序変化がハッシュに効く。
+            var observations = world.Knowledge[npc.Id];
+
+            if (observations.Count > KnowledgeRetentionLimit)
+            {
+                observations.RemoveRange(0, observations.Count - KnowledgeRetentionLimit);
+            }
         }
     }
 }

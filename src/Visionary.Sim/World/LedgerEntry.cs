@@ -11,7 +11,8 @@ public enum LedgerTerms
 
 /// <summary>
 /// 帳簿(取引履歴、GDD01 §4.4 / TDD01 §3.2)の1行。約定価格の真実はここが持つ
-/// (TDD01 §3.2)。W1 では型の宣言のみ。
+/// (TDD01 §3.2)。<b>所有者は世帯である</b> — 資金の増減と突合するため、個人別に持つと
+/// 一致しない(GDD08 §2.2)。<see cref="World.Ledgers"/> は世帯 Id 別に持つ。
 /// </summary>
 /// <remarks>
 /// GDD01 §4.4 の <c>terms: Cash | Credit(返済期日)</c> は Credit のときだけ
@@ -21,6 +22,10 @@ public enum LedgerTerms
 /// </remarks>
 public readonly record struct LedgerEntry
 {
+    /// <summary>
+    /// 取引相手の<b>世帯</b> Id。都市外市場が相手の取引では
+    /// <see cref="HouseholdState.ExternalMarketSellerId"/>(GDD02 §10)。
+    /// </summary>
     public int CounterpartyId { get; init; }
 
     public int ItemId { get; init; }

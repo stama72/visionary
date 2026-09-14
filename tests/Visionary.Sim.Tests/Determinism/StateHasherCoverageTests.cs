@@ -1,5 +1,7 @@
+using System.Globalization;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using Visionary.Sim.Determinism;
 
 namespace Visionary.Sim.Tests.Determinism;
 
@@ -43,6 +45,7 @@ public sealed class StateHasherCoverageTests
     {
         "Now",
         "Npcs",
+        "Households",
         "Market",
         "TrustLedger",
         "Needs",
@@ -51,6 +54,48 @@ public sealed class StateHasherCoverageTests
         "Ledgers",
         "EventLog",
     };
+
+    /// <summary>
+    /// 区分タグの期待値(TDD01 §3.8「既存の値を動かさず末尾へ足す」)。
+    /// </summary>
+    /// <remarks>
+    /// <b>途中に挿入して既存の値をずらす変更を捕まえるためにある。</b>区分タグは
+    /// ハッシュへ書き込まれる仕様値なので、値がずれると「同一シード・同一設定の2回実行」の
+    /// 比較そのものは緑のまま、過去の実行と比較できない状態になる。
+    /// <c>Section</c> は <c>StateHasher</c> の private な入れ子 enum なのでリフレクションで読む。
+    /// </remarks>
+    private static readonly (string Name, int Value)[] ExpectedSectionTags =
+    {
+        ("Clock", 1),
+        ("Npcs", 2),
+        ("Market", 3),
+        ("TrustLedger", 4),
+        ("Needs", 5),
+        ("Promises", 6),
+        ("Knowledge", 7),
+        ("Ledgers", 8),
+        ("Households", 9),
+    };
+
+    [Fact]
+    public void SectionTagsAreFrozenAndHouseholdsIsNine()
+    {
+        var sectionType = typeof(StateHasher)
+            .GetNestedType("Section", BindingFlags.NonPublic);
+
+        Assert.NotNull(sectionType);
+
+        var actual = Enum.GetValues(sectionType!)
+            .Cast<object>()
+            // ボックス化された enum は (int) で直接アンボックスできない。
+            .Select(value => (
+                Name: value.ToString()!,
+                Value: Convert.ToInt32(value, CultureInfo.InvariantCulture)))
+            .OrderBy(tag => tag.Value)
+            .ToArray();
+
+        Assert.Equal(ExpectedSectionTags, actual);
+    }
 
     [Fact]
     public void WorldSectionsAreFrozenSoNewOnesMustBeHashed()
@@ -72,6 +117,117 @@ public sealed class StateHasherCoverageTests
                 + $"  期待: {string.Join(", ", expected)}"
                 + Environment.NewLine
                 + $"  実際: {string.Join(", ", actual)}");
+    }
+
+    /// <summary>
+    /// 区分の<b>要素型</b>の欄の期待一覧。増減したら <c>StateHasher</c> 側を見直し、
+    /// 意図した変更ならここも更新すること。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b><see cref="WorldSectionsAreFrozenSoNewOnesMustBeHashed"/> は区分の一覧しか凍結しない。</b>
+    /// <c>World</c> の直下のメンバ名しか見ないので、<c>HouseholdState</c> に欄を足して
+    /// <c>StateHasher.Compute</c> に書き忘れる経路は素通りする — ビルドもテストも緑、
+    /// CI の2プロセス比較も緑(同一ビルド同士なので、ハッシュが状態の一部を見ていなくても
+    /// 「一致」は成立する)。区分レベルで採っている方式を、要素型にも当てるのがこの表である。
+    /// </para>
+    /// <para>
+    /// <b>凍結しているのは欄の一覧だけで、<c>StateHasher</c> が追随したことは見ていない。</b>
+    /// 下の一覧だけを更新して <c>Compute</c> を触らなければ緑になる。区分の一覧と同じ限界であり、
+    /// ハッシャ本体の追随は人が確認すること。
+    /// </para>
+    /// </remarks>
+    private static readonly (Type Type, string[] Members)[] ExpectedSectionElementMembers =
+    {
+        (typeof(NpcState), new[] { "Id", "HouseholdId", "Rank", "SkillPermille" }),
+        (typeof(HouseholdState), new[]
+        {
+            "Id", "DistrictId", "OccupationId", "HeadNpcId", "MemberNpcIds",
+            "LiquidFunds", "HouseholdInventory", "WorkshopInventory", "IsBankrupt",
+        }),
+        (typeof(MarketKey), new[] { "ItemId", "SellerId" }),
+        (typeof(TrustKey), new[] { "From", "To" }),
+        (typeof(TrustScore), new[] { "Value", "LastMet" }),
+        (typeof(Need), new[]
+        {
+            "TypeCode", "TargetHouseholdId", "ItemId", "Quantity", "Deadline", "Urgency", "ReasonCode",
+        }),
+        (typeof(Promise), new[] { "NeedIndex", "T0", "T1", "B", "State" }),
+        (typeof(PriceObservation), new[]
+        {
+            "ItemId", "LocationId", "Price", "SellerId", "ObservedAt", "Source",
+        }),
+        (typeof(LedgerEntry), new[]
+        {
+            "CounterpartyId", "ItemId", "Quantity", "UnitPrice", "OccurredAt", "Terms", "CreditDueAt",
+        }),
+    };
+
+    [Fact]
+    public void SectionElementMembersAreFrozenSoNewOnesMustBeHashed()
+    {
+        foreach (var (type, expectedMembers) in ExpectedSectionElementMembers)
+        {
+            var actual = StateMemberNames(type)
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToArray();
+
+            var expected = expectedMembers
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToArray();
+
+            Assert.True(
+                actual.SequenceEqual(expected),
+                $"{type.Name} の欄が変わった。StateHasher.Compute を更新したか、"
+                    + "意図的な除外なら TDD01 §3.8 の除外表とこの一覧"
+                    + "(ExpectedSectionElementMembers)を更新せよ。"
+                    + Environment.NewLine
+                    + $"  期待: {string.Join(", ", expected)}"
+                    + Environment.NewLine
+                    + $"  実際: {string.Join(", ", actual)}");
+        }
+    }
+
+    /// <summary>
+    /// 型が持つ<b>インスタンスの状態</b>の名前。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b><c>static</c> も走査し、<c>const</c> だけを除く。</b>
+    /// 定数(<see cref="HouseholdState.ExternalMarketSellerId"/>)は状態ではないが、
+    /// <b><c>static</c> な可変フィールドは状態である</b> — 要素型に共有カウンタやキャッシュが
+    /// 入ると、この凍結にも <c>StateHasher</c> にも2プロセス比較にも一切現れない。
+    /// <c>static readonly</c> もここに現れるが、状態でないなら除外の判断とともに
+    /// 下の期待一覧へ足せばよい。
+    /// </para>
+    /// <para>
+    /// <b>手書きのバッキングフィールドをプロパティと二重に数えない。</b>
+    /// <c>HouseholdState.isBankrupt</c> や <c>NpcState.skillPermille</c> は、検証付きの setter を
+    /// 書くために手で置いたフィールドであり <see cref="CompilerGeneratedAttribute"/> が付かない。
+    /// 属性による除外だけでは落ちないので、<b>同名(大文字小文字を無視)のプロパティがある
+    /// フィールドを除く</b>。
+    /// </para>
+    /// <para>
+    /// <b>この規則の穴</b>: プロパティと無関係な private フィールドを、たまたま既存プロパティと
+    /// 同名(大小違い)で足すと見逃す。実際には起こりにくいので許容する。
+    /// </para>
+    /// </remarks>
+    private static IEnumerable<string> StateMemberNames(Type type)
+    {
+        const BindingFlags StateMembers =
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static
+            | BindingFlags.DeclaredOnly;
+
+        var propertyNames = type.GetProperties(StateMembers).Select(property => property.Name).ToArray();
+
+        var fieldNames = type.GetFields(StateMembers)
+            .Where(field => !field.IsLiteral) // const は状態ではない
+            .Where(field => !field.IsDefined(typeof(CompilerGeneratedAttribute), inherit: false))
+            .Where(field => !propertyNames.Any(
+                name => string.Equals(name, field.Name, StringComparison.OrdinalIgnoreCase)))
+            .Select(field => field.Name);
+
+        return propertyNames.Concat(fieldNames);
     }
 
     /// <summary>

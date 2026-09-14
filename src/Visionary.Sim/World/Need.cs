@@ -17,10 +17,10 @@ public readonly record struct Need
     public int TypeCode { get; init; }
 
     /// <summary>
-    /// 対象NPC。<b>W2 で世帯 Id に変える</b>(TDD01 §3.6)。在庫・資金・帳簿が世帯へ移った
-    /// ため、不足の主体も世帯である(GDD02 §6.2.1)。名前ごと変更する。
+    /// 不足している主体。在庫・資金・帳簿が世帯へ移ったため、不足の主体も世帯である
+    /// (TDD01 §3.2 / GDD02 §6.2.1)。
     /// </summary>
-    public int TargetNpcId { get; init; }
+    public int TargetHouseholdId { get; init; }
 
     /// <summary>品目。</summary>
     public int ItemId { get; init; }
