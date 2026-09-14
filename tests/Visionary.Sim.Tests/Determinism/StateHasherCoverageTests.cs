@@ -120,6 +120,112 @@ public sealed class StateHasherCoverageTests
     }
 
     /// <summary>
+    /// 区分の<b>要素型</b>の欄の期待一覧。増減したら <c>StateHasher</c> 側を見直し、
+    /// 意図した変更ならここも更新すること。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b><see cref="WorldSectionsAreFrozenSoNewOnesMustBeHashed"/> は区分の一覧しか凍結しない。</b>
+    /// <c>World</c> の直下のメンバ名しか見ないので、<c>HouseholdState</c> に欄を足して
+    /// <c>StateHasher.Compute</c> に書き忘れる経路は素通りする — ビルドもテストも緑、
+    /// CI の2プロセス比較も緑(同一ビルド同士なので、ハッシュが状態の一部を見ていなくても
+    /// 「一致」は成立する)。区分レベルで採っている方式を、要素型にも当てるのがこの表である。
+    /// </para>
+    /// <para>
+    /// <b>凍結しているのは欄の一覧だけで、<c>StateHasher</c> が追随したことは見ていない。</b>
+    /// 下の一覧だけを更新して <c>Compute</c> を触らなければ緑になる。区分の一覧と同じ限界であり、
+    /// ハッシャ本体の追随は人が確認すること。
+    /// </para>
+    /// </remarks>
+    private static readonly (Type Type, string[] Members)[] ExpectedSectionElementMembers =
+    {
+        (typeof(NpcState), new[] { "Id", "HouseholdId", "Rank", "SkillPermille" }),
+        (typeof(HouseholdState), new[]
+        {
+            "Id", "DistrictId", "OccupationId", "HeadNpcId", "MemberNpcIds",
+            "LiquidFunds", "HouseholdInventory", "WorkshopInventory", "IsBankrupt",
+        }),
+        (typeof(MarketKey), new[] { "ItemId", "SellerId" }),
+        (typeof(TrustKey), new[] { "From", "To" }),
+        (typeof(TrustScore), new[] { "Value", "LastMet" }),
+        (typeof(Need), new[]
+        {
+            "TypeCode", "TargetHouseholdId", "ItemId", "Quantity", "Deadline", "Urgency", "ReasonCode",
+        }),
+        (typeof(Promise), new[] { "NeedIndex", "T0", "T1", "B", "State" }),
+        (typeof(PriceObservation), new[]
+        {
+            "ItemId", "LocationId", "Price", "SellerId", "ObservedAt", "Source",
+        }),
+        (typeof(LedgerEntry), new[]
+        {
+            "CounterpartyId", "ItemId", "Quantity", "UnitPrice", "OccurredAt", "Terms", "CreditDueAt",
+        }),
+    };
+
+    [Fact]
+    public void SectionElementMembersAreFrozenSoNewOnesMustBeHashed()
+    {
+        foreach (var (type, expectedMembers) in ExpectedSectionElementMembers)
+        {
+            var actual = StateMemberNames(type)
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToArray();
+
+            var expected = expectedMembers
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToArray();
+
+            Assert.True(
+                actual.SequenceEqual(expected),
+                $"{type.Name} の欄が変わった。StateHasher.Compute を更新したか、"
+                    + "意図的な除外なら TDD01 §3.8 の除外表とこの一覧"
+                    + "(ExpectedSectionElementMembers)を更新せよ。"
+                    + Environment.NewLine
+                    + $"  期待: {string.Join(", ", expected)}"
+                    + Environment.NewLine
+                    + $"  実際: {string.Join(", ", actual)}");
+        }
+    }
+
+    /// <summary>
+    /// 型が持つ<b>インスタンスの状態</b>の名前。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>static</c> を見ないのは、定数(<see cref="HouseholdState.ExternalMarketSellerId"/>)が
+    /// 状態ではないため。<see cref="World"/> 側の走査が <c>Static</c> を含むのと違う点である。
+    /// </para>
+    /// <para>
+    /// <b>手書きのバッキングフィールドをプロパティと二重に数えない。</b>
+    /// <c>HouseholdState.isBankrupt</c> や <c>NpcState.skillPermille</c> は、検証付きの setter を
+    /// 書くために手で置いたフィールドであり <see cref="CompilerGeneratedAttribute"/> が付かない。
+    /// 属性による除外だけでは落ちないので、<b>同名(大文字小文字を無視)のプロパティがある
+    /// フィールドを除く</b>。
+    /// </para>
+    /// <para>
+    /// <b>この規則の穴</b>: プロパティと無関係な private フィールドを、たまたま既存プロパティと
+    /// 同名(大小違い)で足すと見逃す。実際には起こりにくいので許容する。
+    /// </para>
+    /// </remarks>
+    private static IEnumerable<string> StateMemberNames(Type type)
+    {
+        const BindingFlags InstanceMembers =
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
+            | BindingFlags.DeclaredOnly;
+
+        var propertyNames = type.GetProperties(InstanceMembers).Select(property => property.Name).ToArray();
+
+        var fieldNames = type.GetFields(InstanceMembers)
+            .Where(field => !field.IsDefined(typeof(CompilerGeneratedAttribute), inherit: false))
+            .Where(field => !propertyNames.Any(
+                name => string.Equals(name, field.Name, StringComparison.OrdinalIgnoreCase)))
+            .Select(field => field.Name);
+
+        return propertyNames.Concat(fieldNames);
+    }
+
+    /// <summary>
     /// プロパティとフィールドの両方を見る。<c>public</c> プロパティだけに絞ると、
     /// アセンブリ内(<c>Visionary.Sim</c>)にしか公開しない <c>internal</c> な区分を見逃す。
     /// </summary>

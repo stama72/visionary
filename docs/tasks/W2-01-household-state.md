@@ -199,6 +199,17 @@ Households = 9,
 | 12 | `HashDistinguishesSectionsOfEqualTotalByteWidth`(**既存テスト13の作り直し**) | 下記「衝突ペアの選び直し」の組でハッシュが異なる | 区分ヘッダ(タグ+要素数)の前置をやめる | ★ |
 | 13 | `StateHasherCoverageTests`(既存) | `ExpectedWorldSections` に `Households` が入っている | 区分を足して期待一覧を更新しない(**このテストは実装前に赤になる。赤を確認してから更新すること**) |  |
 
+**以下はレビューで足りないと分かって追加したものである。** 上の表は実装に渡した時点の指示であり、これが最終形ではない。
+
+| #  | テスト | 検証内容 | この実装ミスで落ちる | 核心 |
+| -- | ------ | -------- | -------------------- | ---- |
+| 14 | `HashChangesWhenEitherInventoryChanges` | 世帯在庫・工房在庫が**それぞれ単独で**ハッシュに乗る | 片方を書き忘れる。**#6 はこれを捕まえない**(2つの世界で在庫の中身自体が違うため、残った1本の側でハッシュが変わる) |  |
+| 15 | `HashDistinguishesHouseholdsByTheirImmutableFields` | 区画Id・世帯主・構成員Id・構成員数がハッシュに乗る | 世帯の不変欄を書き忘れる。**2プロセス比較では原理的に検出できない**(同一ビルド同士なので、見ていない状態があっても一致は成立する) | ★ |
+| 16 | `HouseholdIdMatchesItsIndex` | 世帯 Id が添字と一致する | この不変条件が崩れる。**`household.Id` の書き忘れは値では検出できない**(冗長なため)ので、不変条件のほうを押さえる |  |
+| 17 | `BankruptFlagRejectsValuesOtherThanZeroAndOne` | 破産中フラグが 0 / 1 以外を拒む | 素の `{ get; set; }` にする。doc が「0 / 1」と断定しているので検証済みと読まれる |  |
+| 18 | `HouseholdCopiesTheMembersItWasGiven` | 構成員を複製して持つ | `.ToArray()` を落として参照を持つ |  |
+| 19 | `SectionElementMembersAreFrozenSoNewOnesMustBeHashed` | 区分の**要素型**の欄の一覧が凍結されている | `HouseholdState` などに欄を足して `Compute` を更新し忘れる。**#13 は `World` 直下のメンバ名しか見ないのでこの経路を捕まえない** | ★ |
+
 ### 衝突ペアの選び直し(テスト12)
 
 **既存の組は必ず壊れる。** `PriceObservation` が 24 → 28 バイトになり、`Market` 2件(24バイト)と釣り合わなくなる。既存テストのフィールド数凍結(`ExpectedPriceObservationFieldCount = 5`)がこれを検出して赤になる — **その赤を確認してから 6 に直すこと。**
