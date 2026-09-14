@@ -1,0 +1,49 @@
+name: タスク
+description: 実装・設計・実験・テストプレイ・プロセス改善・マーケティングのタスク
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **本文は箇条書き15行以内。設計はドキュメントへリンクし、ここに書かない。**
+        閉じる条件を1行で書けないものは、まだタスクではありません(親 issue にするか分割する)。
+        運用の正は [docs/process/04-issue-driven.md](../blob/master/docs/process/04-issue-driven.md)。
+  - type: input
+    id: done
+    attributes:
+      label: 閉じる条件
+      description: 1行で書く。書けないならタスクとして未熟。
+      placeholder: 例) 生産・消費システムのテストが緑で、PR がマージされている
+    validations:
+      required: true
+  - type: dropdown
+    id: type
+    attributes:
+      label: 型
+      description: 対応する `type:*` ラベルも付けること
+      options:
+        - design — 設計のみ。文書を書いて終わる
+        - impl — 実装。タスク仕様書 → 実装 → レビュー
+        - experiment — シム実験。条件を振り判定関数で判定する
+        - playtest — テストプレイ
+        - process — 開発手法の改善
+        - marketing — 市場調査・発信・ストア
+        - risk — リスク。解消か顕在化まで開く
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: やること / やらないこと
+      description: スコープの境界。**「やらないこと」を書くのが要点**。
+    validations:
+      required: true
+  - type: textarea
+    id: refs
+    attributes:
+      label: 参照する文書
+      description: GDD / TDD / ADR の該当節へのリンク。ここに設計を書かない。
+  - type: input
+    id: deps
+    attributes:
+      label: 依存
+      description: 待っている issue 番号。あれば `blocked` ラベルも付ける。

@@ -39,12 +39,23 @@ dotnet test  Visionary.sln -c Release
 dotnet format Visionary.sln               # CIのフォーマット検証を通す
 ```
 
+## スコープと優先順位
+
+方針は**速さより質**だが、これは「すべての判断に等しく時間をかける」ことではない([ADR-0004](docs/adr/0004-ai-driven-development-workflow.md) 背景)。W2 の設計工程が M2 相当まで膨張して期限を超過した反省から、以下を規律とする([ADR-0006](docs/adr/0006-issue-driven-task-management.md))。
+
+- **進行・スコープ・優先順位・未決事項・更新履歴を持つのは [GitHub の issue](https://github.com/stama72/visionary/issues) だけ。** 文書は「なぜ」と「今の仕様」だけを持つ。運用の正は [docs/process/04-issue-driven.md](docs/process/04-issue-driven.md)
+- **指摘・提案は「今のマイルストーンの Exit Criteria を脅かすか」で仕分ける。** 脅かさないものは**直さずに issue へ落とす**。正しい指摘であることと、今直すべきことは別である
+- **マイルストーンの定義と Exit Criteria は [企画書 §5](docs/02-project-proposal.md) が正。** 期日と進捗は GitHub Milestone が持つ。`docs/` にマイルストーン計画やリスク管理表を作らない
+- **スコープが膨らんだら、上げるのは並行度ではなくスコープ削減で対応する**(ADR-0004 帰結)
+- **開発者の判断を要するタスクの WIP は 1**(設計・ADR・ゲームデザイン)。仕様が凍結済みの実装タスクに限り 2 本まで
+- **`docs/` に `## 未決定事項` 節を置かない。** `- [ ]` は完了条件のチェックリストとしてのみ使う
+
 ## ドキュメント運用
 
 - 個人開発だが、チーム開発の意思決定プロセスを模して文書を運用する
 - 大きな技術的決定は **ADR** に「背景・選択肢・決定・理由」を記録する
 - GDD/TDD は「育てる文書」。実装が仕様と乖離したら、コードだけでなく**文書側も直す**
-- 文書は**寿命**で三層。ADR(永続) / GDD・TDD・[process/](docs/process/)(育てる) / タスク仕様 [docs/tasks/](docs/tasks/)(PRとともに終わる)
+- 文書は**寿命**で四層。ADR(永続) / GDD・TDD・[process/](docs/process/)(育てる) / **issue(閉じるまで)** / タスク仕様 [docs/tasks/](docs/tasks/)(PRとともに終わる)
 - **ADRとGDDの境界**:
   - **ADRは「選択肢と理由」を記録する。** 何を検討し、なぜそれを選んだか。凍る
   - **GDDは「今の仕様」を持つ。** 現時点で何がどうなっているか。育つ
@@ -53,8 +64,8 @@ dotnet format Visionary.sln               # CIのフォーマット検証を通�
 - **ADRか他文書かの切り分けは3つの問いで判定する**(却下選択肢の価値 / 決定か予測か / なぜか今か)。判定基準の正は [docs/adr/README.md](docs/adr/README.md)「ADRか他文書かの切り分け」
 - **開発プロセスの現行仕様は [docs/process/](docs/process/)** が持つ。運用のフィードバックはまずそこと `.claude/` に反映する。**プロセスについて新たにADRを起こすのは、過去のADRの決定を覆すときに限る**(新しい分野の決定であれば、却下した選択肢に価値があるかで判断する)
 - 新しい規約を作るときは「**これは機械で守れるか**」を必ず問う。機械で守れない規約は、サブエージェントに任せられる範囲を狭める([ADR-0004](docs/adr/0004-ai-driven-development-workflow.md))
-- 同時に進めるタスクは1つ。状態は [docs/tasks/README.md](docs/tasks/README.md) の一覧が正
-- **どの変更も、開発者のレビューの前にレビュアーエージェントを必ず通す。** 例外を作らない([docs/process/01-review.md](docs/process/01-review.md))
+- タスクの状態・優先順位・依存関係は **issue が正**。`docs/tasks/` はタスク仕様のファイルとテンプレートだけを持つ
+- **どの変更も、開発者のレビューの前にレビュアーエージェントを必ず通す。** 例外を作らない。レビューには**スコープの関門と停止則**がある([docs/process/01-review.md](docs/process/01-review.md))
 - **タスク仕様のテスト節は「落ちるべき条件」を書く。** 目標は通すことではなく、壊したときに落ちること。書き方の規則は [docs/process/02-task-spec.md](docs/process/02-task-spec.md)
 - **レビュー指摘を直すときは、追記ではなく上書きする。訂正前の語で grep して残存を確認する。** 同じ主張は仕様の表・散文・規約ファイル・docコメントの複数層に散っている。規則は [docs/process/03-corrections.md](docs/process/03-corrections.md)
 - 数値(閾値・係数)は初期値であり調整対象。固定すべきは構造と依存関係

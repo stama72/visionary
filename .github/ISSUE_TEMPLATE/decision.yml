@@ -1,0 +1,34 @@
+name: 未決事項(判断待ち)
+description: まだ決まっていないこと。決めると何が進むかを書く
+labels: ["needs-decision"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **未決事項を持つのは issue だけです**([ADR-0006](../blob/master/docs/adr/0006-issue-driven-task-management.md))。
+        ただし**値・閾値の初期値**と**他分冊へのルーティング**は未決事項ではありません。
+        仕分けは [docs/process/04-issue-driven.md](../blob/master/docs/process/04-issue-driven.md)「未決事項の扱い」を見てください。
+  - type: textarea
+    id: question
+    attributes:
+      label: 何が決まっていないか
+      description: 選択肢が見えているなら並べる。
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: 決めないと何が詰まるか
+      description: "**優先順位の根拠になる欄。** 何も詰まらないなら P2 か、issue にしない。"
+    validations:
+      required: true
+  - type: input
+    id: when
+    attributes:
+      label: いつ決めるか
+      description: Milestone で表す。ここにはその理由を1行で。
+      placeholder: 例) W2 の実データが出てから。それ以前は判断材料が無い
+  - type: textarea
+    id: refs
+    attributes:
+      label: 参照する文書
