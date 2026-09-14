@@ -11,7 +11,8 @@ ADRの価値は決定そのものより、**却下した選択肢とその理由
 | 0003 | [暦の構造(1年 = 4季 × 30日)](0003-calendar-structure.md)                                  | 承認 | 2026-08-25 |
 | 0004 | [AIエージェントの役割分担と作業単位](0004-ai-driven-development-workflow.md)                     | 承認(憲章リストは 0005 で棄却 / WIP と状態一覧は 0006 で読み替え) | 2026-08-27 |
 | 0005 | [レビュアーの守備範囲と憲章の所在](0005-reviewer-scope-includes-spec-defects.md)                 | 承認 | 2026-08-31 |
-| 0006 | [issue駆動のタスク管理と、スコープ・優先順位の器](0006-issue-driven-task-management.md)          | 承認 | 2026-09-14 |
+| 0006 | [issue駆動のタスク管理と、スコープ・優先順位の器](0006-issue-driven-task-management.md)          | 承認(背景の測定値は 0007 で読み替え) | 2026-09-14 |
+| 0007 | [M1 の品目数を経済モデルの要求に合わせて広げる](0007-m1-scale-follows-economic-model.md)          | 承認 | 2026-09-14 |
 
 ## 運用ルール
 

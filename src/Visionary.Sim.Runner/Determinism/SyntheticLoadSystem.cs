@@ -14,7 +14,7 @@ namespace Visionary.Sim.Runner.Determinism;
 /// </remarks>
 internal sealed class SyntheticLoadSystem : ISimSystem
 {
-    // 品目5種(合成負荷の任意の値。M0 の品目は GDD02 §2.4)。
+    // 品目5種(合成負荷の任意の値。M0 の品目は GDD02 §2.2)。
     private const int ItemCount = 5;
 
     // 立地9区画(合成負荷の任意の値。M0 の区画は GDD02 §4.3)。

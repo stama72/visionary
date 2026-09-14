@@ -16,7 +16,7 @@ internal static class Program
     private const int ExitSuccess = 0;
     private const int ExitUsage = 64;
 
-    // 合成負荷の任意の値。M0 の規模は GDD02 §2.4(都市12世帯 + 農村8世帯 = 20世帯・NPC 80体)。
+    // 合成負荷の任意の値。M0 の規模は GDD02 §2.4(都市5職業 × 2世帯 = 10世帯・NPC 20体)。
     private const int DefaultNpcCount = 40;
 
     private static int Main(string[] args)
