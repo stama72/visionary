@@ -41,7 +41,7 @@ dotnet format Visionary.sln               # CIのフォーマット検証を通�
 
 ## スコープと優先順位
 
-方針は**速さより質**だが、これは「すべての判断に等しく時間をかける」ことではない([ADR-0004](docs/adr/0004-ai-driven-development-workflow.md) 背景)。W2 の設計工程が M2 相当まで膨張して期限を超過した反省から、以下を規律とする([ADR-0006](docs/adr/0006-issue-driven-task-management.md))。
+方針は**効率と質の両立**([ADR-0008](docs/adr/0008-review-scope-narrowed-to-unnoticeable-defects.md))。かつての「速さより質」は理解負債を根拠にしていたが、10万字級の設計文書が揃った時点でその根拠は満たされた。**いま大きいリスクは品質の崩壊ではなく、完遂しないことである。** 以下を規律とする([ADR-0006](docs/adr/0006-issue-driven-task-management.md) / [ADR-0008](docs/adr/0008-review-scope-narrowed-to-unnoticeable-defects.md))。
 
 - **進行・スコープ・優先順位・未決事項・更新履歴を持つのは [GitHub の issue](https://github.com/stama72/visionary/issues) だけ。** 文書は「なぜ」と「今の仕様」だけを持つ。運用の正は [docs/process/04-issue-driven.md](docs/process/04-issue-driven.md)
 - **指摘・提案は「今のマイルストーンの Exit Criteria を脅かすか」で仕分ける。** 脅かさないものは**直さずに issue へ落とす**。正しい指摘であることと、今直すべきことは別である
@@ -65,7 +65,9 @@ dotnet format Visionary.sln               # CIのフォーマット検証を通�
 - **開発プロセスの現行仕様は [docs/process/](docs/process/)** が持つ。運用のフィードバックはまずそこと `.claude/` に反映する。**プロセスについて新たにADRを起こすのは、過去のADRの決定を覆すときに限る**(新しい分野の決定であれば、却下した選択肢に価値があるかで判断する)
 - 新しい規約を作るときは「**これは機械で守れるか**」を必ず問う。機械で守れない規約は、サブエージェントに任せられる範囲を狭める([ADR-0004](docs/adr/0004-ai-driven-development-workflow.md))
 - タスクの状態・優先順位・依存関係は **issue が正**。`docs/tasks/` はタスク仕様のファイルとテンプレートだけを持つ
-- **どの変更も、開発者のレビューの前にレビュアーエージェントを必ず通す。** 例外を作らない。レビューには**スコープの関門と停止則**がある([docs/process/01-review.md](docs/process/01-review.md))
+- **レビュアーエージェントは実装工程にだけ使う。** 設計・プロセス・文書のみの変更には使わない。そちらは開発者のレビューと [`/advise`](.claude/commands/advise.md)(設計アドバイザー)が担う
+- **レビューの守備範囲は「気付けない × 影響大」に限る。** 表記揺れ・リンク切れ・軽微な不整合は**報告しない**。実装レビューは巡ごとに報告してよい象限を狭め、4巡目で打ち切る([docs/process/01-review.md](docs/process/01-review.md))
+- **気付いたら直す。** 守備範囲の外を放置できるのはこの規約があるからである。リンク切れ・表記揺れ・古い件数は、見つけたそのとき、触っているブランチで直す。issue も別 PR も立てない
 - **タスク仕様のテスト節は「落ちるべき条件」を書く。** 目標は通すことではなく、壊したときに落ちること。書き方の規則は [docs/process/02-task-spec.md](docs/process/02-task-spec.md)
-- **レビュー指摘を直すときは、追記ではなく上書きする。訂正前の語で grep して残存を確認する。** 同じ主張は仕様の表・散文・規約ファイル・docコメントの複数層に散っている。規則は [docs/process/03-corrections.md](docs/process/03-corrections.md)
+- **訂正で「機械が守っている」と書く前に、実際に壊して落ちることを確かめる。迷ったら狭い側に倒す。** 広い誤りは「見なくてよい」と読ませるので、踏んでも気付けない。あわせて**却下理由の前提が、同じ変更で崩れていないか**を見る。規則は [docs/process/03-corrections.md](docs/process/03-corrections.md)
 - 数値(閾値・係数)は初期値であり調整対象。固定すべきは構造と依存関係
