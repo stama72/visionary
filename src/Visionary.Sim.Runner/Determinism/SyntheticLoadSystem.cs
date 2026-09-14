@@ -17,7 +17,7 @@ internal sealed class SyntheticLoadSystem : ISimSystem
     // 品目5種(合成負荷の任意の値。M0 の品目は GDD02 §2.4)。
     private const int ItemCount = 5;
 
-    // 立地9区画(GDD02 §4.3 の 3×3 グリッド)。
+    // 立地9区画(合成負荷の任意の値。M0 の区画は GDD02 §4.3)。
     private const int LocationCount = 9;
 
     // Needs/Promises を追加する確率。
