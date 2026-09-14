@@ -193,8 +193,12 @@ public sealed class StateHasherCoverageTests
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>static</c> を見ないのは、定数(<see cref="HouseholdState.ExternalMarketSellerId"/>)が
-    /// 状態ではないため。<see cref="World"/> 側の走査が <c>Static</c> を含むのと違う点である。
+    /// <b><c>static</c> も走査し、<c>const</c> だけを除く。</b>
+    /// 定数(<see cref="HouseholdState.ExternalMarketSellerId"/>)は状態ではないが、
+    /// <b><c>static</c> な可変フィールドは状態である</b> — 要素型に共有カウンタやキャッシュが
+    /// 入ると、この凍結にも <c>StateHasher</c> にも2プロセス比較にも一切現れない。
+    /// <c>static readonly</c> もここに現れるが、状態でないなら除外の判断とともに
+    /// 下の期待一覧へ足せばよい。
     /// </para>
     /// <para>
     /// <b>手書きのバッキングフィールドをプロパティと二重に数えない。</b>
@@ -210,13 +214,14 @@ public sealed class StateHasherCoverageTests
     /// </remarks>
     private static IEnumerable<string> StateMemberNames(Type type)
     {
-        const BindingFlags InstanceMembers =
-            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
+        const BindingFlags StateMembers =
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static
             | BindingFlags.DeclaredOnly;
 
-        var propertyNames = type.GetProperties(InstanceMembers).Select(property => property.Name).ToArray();
+        var propertyNames = type.GetProperties(StateMembers).Select(property => property.Name).ToArray();
 
-        var fieldNames = type.GetFields(InstanceMembers)
+        var fieldNames = type.GetFields(StateMembers)
+            .Where(field => !field.IsLiteral) // const は状態ではない
             .Where(field => !field.IsDefined(typeof(CompilerGeneratedAttribute), inherit: false))
             .Where(field => !propertyNames.Any(
                 name => string.Equals(name, field.Name, StringComparison.OrdinalIgnoreCase)))
