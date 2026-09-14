@@ -8,16 +8,16 @@ namespace Visionary.Sim.Runner.Determinism;
 /// W2 で TDD01 §3.3 の本物のシステム群に差し替え、このファイルは削除する。
 /// </summary>
 /// <remarks>
-/// 全区画に書き込むことで、<see cref="Determinism.StateHasher"/> の「全区画を Id 昇順で走る」
+/// 全区分に書き込むことで、<see cref="Determinism.StateHasher"/> の「全区分を Id 昇順で走る」
 /// 経路を W1 中に実行させる。数値定数はすべて合成負荷の都合で選んだ値であり、
 /// 経済的な意味は無い(仕様)。
 /// </remarks>
 internal sealed class SyntheticLoadSystem : ISimSystem
 {
-    // 品目5種(TDD01 §3.6)。
+    // 品目5種(合成負荷の任意の値。M0 の品目は GDD02 §2.4)。
     private const int ItemCount = 5;
 
-    // 立地9区画(TDD01 §3.2)。
+    // 立地9区画(合成負荷の任意の値。M0 の区画は GDD02 §4.3)。
     private const int LocationCount = 9;
 
     // Needs/Promises を追加する確率。
@@ -94,7 +94,7 @@ internal sealed class SyntheticLoadSystem : ISimSystem
                 });
             }
 
-            // ハッシュに入らない区画(EventLog)を実行時にも踏むため必ず追加する(仕様)。
+            // ハッシュに入らない区分(EventLog)を実行時にも踏むため必ず追加する(仕様)。
             world.EventLog.Add(new DomainEvent
             {
                 KindCode = rng.NextInt(0, 6), // W2 で設計(TDD01 §3.6 仮決め表)
