@@ -369,8 +369,8 @@ public sealed class ProductionSystemTests
     }
 
     /// <summary>
-    /// 【核心】別表 #31。入力A(数量2・在庫4)と入力B(数量3・在庫15)を持つレシピで
-    /// 生産能力3 → 実行2回。入力Aは0、入力Bは9が残る。
+    /// 【核心】別表 #31。入力A(数量2・在庫5)と入力B(数量3・在庫15)を持つレシピで
+    /// 生産能力3 → 実行2回。入力Aは1、入力Bは9が残る。
     /// </summary>
     /// <remarks>
     /// <para>
@@ -381,20 +381,33 @@ public sealed class ProductionSystemTests
     /// 割り忘れ・掛け忘れのどちらも判別できない(2巡目レビュー象限I-a)。
     /// </para>
     /// <para>
+    /// <b>入力Aの在庫は5(3巡目レビューI-aで4から訂正)。</b>当初の4は2で割り切れ、
+    /// <c>FloorDiv(4,2)=CeilDiv(4,2)=2</c> となるため、この除算の丸めの向き
+    /// (<c>FloorDiv</c> と <c>CeilDiv</c> の違い)を一度も判別できていなかった
+    /// (3巡目レビューで実測)。5にすると <c>FloorDiv(5,2)=2</c> / <c>CeilDiv(5,2)=3</c> で
+    /// 向きが分かれる。GDD02 §5.2 が「切り上げ規約の意図的な例外」と明記した除算なので、
+    /// 既定(切り上げ)へ引き戻す変異は書き手の善意からでも起こりうる。
+    /// </para>
+    /// <para>
     /// <b>変異の実測1(2026-09-16)。</b><c>ProductionSystem.RunOneHousehold</c> の
     /// <c>IntegerMath.FloorDiv(household.WorkshopInventory[input.ItemId], input.Quantity)</c> を
-    /// <c>household.WorkshopInventory[input.ItemId]</c>(在庫の個数をそのまま使う)に変える変異を
-    /// 当てたところ、実行回数が3回(min(capacity=3, stockA=4, stockB=15))になり、
-    /// <c>Assert.Equal(0, ...InputA)</c> が実際値-2(4 − 2×3 = -2。在庫が負に落ちる)で
+    /// <c>household.WorkshopInventory[input.ItemId]</c>(在庫の個数をそのまま使う。割り忘れ)に
+    /// 変える変異を当てたところ、実行回数が3回(min(capacity=3, stockA=5, stockB=15))になり、
+    /// <c>Assert.Equal(1, ...InputA)</c> が実際値-1(5 − 2×3 = -1。在庫が負に落ちる)で
     /// 失敗した(赤を確認)。変異を戻して緑に復帰させた。
     /// </para>
     /// <para>
     /// <b>変異の実測2(2026-09-16)。</b>入力の減算
     /// <c>household.WorkshopInventory[input.ItemId] -= input.Quantity * runs;</c> の
-    /// <c>input.Quantity *</c> を落とす変異(<c>-= runs;</c>)を当てたところ、
-    /// <c>Assert.Equal(0, ...InputA)</c> が実際値2(4 − 2 = 2)、
-    /// <c>Assert.Equal(9, ...InputB)</c> が実際値13(15 − 2 = 13)で失敗した(赤を確認)。
+    /// <c>input.Quantity *</c> を落とす変異(掛け忘れ。<c>-= runs;</c>)を当てたところ、
+    /// <c>Assert.Equal(1, ...InputA)</c> が実際値3(5 − 2 = 3)で失敗した(赤を確認)。
     /// 変異を戻して緑に復帰させた。
+    /// </para>
+    /// <para>
+    /// <b>変異の実測3(2026-09-16)。</b><c>IntegerMath.FloorDiv</c> を
+    /// <c>IntegerMath.CeilDiv</c>(丸めの向きの取り違え)に変える変異を当てたところ、
+    /// <c>CeilDiv(5,2)=3</c> で実行回数が3回になり、<c>Assert.Equal(1, ...InputA)</c> が
+    /// 実際値-1(5 − 2×3 = -1)で失敗した(赤を確認)。変異を戻して緑に復帰させた。
     /// </para>
     /// </remarks>
     [Fact]
@@ -415,12 +428,12 @@ public sealed class ProductionSystemTests
             recipe, laborPermilleByRank: new[] { 3000, 0, 0 });
         var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(new[] { NpcRank.Master });
         world.Households[0].WorkshopInventory[Item.Tools] = 1;
-        world.Households[0].WorkshopInventory[InputA] = 4;
+        world.Households[0].WorkshopInventory[InputA] = 5;
         world.Households[0].WorkshopInventory[InputB] = 15;
 
         EconomySystemTestFixtures.RunDays(world, new ProductionSystem(definition), days: 1);
 
-        Assert.Equal(0, world.Households[0].WorkshopInventory[InputA]);
+        Assert.Equal(1, world.Households[0].WorkshopInventory[InputA]);
         Assert.Equal(9, world.Households[0].WorkshopInventory[InputB]);
     }
 }
