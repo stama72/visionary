@@ -74,7 +74,7 @@ ADR-0004 は「レビュー往復が2回を超えたらモデルではなく仕�
 
 ## 実装は必ず implementer が書く
 
-**`docs/tasks/` に仕様があるものが実装タスクであり、その実装は必ず implementer が書く。**([ADR-0009](../adr/0009-phase-scoped-sessions.md) 論点3)レビュー指摘の修正も含む。
+**`docs/tasks/` に仕様があるものが実装タスクであり、その実装は必ず implementer が書く。**([ADR-0004](../adr/0004-ai-driven-development-workflow.md) 論点1)**レビュー指摘の修正も含む**のは [ADR-0009](../adr/0009-phase-scoped-sessions.md) 論点3 が足した一点である。
 
 **書いた本人が実装すると、仕様に穴があっても自分の頭から埋めてしまい表面化しない。** W2-01 はこれを踏み、先行指標が1回分採れなかったうえ、仕様の穴がレビューまで持ち越された([#65](https://github.com/stama72/visionary/issues/65))。
 
