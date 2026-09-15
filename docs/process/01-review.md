@@ -3,7 +3,7 @@
 | 項目     | 内容                                                                     |
 | -------- | ------------------------------------------------------------------------ |
 | 種別     | 育てる文書(現行の運用を持つ)                                            |
-| 関連     | [ADR-0004](../adr/0004-ai-driven-development-workflow.md) 論点1・4 / [ADR-0005](../adr/0005-reviewer-scope-includes-spec-defects.md) / [ADR-0006](../adr/0006-issue-driven-task-management.md) 論点5 / [ADR-0008](../adr/0008-review-scope-narrowed-to-unnoticeable-defects.md) |
+| 関連     | [ADR-0004](../adr/0004-ai-driven-development-workflow.md) 論点1・4 / [ADR-0005](../adr/0005-reviewer-scope-includes-spec-defects.md) / [ADR-0006](../adr/0006-issue-driven-task-management.md) 論点5 / [ADR-0008](../adr/0008-review-scope-narrowed-to-unnoticeable-defects.md) / [ADR-0009](../adr/0009-phase-scoped-sessions.md) |
 
 ## 方針 — 効率と質の両立
 
@@ -25,6 +25,8 @@
 
 **レビュアーエージェントは実装工程にだけ使う。** 設計・プロセス工程には使わない([ADR-0008](../adr/0008-review-scope-narrowed-to-unnoticeable-defects.md) 論点3)。
 
+**実装工程のレビューは[フェーズ2](05-phase-sessions.md)が回す。** レビュアーを起動するのも、指摘を implementer に渡すのもフェーズ2 のセッションである。
+
 `/advise` は敵対的レビューではない。論点整理とスコープ整理を行い、**象限I-b の4類型**(広い保証 / 参照点の誤り / 上位文書との矛盾 / 却下理由の空洞化)だけを必ず報告する。結論は開発者が出す。
 
 ## 「気付いたら直す」
@@ -42,7 +44,7 @@
 
 **憲章そのものの正は [`.claude/agents/reviewer.md`](../../.claude/agents/reviewer.md) である。** 本書はその本文を複製しない。理由は憲章が**実行される設定**だからである(詳細は [README「実行される仕様」](README.md#実行される仕様という位置づけ))。
 
-同じことが [`.claude/agents/implementer.md`](../../.claude/agents/implementer.md)、[`.claude/commands/learn.md`](../../.claude/commands/learn.md)、[`.claude/commands/advise.md`](../../.claude/commands/advise.md) にも当てはまる。
+同じことが [`.claude/agents/implementer.md`](../../.claude/agents/implementer.md)、[`.claude/commands/learn.md`](../../.claude/commands/learn.md)、[`.claude/commands/advise.md`](../../.claude/commands/advise.md)、[`.claude/commands/impl.md`](../../.claude/commands/impl.md)、[`.claude/commands/wrap.md`](../../.claude/commands/wrap.md) にも当てはまる。
 
 ADR-0004 決定(まとめ)にも憲章のリストがあるが、**あれは起案時点(2026-08-27)のスナップショット**である([ADR-0005](../adr/0005-reviewer-scope-includes-spec-defects.md))。
 
@@ -50,7 +52,7 @@ ADR-0004 決定(まとめ)にも憲章のリストがあるが、**あれは起�
 
 - レビュアーは**実装とは独立したコンテキスト**で読む。実装を担当したセッション/エージェントの説明を渡さない。渡した時点で「ドキュメントから読み取れない実装」が見えなくなり、レビューがドキュメント品質の検査を兼ねるという設計([ADR-0004](../adr/0004-ai-driven-development-workflow.md) 論点1)が壊れる
 - **機械の判定結果を渡さない**(同 帰結)。ビルド・テスト・フォーマットが緑であることだけ伝え、再判定させない
-- 指摘への対応は3択:**直す / 直さないと決めて理由を残す / issue へ落とす**。黙って見送らない
+- 指摘への対応は3択:**直す / 直さないと決めて理由を残す / issue へ落とす**。黙って見送らない。**直したものはコミット本文が持ち、直さないと決めたものは[引き継ぎメモ](05-phase-sessions.md)が持つ** — 直さないとコミットが発生せず、記録先が無いままになる
 - **象限I は直す。象限II は開発者が決める**(直すか issue か)
 
 ## 減衰と打ち切り
@@ -66,7 +68,8 @@ ADR-0004 決定(まとめ)にも憲章のリストがあるが、**あれは起�
 打ち切るときは:
 
 - **残る指摘を issue に落としてから打ち切る**
-- 実装なら PR の説明に、文書なら本文に「この版で打ち切った」と理由つきで記録する
+- 実装なら PR の説明に、文書なら本文に「この版で打ち切った」と理由つきで記録する。**実装では、PR を書くのは別フェーズなので[引き継ぎメモ](05-phase-sessions.md)を経由する**
+- **巡ごとの件数は 0 件の巡も記録する。** 0 件の巡はコミットが発生しないため、記録しないと「その巡が無かった」ことになる
 
 ## 2巡目以降に渡すもの
 
