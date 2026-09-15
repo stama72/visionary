@@ -12,7 +12,7 @@ namespace Visionary.Sim;
 /// <para>
 /// <b>区画 Id と世帯主と構成員は不変。</b>区画が不変なのは GDD02 §4.3「世帯は区画を移らない」、
 /// 構成員が M0 で不変なのは世代交代(GDD02 §11)が M0 スコープ外だから。
-/// <see cref="OccupationId"/> だけが可変なのは GDD02 §6.3 ④の職業付け替えがあるため。
+/// <see cref="Occupation"/> だけが可変なのは GDD02 §6.3 ④の職業付け替えがあるため。
 /// </para>
 /// </remarks>
 public sealed class HouseholdState
@@ -26,10 +26,10 @@ public sealed class HouseholdState
     public int DistrictId { get; }
 
     /// <summary>
-    /// 職業 Id。値の定義(0〜4)は GDD02 §2.4 が持ち、enum 化は別タスク。
-    /// GDD02 §6.3 ④の職業付け替えで変わる。
+    /// 職業。値の定義(0〜4)は GDD02 §2.4 が持つ。GDD02 §6.3 ④の職業付け替えで変わる
+    /// ため <c>set</c> を残す。
     /// </summary>
-    public int OccupationId { get; set; }
+    public Occupation Occupation { get; set; }
 
     /// <summary>世帯主の NpcId(GDD08 §2.1)。</summary>
     public int HeadNpcId { get; }
@@ -60,6 +60,16 @@ public sealed class HouseholdState
 
     /// <summary>工房在庫(生産の入出力)。添字 = itemId。</summary>
     public int[] WorkshopInventory { get; }
+
+    /// <summary>
+    /// 仕入れ移動平均単価。添字 = itemId。単位: 貨幣/1単位(GDD02 §8.1.1)。
+    /// </summary>
+    /// <remarks>
+    /// <b>更新規則は本タスク(#33)に無い。</b>コンストラクタは長さ <c>itemCount</c> の配列を
+    /// 0 で確保するだけで、初期値を書き込むのは <see cref="WorldGenerator"/> である。
+    /// 窓付きにするか再帰形にするかは原価の式を書く #35 が決める。
+    /// </remarks>
+    public int[] PurchaseUnitCostAverage { get; }
 
     /// <summary>
     /// 破産中フラグ(GDD02 §6.2.2)。0 / 1。<b>bool を使わない</b> —
@@ -164,10 +174,11 @@ public sealed class HouseholdState
         HeadNpcId = headNpcId;
         MemberNpcIds = memberNpcIds.ToArray();
 
-        OccupationId = 0;
+        Occupation = default;
         LiquidFunds = 0;
         HouseholdInventory = new int[itemCount];
         WorkshopInventory = new int[itemCount];
+        PurchaseUnitCostAverage = new int[itemCount];
         IsBankrupt = 0;
     }
 }

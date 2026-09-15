@@ -164,7 +164,7 @@ public static class StateHasher
         {
             WriteInt32(hasher, buffer, household.Id);
             WriteInt32(hasher, buffer, household.DistrictId);
-            WriteInt32(hasher, buffer, household.OccupationId);
+            WriteInt32(hasher, buffer, (int)household.Occupation);
             WriteInt32(hasher, buffer, household.HeadNpcId);
 
             WriteInt32(hasher, buffer, household.MemberNpcIds.Length);
@@ -178,10 +178,13 @@ public static class StateHasher
 
             // 世帯在庫と工房在庫は別勘定である(TDD01 §3.2)。薪のように両方に現れる品目が
             // あるため、2本を畳むと GDD02 §8.2.1 の目標在庫が一意に決まらない。
-            WriteInventory(hasher, buffer, household.HouseholdInventory);
-            WriteInventory(hasher, buffer, household.WorkshopInventory);
+            WriteInt32Array(hasher, buffer, household.HouseholdInventory);
+            WriteInt32Array(hasher, buffer, household.WorkshopInventory);
 
             WriteInt32(hasher, buffer, household.IsBankrupt);
+
+            // 要素の末尾に足す(区分タグを末尾に足すのと同じ規律。TDD01 §3.8)。
+            WriteInt32Array(hasher, buffer, household.PurchaseUnitCostAverage);
         }
 
         // EventLog は含めない(§3.8 の除外表)。意思決定に関与せず、追記専用で巨大。
@@ -189,14 +192,17 @@ public static class StateHasher
         return hasher.GetCurrentHashAsUInt64();
     }
 
-    /// <summary>長さを前置してから各数量を書く。添字 = itemId(GDD02 §2.2)。</summary>
-    private static void WriteInventory(XxHash64 hasher, Span<byte> buffer, int[] inventory)
+    /// <summary>
+    /// 長さを前置してから各要素を書く。在庫(添字 = itemId、GDD02 §2.2)と
+    /// 仕入れ移動平均単価の両方に使う共通の書式。
+    /// </summary>
+    private static void WriteInt32Array(XxHash64 hasher, Span<byte> buffer, int[] values)
     {
-        WriteInt32(hasher, buffer, inventory.Length);
+        WriteInt32(hasher, buffer, values.Length);
 
-        foreach (int quantity in inventory)
+        foreach (int value in values)
         {
-            WriteInt32(hasher, buffer, quantity);
+            WriteInt32(hasher, buffer, value);
         }
     }
 

@@ -142,8 +142,9 @@ public sealed class StateHasherCoverageTests
         (typeof(NpcState), new[] { "Id", "HouseholdId", "Rank", "SkillPermille" }),
         (typeof(HouseholdState), new[]
         {
-            "Id", "DistrictId", "OccupationId", "HeadNpcId", "MemberNpcIds",
+            "Id", "DistrictId", "Occupation", "HeadNpcId", "MemberNpcIds",
             "LiquidFunds", "HouseholdInventory", "WorkshopInventory", "IsBankrupt",
+            "PurchaseUnitCostAverage",
         }),
         (typeof(MarketKey), new[] { "ItemId", "SellerId" }),
         (typeof(TrustKey), new[] { "From", "To" }),

@@ -56,7 +56,7 @@ internal sealed class SyntheticLoadSystem : ISimSystem
             int itemCount = household.HouseholdInventory.Length;
 
             household.LiquidFunds += rng.NextInt(-50, 51); // 単位: 貨幣
-            household.OccupationId = rng.NextInt(0, OccupationCount);
+            household.Occupation = (Occupation)rng.NextInt(0, OccupationCount);
             household.IsBankrupt = rng.NextBool(BankruptProbabilityPermille) ? 1 : 0;
 
             // 世帯在庫と工房在庫の両方に書く。片方だけだと2本の区別(TDD01 §3.2)が

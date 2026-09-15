@@ -330,7 +330,7 @@ public sealed class StateHasherTests
         var world = OneHouseholdWorld();
         ulong before = StateHasher.Compute(world);
 
-        world.Households[0].OccupationId = 4;
+        world.Households[0].Occupation = Occupation.Smith;
         ulong after = StateHasher.Compute(world);
 
         Assert.NotEqual(before, after);
