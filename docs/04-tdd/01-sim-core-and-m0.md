@@ -129,7 +129,7 @@ k = Mix(k ^ (ulong)entityId)     // エンティティ非依存の用途は enti
 | ----------- | ------------------------------------------------------------------- | ---------- |
 | Clock       | 現在tickのみ。暦は`GameDate`による読み替えで、状態として持たない | ADR-0003  |
 | Npcs        | Id、世帯Id、階層(親方/職人/徒弟)、熟練度                            | §2.2.2 / GDD08 §2.2 |
-| Households  | Id、**区画Id(不変)**、職業、世帯主NpcId、構成員NpcId列、流動資金、世帯在庫、工房在庫、**破産中フラグ**(int 0/1) | GDD02 §6.2 / §6.2.2 / GDD08 §2.2 |
+| Households  | Id、**区画Id(不変)**、職業、世帯主NpcId、構成員NpcId列、流動資金、世帯在庫、工房在庫、**仕入れ移動平均単価**、**破産中フラグ**(int 0/1) | GDD02 §6.2 / §6.2.2 / §8.1 / GDD08 §2.2 |
 | Market      | 品目 × **売り手世帯**の提示価格。Id昇順の疎構造                  | GDD02 §8.1 |
 | TrustLedger | `TrustScore{from, to, value, lastMet}` の疎マップ                 | §2.1      |
 | Needs       | `Need{種別, **対象世帯**, 品目, 数量, 期限, 緊急度, 理由}`         | §3.2      |
@@ -228,13 +228,13 @@ W1 は器だけを作ったため、`World` の各区分の要素型は宣言の
 
 | 対象 | W1 での仮の形 | 正すべき方向 |
 | ---- | ------------- | ------------ |
-| `Need.TargetNpcId` | 対象を NPC の Id で持つ | **世帯 Id にする。** 在庫・資金・帳簿を世帯へ移した(§3.2)以上、不足の主体も世帯である([GDD02 §6.2](../03-gdd/02-economy.md))。`TargetNpcId` という名前ごと W2 で変える |
+| `Need.TargetNpcId` **(W2-01 で確定済み)** | 対象を NPC の Id で持つ | **世帯 Id にする。** 在庫・資金・帳簿を世帯へ移した(§3.2)以上、不足の主体も世帯である([GDD02 §6.2](../03-gdd/02-economy.md))。`TargetNpcId` という名前ごと W2 で変える → `Need.TargetHouseholdId` として実装済み |
 | `Need.TypeCode` / `ReasonCode` | 裸の `int` | GDD01 §3.2 が挙げる種別(在庫不足/金銭不足/労働力不足/建設意欲/イベント/病気…)を enum にする。列挙が「…」で閉じていないため W2 で確定 |
 | `Promise` → `Need` の参照 | `World.Needs` の**配列添字** | `Need` に非負の int の Id を持たせ、Id 参照にする。添字は `Needs` を削除・並べ替えた瞬間に別の Need を指す |
 | `LedgerEntry.Terms` | `enum{Cash,Credit}` + `Tick CreditDueAt` | この平坦化は妥当。共用体を決定論と相性よく表現している |
 | `TrustScore` | `from`/`to` を持たず `Value`/`LastMet` のみ | キー(`TrustKey`)が既に持つため非正規化を避けた。**GDD01 §2.1 の4フィールド定義との食い違いは、GDD側を「キーと値に分ける」形へ追随させる** |
 | `DomainEvent` | `KindCode`(int)+ 汎用ペイロード | §3.4 は「判定に使った文脈を自己完結で含む」ことを要求し、誤爆率(§5.2)の後段計算がそれに依存する。int 数個では持てない。**イベントを発行するシステムと一緒に W2 で設計する** |
-| `PriceObservation` の売り手 | **欄が無い**(`item` / `location` / `price` / `observedAt` / `source`。`location` は**区画**であって売り手ではない) | **売り手 Id の欄を足す。** [GDD02 §8.1.1](../03-gdd/02-economy.md) の「`相場基準` は売り手ごとに最新の1件だけを採る」と [GDD06 §3.1](../03-gdd/06-trade-and-negotiation.md) の「有効な記憶 = 保持期間内の観測が**ある売り注文**」が、どちらも売り手の同定を要求する。**都市外市場の予約 Id**([GDD02 §10.2](../03-gdd/02-economy.md))もこの欄に入る。**型の幅が変わるので [W1-04](../tasks/W1-04-determinism-hash.md) のテスト13(構造体の幅を凍結する検査)が意図どおり落ちる** — 落ちたら更新する |
+| `PriceObservation` の売り手 **(W2-01 で確定済み)** | **欄が無い**(`item` / `location` / `price` / `observedAt` / `source`。`location` は**区画**であって売り手ではない) | **売り手 Id の欄を足す。** [GDD02 §8.1.1](../03-gdd/02-economy.md) の「`相場基準` は売り手ごとに最新の1件だけを採る」と [GDD06 §3.1](../03-gdd/06-trade-and-negotiation.md) の「有効な記憶 = 保持期間内の観測が**ある売り注文**」が、どちらも売り手の同定を要求する。**都市外市場の予約 Id**([GDD02 §10.2](../03-gdd/02-economy.md))もこの欄に入る。**型の幅が変わるので [W1-04](../tasks/W1-04-determinism-hash.md) のテスト13(構造体の幅を凍結する検査)が意図どおり落ちる** — 落ちたら更新する → `PriceObservation.SellerId` として実装済み(都市外市場は `HouseholdState.ExternalMarketSellerId`) |
 | `Knowledge` / `Ledgers` | `List<PriceObservation>` / `List<LedgerEntry>`(所有者なし) | §3.2 は**所有者別**を、GDD01 §4 は「プレイヤーとNPCの双方が同型の知識レコードを持つ」と定義している。現状の型では「誰の知識か」を表現できず、**GDD01 §4.5 の不当価格判定と誤爆率計測(§6-5)が実行できない**。W2 で観測者Id・所有者Idを持たせる。**ただし両者の所有者は違う** — `Knowledge` は NpcId、`Ledgers` は世帯Id(§3.2)。`PersonFact` / `EventKnowledge` も型として未作成 |
 
 ### 3.7 差し替え可能点(実験の可変軸)
@@ -273,7 +273,7 @@ W1 は器だけを作ったため、`World` の各区分の要素型は宣言の
 | --------------------------------------------------------------- | --------------------------------------------------- |
 | Clock(現在tick)                                                | `Metrics` のスナップショット(意思決定に関与しない) |
 | Npcs(**世帯Id**・階層・熟練度)                                  | `EventLog` の全量(同上。かつ追記専用で巨大)       |
-| **Households**(**区画Id**・職業・**世帯主NpcId**・**構成員NpcId列**・流動資金・世帯在庫・工房在庫・**破産中フラグ**) |                                     |
+| **Households**(**区画Id**・職業・**世帯主NpcId**・**構成員NpcId列**・流動資金・世帯在庫・工房在庫・**仕入れ移動平均単価**・**破産中フラグ**) |                                     |
 | Market(提示価格)                                               |                                                     |
 | TrustLedger                                                     |                                                     |
 | Needs                                                           |                                                     |
