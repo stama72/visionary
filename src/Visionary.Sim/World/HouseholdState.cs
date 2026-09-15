@@ -18,6 +18,7 @@ namespace Visionary.Sim;
 public sealed class HouseholdState
 {
     private int isBankrupt;
+    private int toolWearCount;
 
     /// <summary><see cref="World.Households"/> の添字と一致する、非負の Id(TDD01 §3.2)。</summary>
     public int Id { get; }
@@ -111,6 +112,36 @@ public sealed class HouseholdState
     /// </remarks>
     public const int ExternalMarketSellerId = int.MaxValue;
 
+    /// <summary>累積した工具の摩耗(レシピ実行回数)。0以上(GDD02 §5.3)。</summary>
+    /// <remarks>
+    /// <b>上限(N)は型では守れない</b> — <c>N</c> を知っているのは <c>WorldDefinition</c> であって
+    /// この型ではない。「工具在庫がある間は 0 ≤ ToolWearCount &lt; N」は
+    /// <see cref="Systems.ProductionSystem"/> の後条件であり、テストで押さえる。
+    /// 負を setter で拒むのは、負になると <c>FloorDiv</c> が負の商を返し工具在庫が
+    /// 増えてしまうため。
+    /// </remarks>
+    public int ToolWearCount
+    {
+        get => toolWearCount;
+        set
+        {
+            if (value < 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(value), value, "工具の摩耗カウンタは0以上(GDD02 §5.3)。");
+            }
+
+            toolWearCount = value;
+        }
+    }
+
+    /// <summary>当日の消費不足量。添字 = itemId。単位: 個(GDD02 §6.1 / §8.4)。</summary>
+    /// <remarks>
+    /// <see cref="Systems.ConsumptionSystem"/> が毎日、不足の有無にかかわらず全品目を
+    /// 上書きする(#40 が <c>Need.Quantity</c> の入力として読む)。
+    /// </remarks>
+    public int[] UnmetConsumption { get; }
+
     public HouseholdState(int id, int districtId, int headNpcId, int[] memberNpcIds, int itemCount)
     {
         if (id < 0)
@@ -179,6 +210,8 @@ public sealed class HouseholdState
         HouseholdInventory = new int[itemCount];
         WorkshopInventory = new int[itemCount];
         PurchaseUnitCostAverage = new int[itemCount];
+        UnmetConsumption = new int[itemCount];
         IsBankrupt = 0;
+        ToolWearCount = 0;
     }
 }

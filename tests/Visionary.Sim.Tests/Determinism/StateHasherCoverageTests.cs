@@ -144,7 +144,7 @@ public sealed class StateHasherCoverageTests
         {
             "Id", "DistrictId", "Occupation", "HeadNpcId", "MemberNpcIds",
             "LiquidFunds", "HouseholdInventory", "WorkshopInventory", "IsBankrupt",
-            "PurchaseUnitCostAverage",
+            "PurchaseUnitCostAverage", "ToolWearCount", "UnmetConsumption",
         }),
         (typeof(MarketKey), new[] { "ItemId", "SellerId" }),
         (typeof(TrustKey), new[] { "From", "To" }),

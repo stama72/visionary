@@ -336,6 +336,32 @@ public sealed class StateHasherTests
         Assert.NotEqual(before, after);
     }
 
+    /// <summary>テスト表 #24(#34)。ToolWearCountの書き忘れ(凍結検査だけ更新した状態)で落ちる。</summary>
+    [Fact]
+    public void HashChangesWhenToolWearCountChanges()
+    {
+        var world = OneHouseholdWorld();
+        ulong before = StateHasher.Compute(world);
+
+        world.Households[0].ToolWearCount = 5;
+        ulong after = StateHasher.Compute(world);
+
+        Assert.NotEqual(before, after);
+    }
+
+    /// <summary>テスト表 #25(#34)。UnmetConsumptionの1要素だけを変えると状態ハッシュが変わる。</summary>
+    [Fact]
+    public void HashChangesWhenUnmetConsumptionChanges()
+    {
+        var world = OneHouseholdWorld(itemCount: 9);
+        ulong before = StateHasher.Compute(world);
+
+        world.Households[0].UnmetConsumption[3] = 2;
+        ulong after = StateHasher.Compute(world);
+
+        Assert.NotEqual(before, after);
+    }
+
     /// <summary>
     /// NPC の世帯Id・階層・熟練度がそれぞれ単独でハッシュに乗ること(テスト10)。
     /// Npcs 区分を Id だけのまま放置すると3ケースとも落ちる。
