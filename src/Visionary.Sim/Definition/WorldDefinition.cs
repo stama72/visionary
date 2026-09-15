@@ -44,6 +44,18 @@ public sealed class WorldDefinition
     /// <summary>添字 = (int)NpcRank の初期熟練度。長さ3。単位: ‰。</summary>
     public int[] InitialSkillPermilleByRank { get; }
 
+    /// <summary>添字 = (int)NpcRank の労働力係数‰。長さ3(GDD02 §5.2)。</summary>
+    public int[] LaborPermilleByRank { get; }
+
+    /// <summary>工具1個を消費するまでのレシピ実行回数 N。1以上(GDD02 §5.3)。</summary>
+    public int ProductionRunsPerToolWear { get; }
+
+    /// <summary>1人1日あたりの消費量。添字 = [(int)NpcRank][itemId]。長さ3 × itemCount(GDD02 §6.1)。</summary>
+    public int[][] DailyConsumptionPerNpcByRank { get; }
+
+    /// <summary>添字 = (int)Season の薪の消費の季節係数‰。長さ4(GDD02 §9 / GDD03 §2.1)。</summary>
+    public int[] FirewoodConsumptionSeasonPermille { get; }
+
     /// <summary>職業数。<see cref="Recipes"/> の長さから導く。</summary>
     public int OccupationCount => Recipes.Length;
 
@@ -71,12 +83,19 @@ public sealed class WorldDefinition
         int[] initialHouseholdInventory,
         int initialWorkshopInputDays,
         int initialToolStock,
-        int[] initialSkillPermilleByRank)
+        int[] initialSkillPermilleByRank,
+        int[] laborPermilleByRank,
+        int productionRunsPerToolWear,
+        int[][] dailyConsumptionPerNpcByRank,
+        int[] firewoodConsumptionSeasonPermille)
     {
         ArgumentNullException.ThrowIfNull(recipes);
         ArgumentNullException.ThrowIfNull(initialAcquisitionCost);
         ArgumentNullException.ThrowIfNull(initialHouseholdInventory);
         ArgumentNullException.ThrowIfNull(initialSkillPermilleByRank);
+        ArgumentNullException.ThrowIfNull(laborPermilleByRank);
+        ArgumentNullException.ThrowIfNull(dailyConsumptionPerNpcByRank);
+        ArgumentNullException.ThrowIfNull(firewoodConsumptionSeasonPermille);
 
         if (recipes.Length == 0)
         {
@@ -140,6 +159,76 @@ public sealed class WorldDefinition
             }
         }
 
+        // 長さ3は NpcRank の階層数(InitialSkillPermilleByRank と同じ根拠、GDD02 §5.2)。
+        if (laborPermilleByRank.Length != 3)
+        {
+            throw new ArgumentException(
+                "労働力係数‰は NpcRank の3階層ぶん(長さ3)必要。", nameof(laborPermilleByRank));
+        }
+
+        foreach (int laborPermille in laborPermilleByRank)
+        {
+            if (laborPermille < 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(laborPermilleByRank), laborPermille, "労働力係数‰は非負。");
+            }
+        }
+
+        // N=0を拒むのは、FloorDiv(摩耗, N)がゼロ除算になるからである(GDD02 §5.3)。
+        if (productionRunsPerToolWear < 1)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(productionRunsPerToolWear), productionRunsPerToolWear,
+                "工具1個あたりの実行回数Nは1以上(GDD02 §5.3)。");
+        }
+
+        // 長さ3はNpcRankの階層数。行ごとに itemCount 一致を検査する(GDD02 §6.1)。
+        if (dailyConsumptionPerNpcByRank.Length != 3)
+        {
+            throw new ArgumentException(
+                "1人1日あたりの消費量は NpcRank の3階層ぶん(長さ3)必要。",
+                nameof(dailyConsumptionPerNpcByRank));
+        }
+
+        foreach (var row in dailyConsumptionPerNpcByRank)
+        {
+            ArgumentNullException.ThrowIfNull(row, nameof(dailyConsumptionPerNpcByRank));
+
+            if (row.Length != itemCount)
+            {
+                throw new ArgumentException(
+                    $"1人1日あたりの消費量の各行の長さは品目数({itemCount})と一致する必要がある。",
+                    nameof(dailyConsumptionPerNpcByRank));
+            }
+
+            foreach (int quantity in row)
+            {
+                if (quantity < 0)
+                {
+                    throw new ArgumentOutOfRangeException(
+                        nameof(dailyConsumptionPerNpcByRank), quantity, "1人1日あたりの消費量は非負。");
+                }
+            }
+        }
+
+        // 長さ4はSeasonの季節数(GDD03 §2.1)。
+        if (firewoodConsumptionSeasonPermille.Length != 4)
+        {
+            throw new ArgumentException(
+                "薪の季節係数‰は Season の4季節ぶん(長さ4)必要。",
+                nameof(firewoodConsumptionSeasonPermille));
+        }
+
+        foreach (int seasonPermille in firewoodConsumptionSeasonPermille)
+        {
+            if (seasonPermille < 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(firewoodConsumptionSeasonPermille), seasonPermille, "季節係数‰は非負。");
+            }
+        }
+
         if (householdsPerOccupation < 1)
         {
             throw new ArgumentOutOfRangeException(
@@ -174,6 +263,18 @@ public sealed class WorldDefinition
         InitialWorkshopInputDays = initialWorkshopInputDays;
         InitialToolStock = initialToolStock;
         InitialSkillPermilleByRank = initialSkillPermilleByRank.ToArray();
+        LaborPermilleByRank = laborPermilleByRank.ToArray();
+        ProductionRunsPerToolWear = productionRunsPerToolWear;
+
+        // jagged配列は行ごとに複製する。外側だけToArray()すると、呼び出し側が検証後に
+        // 行の中身を書き換えられてしまう(既存欄の防御的コピーと同じ理由)。
+        DailyConsumptionPerNpcByRank = new int[dailyConsumptionPerNpcByRank.Length][];
+        for (int rank = 0; rank < dailyConsumptionPerNpcByRank.Length; rank++)
+        {
+            DailyConsumptionPerNpcByRank[rank] = dailyConsumptionPerNpcByRank[rank].ToArray();
+        }
+
+        FirewoodConsumptionSeasonPermille = firewoodConsumptionSeasonPermille.ToArray();
     }
 
     private static void ValidateItemIdsAreInRange(ItemQuantity[] items, int itemCount, string paramName)
@@ -254,6 +355,23 @@ public sealed class WorldDefinition
         // TDD01 §3.2は熟練度を「器として先に持つ」としているので欄だけ埋める。
         var initialSkillPermilleByRank = new[] { 700, 400, 100 }; // 単位: ‰
 
+        // 添字 = (int)NpcRank(Master, Journeyman, Apprentice)。GDD02 §5.2。
+        // Journeyman はM0に存在しない(GDD10)が、階層の欄は先に埋める。
+        var laborPermilleByRank = new[] { 1000, 800, 300 }; // 単位: ‰
+
+        // 1人1日あたりの消費量。添字 = [(int)NpcRank][itemId]。GDD02 §6.1。
+        // itemIdの並びはGrain, Timber, IronOre, Charcoal, Flour, Firewood, Bread, Beer, Tools。
+        // 徒弟のビールが0なのは、徒弟が給金を持たないため(GDD02 §6.1 / GDD10 §1)。
+        var dailyConsumptionPerNpcByRank = new[]
+        {
+            new[] { 0, 0, 0, 0, 0, 2, 1, 1, 0 }, // 親方。単位: 個
+            new[] { 0, 0, 0, 0, 0, 2, 1, 1, 0 }, // 職人。単位: 個
+            new[] { 0, 0, 0, 0, 0, 2, 1, 0, 0 }, // 徒弟。単位: 個
+        };
+
+        // 添字 = (int)Season(Spring, Summer, Autumn, Winter)。GDD03 §2.1。基準は秋の1000‰。
+        var firewoodConsumptionSeasonPermille = new[] { 800, 400, 1000, 2000 }; // 単位: ‰
+
         return new WorldDefinition(
             itemCount: Item.Count,
             householdsPerOccupation: 2,
@@ -263,6 +381,10 @@ public sealed class WorldDefinition
             initialHouseholdInventory: initialHouseholdInventory,
             initialWorkshopInputDays: 5, // 単位: 日
             initialToolStock: 1, // 単位: 個
-            initialSkillPermilleByRank: initialSkillPermilleByRank);
+            initialSkillPermilleByRank: initialSkillPermilleByRank,
+            laborPermilleByRank: laborPermilleByRank,
+            productionRunsPerToolWear: 30, // 単位: 回(GDD02 §5.3)
+            dailyConsumptionPerNpcByRank: dailyConsumptionPerNpcByRank,
+            firewoodConsumptionSeasonPermille: firewoodConsumptionSeasonPermille);
     }
 }

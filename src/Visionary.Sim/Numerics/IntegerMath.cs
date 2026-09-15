@@ -41,6 +41,37 @@ public static class IntegerMath
         checked((int)CeilDiv((long)dividend, divisor));
 
     /// <summary>
+    /// 数学的な切り下げ除算(floor)。<c>7 / 2 = 3</c>、<c>-7 / 2 = -4</c>、<c>-6 / 2 = -3</c>。
+    /// </summary>
+    /// <remarks>
+    /// <see cref="CeilDiv(long, long)"/> と対称。C# の <c>/</c> は0方向への切り捨てなので、
+    /// 商が負(被除数と除数が異符号)で、かつ割り切れないときだけ -1 する必要がある。
+    /// GDD02 §5.2 は生産能力の除算を「切り上げ規約の意図的な例外」としており、
+    /// このヘルパーはその意図を型で表す(#34)。
+    /// </remarks>
+    /// <exception cref="DivideByZeroException">除数が0のとき。</exception>
+    /// <exception cref="OverflowException"><c>long.MinValue / -1</c> のとき。</exception>
+    public static long FloorDiv(long dividend, long divisor)
+    {
+        if (divisor == 0)
+        {
+            throw new DivideByZeroException("切り下げ除算の除数が0。");
+        }
+
+        long quotient = checked(dividend / divisor);
+        long remainder = dividend % divisor;
+
+        // 割り切れず、かつ商が負(被除数と除数が異符号)のときだけ切り下がる
+        bool roundsDown = remainder != 0 && ((dividend ^ divisor) < 0);
+
+        return roundsDown ? checked(quotient - 1) : quotient;
+    }
+
+    /// <inheritdoc cref="FloorDiv(long, long)"/>
+    public static int FloorDiv(int dividend, int divisor) =>
+        checked((int)FloorDiv((long)dividend, divisor));
+
+    /// <summary>
     /// ‰係数を適用して切り上げる。<c>value × permille / 1000</c> の頻出パターンを1関数に閉じる。
     /// </summary>
     /// <remarks>

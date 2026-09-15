@@ -185,6 +185,10 @@ public static class StateHasher
 
             // 要素の末尾に足す(区分タグを末尾に足すのと同じ規律。TDD01 §3.8)。
             WriteInt32Array(hasher, buffer, household.PurchaseUnitCostAverage);
+
+            // #34が足した2欄。既存の値は動かさず末尾へ足す(同じ規律)。
+            WriteInt32(hasher, buffer, household.ToolWearCount);
+            WriteInt32Array(hasher, buffer, household.UnmetConsumption);
         }
 
         // EventLog は含めない(§3.8 の除外表)。意思決定に関与せず、追記専用で巨大。

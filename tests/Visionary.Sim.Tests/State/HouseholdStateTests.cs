@@ -150,4 +150,27 @@ public sealed class HouseholdStateTests
     {
         Assert.Equal(int.MaxValue, HouseholdState.ExternalMarketSellerId);
     }
+
+    /// <summary>
+    /// テスト表 #26(#34)。負のカウンタは <c>FloorDiv(摩耗, N)</c> が負の商を返し、
+    /// 工具在庫が増えてしまう(<see cref="HouseholdState.ToolWearCount"/> の doc 参照)。
+    /// </summary>
+    [Fact]
+    public void ToolWearCountRejectsNegativeValues()
+    {
+        var household = new HouseholdState(
+            id: 0, districtId: 0, headNpcId: 0, memberNpcIds: new[] { 0 }, itemCount: 0);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => household.ToolWearCount = -1);
+    }
+
+    /// <summary>#34: <see cref="HouseholdState.UnmetConsumption"/> は品目数ぶん0で確保される。</summary>
+    [Fact]
+    public void UnmetConsumptionIsAllocatedAtItemCount()
+    {
+        var household = new HouseholdState(
+            id: 0, districtId: 0, headNpcId: 0, memberNpcIds: new[] { 0 }, itemCount: 9);
+
+        Assert.Equal(new int[9], household.UnmetConsumption);
+    }
 }

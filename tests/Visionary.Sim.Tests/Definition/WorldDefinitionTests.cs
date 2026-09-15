@@ -9,7 +9,11 @@ public sealed class WorldDefinitionTests
     private static WorldDefinition BuildDefinition(
         int? initialToolStock = null,
         int[]? initialAcquisitionCost = null,
-        int? householdsPerOccupation = null)
+        int? householdsPerOccupation = null,
+        int[]? laborPermilleByRank = null,
+        int? productionRunsPerToolWear = null,
+        int[][]? dailyConsumptionPerNpcByRank = null,
+        int[]? firewoodConsumptionSeasonPermille = null)
     {
         var m0 = WorldDefinition.M0;
 
@@ -22,7 +26,12 @@ public sealed class WorldDefinitionTests
             initialHouseholdInventory: m0.InitialHouseholdInventory,
             initialWorkshopInputDays: m0.InitialWorkshopInputDays,
             initialToolStock: initialToolStock ?? m0.InitialToolStock,
-            initialSkillPermilleByRank: m0.InitialSkillPermilleByRank);
+            initialSkillPermilleByRank: m0.InitialSkillPermilleByRank,
+            laborPermilleByRank: laborPermilleByRank ?? m0.LaborPermilleByRank,
+            productionRunsPerToolWear: productionRunsPerToolWear ?? m0.ProductionRunsPerToolWear,
+            dailyConsumptionPerNpcByRank: dailyConsumptionPerNpcByRank ?? m0.DailyConsumptionPerNpcByRank,
+            firewoodConsumptionSeasonPermille:
+                firewoodConsumptionSeasonPermille ?? m0.FirewoodConsumptionSeasonPermille);
     }
 
     [Fact]
@@ -151,5 +160,71 @@ public sealed class WorldDefinitionTests
         Assert.Equal(8, cost[Item.Timber]);
         Assert.Equal(14, cost[Item.IronOre]);
         Assert.Equal(12, cost[Item.Charcoal]);
+    }
+
+    /// <summary>
+    /// テスト表 #27。#34 が足した4欄それぞれの検証を確かめる。
+    /// 長さを検査しないと実行時に <c>IndexOutOfRangeException</c> になり、
+    /// N=0 を通すと <c>ProductionSystem</c> の摩耗計算でゼロ除算になる。
+    /// </summary>
+    [Fact]
+    public void WorldDefinitionRejectsMalformedConsumptionTables()
+    {
+        var m0 = WorldDefinition.M0;
+
+        // 階層の行数 ≠ 3(2行しかない)
+        Assert.Throws<ArgumentException>(() => BuildDefinition(
+            dailyConsumptionPerNpcByRank: new[] { m0.DailyConsumptionPerNpcByRank[0], m0.DailyConsumptionPerNpcByRank[1] }));
+
+        // 行の長さ ≠ itemCount
+        var shortRow = (int[][])m0.DailyConsumptionPerNpcByRank.Clone();
+        shortRow[0] = new[] { 0, 0 };
+        Assert.Throws<ArgumentException>(() => BuildDefinition(dailyConsumptionPerNpcByRank: shortRow));
+
+        // 季節の長さ ≠ 4
+        Assert.Throws<ArgumentException>(() => BuildDefinition(
+            firewoodConsumptionSeasonPermille: new[] { 800, 400, 1000 }));
+
+        // Nが0(ゼロ除算の元)
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => BuildDefinition(productionRunsPerToolWear: 0));
+
+        // 負の消費係数
+        var negativeRow = (int[][])m0.DailyConsumptionPerNpcByRank.Clone();
+        negativeRow[0] = (int[])m0.DailyConsumptionPerNpcByRank[0].Clone();
+        negativeRow[0][0] = -1;
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => BuildDefinition(dailyConsumptionPerNpcByRank: negativeRow));
+
+        // 負の労働力係数
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => BuildDefinition(laborPermilleByRank: new[] { -1, 800, 300 }));
+
+        // 負の季節係数
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => BuildDefinition(firewoodConsumptionSeasonPermille: new[] { -1, 400, 1000, 2000 }));
+    }
+
+    /// <summary>
+    /// テスト表 #28。渡した jagged 配列の行の中身を後から書き換えても定義が変わらないこと。
+    /// 外側だけ <c>ToArray()</c> すると、検証を通した後に呼び出し側が元の行を書き換えられてしまう。
+    /// </summary>
+    [Fact]
+    public void WorldDefinitionCopiesEachConsumptionRow()
+    {
+        var m0 = WorldDefinition.M0;
+
+        var givenRows = new int[3][];
+        for (int rank = 0; rank < 3; rank++)
+        {
+            givenRows[rank] = (int[])m0.DailyConsumptionPerNpcByRank[rank].Clone();
+        }
+
+        var definition = BuildDefinition(dailyConsumptionPerNpcByRank: givenRows);
+
+        // 検証を通した後に、渡した行の中身を書き換える。
+        givenRows[0][0] = 999;
+
+        Assert.Equal(m0.DailyConsumptionPerNpcByRank[0], definition.DailyConsumptionPerNpcByRank[0]);
     }
 }
