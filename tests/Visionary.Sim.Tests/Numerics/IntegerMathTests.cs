@@ -85,4 +85,29 @@ public sealed class IntegerMathTests
     {
         Assert.Throws<OverflowException>(() => IntegerMath.ApplyPermille(int.MaxValue, 2_000));
     }
+
+    /// <summary>
+    /// テスト表 #1。<c>FloorDiv</c> が数学的な floor(切り下げ)を返すこと。
+    /// 裸の <c>/</c>(0方向への切り捨て)は <c>-7/2 == -3</c> になるため、これと取り違えると落ちる。
+    /// </summary>
+    [Theory]
+    [InlineData(7, 2, 3)]
+    [InlineData(-7, 2, -4)]
+    [InlineData(-6, 2, -3)]
+    [InlineData(6, 2, 3)]
+    [InlineData(0, 5, 0)]
+    public void FloorDivRoundsTowardNegativeInfinity(int dividend, int divisor, int expected)
+    {
+        Assert.Equal(expected, IntegerMath.FloorDiv(dividend, divisor));
+        Assert.Equal(expected, IntegerMath.FloorDiv((long)dividend, divisor));
+    }
+
+    /// <summary>テスト表 #2。</summary>
+    [Fact]
+    public void FloorDivRejectsZeroDivisorAndOverflow()
+    {
+        Assert.Throws<DivideByZeroException>(() => IntegerMath.FloorDiv(1, 0));
+        Assert.Throws<OverflowException>(() => IntegerMath.FloorDiv(long.MinValue, -1));
+        Assert.Throws<OverflowException>(() => IntegerMath.FloorDiv(int.MinValue, -1));
+    }
 }
