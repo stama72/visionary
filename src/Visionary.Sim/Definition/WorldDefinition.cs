@@ -190,8 +190,9 @@ public sealed class WorldDefinition
 
     /// <summary>
     /// M0 の初期値(GDD02 §2.2・§2.4・§8.1)。すべて初期値であり調整対象
-    /// (CLAUDE.md)。検算と調整は #28。出典を持つのはレシピの品目の組(GDD02 §2.4)だけで、
-    /// 数量・所要労働‰・金額はここが初出である(GDD02 §13.2)。
+    /// (CLAUDE.md)。検算と調整は #28。出典を持つのは<b>レシピの品目の組</b>(GDD02 §2.4)と
+    /// <b>1次産品(品目0〜3)の取得原価</b>(GDD02 §10.2。外部売値に固定される仕入単価の天井)
+    /// であり、数量・所要労働‰・都市生産品(品目4〜8)の金額はここが初出である(GDD02 §13.2)。
     /// </summary>
     private static WorldDefinition BuildM0()
     {
@@ -242,7 +243,9 @@ public sealed class WorldDefinition
         };
 
         // 添字 = itemId(Grain, Timber, IronOre, Charcoal, Flour, Firewood, Bread, Beer, Tools)。
-        var initialAcquisitionCost = new[] { 10, 8, 20, 12, 22, 6, 16, 30, 60 }; // 単位: 貨幣/1単位
+        // 1次産品(0〜3)は初出ではない — GDD02 §10.2 の外部売値に固定される(仕入単価の天井)。
+        // 都市生産品(4〜8)だけがここの初出であり、#28 の検算・調整対象。
+        var initialAcquisitionCost = new[] { 10, 8, 14, 12, 22, 6, 16, 30, 60 }; // 単位: 貨幣/1単位
         var initialHouseholdInventory = new[] { 0, 0, 0, 0, 0, 4, 4, 2, 0 }; // 単位: 個
 
         // 熟練度‰を階層で違う値にするのは、ハッシュの回帰を鈍らせないためである

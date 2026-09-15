@@ -128,4 +128,28 @@ public sealed class WorldDefinitionTests
             Assert.Equal(expected, producedByCount[itemId]);
         }
     }
+
+    /// <summary>
+    /// 上流(GDD02 §10.2)の決定を写し間違える実装ミスを捕まえる(本タスクが実際に
+    /// 鉄鉱石を20と書いた誤りそのもの)。§10.2は「1次産品の仕入単価は外部売値に固定される」
+    /// 「外部売値が1次産品の価格の天井になる」と決定しており、天井を超える取得原価は
+    /// 都市内の誰も支払えない。
+    /// </summary>
+    /// <remarks>
+    /// <b>この検査を <see cref="WorldDefinition"/> のコンストラクタに持ち込まない。</b>
+    /// 1次産品が0〜3であることは <see cref="Item"/> の採番の知識であり、
+    /// <see cref="WorldDefinition"/> は品目の意味を知らない(<c>ItemCount</c> しか持たない)。
+    /// <c>M0</c> の表の写し間違いを捕まえるのが目的なので、<c>M0</c> を見るテストが
+    /// 正しい置き場所である。
+    /// </remarks>
+    [Fact]
+    public void PrimaryGoodCostsMatchTheExternalSellPrices()
+    {
+        var cost = WorldDefinition.M0.InitialAcquisitionCost;
+
+        Assert.Equal(10, cost[Item.Grain]);
+        Assert.Equal(8, cost[Item.Timber]);
+        Assert.Equal(14, cost[Item.IronOre]);
+        Assert.Equal(12, cost[Item.Charcoal]);
+    }
 }

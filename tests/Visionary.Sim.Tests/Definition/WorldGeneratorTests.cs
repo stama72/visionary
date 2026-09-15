@@ -245,6 +245,73 @@ public sealed class WorldGeneratorTests
     }
 
     /// <summary>
+    /// 資金を配り忘れて0のままにする、または定義ではない定数を書く実装ミスを捕まえる。
+    /// 初日から全世帯が GDD02 §6.3 の予算制約に張り付き、#34 の取引が一度も成立しない。
+    /// </summary>
+    [Fact]
+    public void EveryHouseholdStartsWithTheDefinedLiquidFunds()
+    {
+        var definition = WorldDefinition.M0;
+        var world = Generate(seed: 1, definition);
+
+        Assert.All(
+            world.Households,
+            household => Assert.Equal(definition.InitialLiquidFunds, household.LiquidFunds));
+    }
+
+    /// <summary>
+    /// 世帯在庫と工房在庫の取り違え / 0のまま放置 / 別の配列(取得原価など)を書き込む実装ミスを
+    /// 捕まえる。GDD02 §8.1 の必需品の初期在庫が消えると、#34 の消費が初日に欠乏を起こす。
+    /// </summary>
+    [Fact]
+    public void HouseholdInventoryIsSeededFromTheDefinition()
+    {
+        var definition = WorldDefinition.M0;
+        var world = Generate(seed: 1, definition);
+
+        foreach (var household in world.Households)
+        {
+            for (int itemId = 0; itemId < definition.ItemCount; itemId++)
+            {
+                Assert.Equal(
+                    definition.InitialHouseholdInventory[itemId], household.HouseholdInventory[itemId]);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 階層の添字を取り違える(親方と徒弟の熟練度が入れ替わる)、または全員に同じ値を配る
+    /// 実装ミスを捕まえる。GDD02 §5.2 の「階層で係数が違うこと」を M0 で見たいという
+    /// 目的そのものが、反転したまま緑で通ってしまう経路。
+    /// </summary>
+    [Fact]
+    public void SkillPermilleFollowsTheNpcRank()
+    {
+        var definition = WorldDefinition.M0;
+        var world = Generate(seed: 1, definition);
+
+        int masterSkill = definition.InitialSkillPermilleByRank[(int)NpcRank.Master];
+        int apprenticeSkill = definition.InitialSkillPermilleByRank[(int)NpcRank.Apprentice];
+
+        // 上の初期値表がハッシュの回帰を鈍らせないために階層で別値を選んでいる前提
+        // (両者が異なる値であること)が崩れていないかも、このテストが押さえる。
+        Assert.NotEqual(masterSkill, apprenticeSkill);
+
+        foreach (var npc in world.Npcs)
+        {
+            int expected = npc.Rank switch
+            {
+                NpcRank.Master => masterSkill,
+                NpcRank.Apprentice => apprenticeSkill,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(npc), npc.Rank, "M0にはMaster/Apprenticeしか存在しない。"),
+            };
+
+            Assert.Equal(expected, npc.SkillPermille);
+        }
+    }
+
+    /// <summary>
     /// <c>Occupation</c> の enum 化で <c>(int)</c> の書き出しを落とす、または仕入れ移動平均単価を
     /// <c>Compute</c> に書き足し忘れる実装ミスを捕まえる。後者は2プロセス比較では検出できない
     /// (同一ビルド同士なので、見ていない状態があっても一致は成立する)。

@@ -119,6 +119,13 @@ public static class WorldGenerator
 
         // 先頭extra個だけの部分シャッフル(前方からの部分Fisher-Yates)。
         // 各位置iについて、未確定の範囲[i, District.Count)から一様に選んでswapする。
+        //
+        // この向きも仕様である(全体シャッフルの向きと同じ扱い)。タスク仕様は
+        // 「pool を Fisher-Yates で先頭 extra 個だけ部分シャッフル」とだけ書き、向きまでは
+        // 明示していなかったため、ここで選んだ前方からの向きを固定する。向きを変えると
+        // 同じシードから別の世界が出る。ゴールデン値は無いので、変えても他のテストは
+        // 落ちない(#3 は同一プロセス内の2回比較、#4 は分布の広がりしか見ない) — この doc
+        // コメントが向きの記録そのものである。
         for (int i = 0; i < extra; i++)
         {
             int j = rng.NextInt(i, District.Count);
@@ -169,26 +176,24 @@ public static class WorldGenerator
 
     /// <summary>
     /// 区画ごとに職業の重複が無いか調べる。<b>Dictionary / HashSet を使わない</b>(ADR-0002)。
-    /// 区画は0〜8なので <c>int[District.Count]</c> に職業を書き込んで突き合わせる。
     /// </summary>
+    /// <remarks>
+    /// <b>全ペアを比較する。</b>1区画あたり最大2世帯という前提(<see cref="AssignDistricts"/> と
+    /// <see cref="WorldDefinition"/> の密度検査が構造で保証している)に依存しない実装を選んだ
+    /// — 「区画ごとに最初に見た職業だけを記録する」実装だと、1区画に3世帯以上入る変則的な
+    /// 呼び出しで <c>(A, B, B)</c> のような2件目以降の重複を見逃す。世帯数は最大でも
+    /// <see cref="District.Count"/> の2倍程度なので O(n^2) でも性能上の問題はない。
+    /// </remarks>
     private static bool HasSameOccupationInSameDistrict(Occupation[] labels, int[] districts)
     {
-        var occupationByDistrict = new int[District.Count];
-        Array.Fill(occupationByDistrict, -1); // -1 = 未使用の番兵(Occupationの0=Millerと区別)
-
-        for (int householdId = 0; householdId < labels.Length; householdId++)
+        for (int i = 0; i < labels.Length; i++)
         {
-            int districtId = districts[householdId];
-            int occupationId = (int)labels[householdId];
-
-            if (occupationByDistrict[districtId] == occupationId)
+            for (int j = i + 1; j < labels.Length; j++)
             {
-                return true;
-            }
-
-            if (occupationByDistrict[districtId] == -1)
-            {
-                occupationByDistrict[districtId] = occupationId;
+                if (districts[i] == districts[j] && labels[i] == labels[j])
+                {
+                    return true;
+                }
             }
         }
 
