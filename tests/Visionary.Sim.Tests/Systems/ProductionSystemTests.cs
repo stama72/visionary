@@ -325,4 +325,102 @@ public sealed class ProductionSystemTests
 
         Assert.Equal(RunWithSeed(1), RunWithSeed(999999));
     }
+
+    /// <summary>
+    /// 【核心】別表 #30。N=3・工具在庫3個・1日に7回実行できる定義 → 工具が2個減って1個残り、
+    /// ToolWearCount == 1(= 7 − 2×3)。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 表 #9(<c>ToolWearLeavesTheRemainderForTheNextTool</c>)は置き換えない ──
+    /// あちらは <c>consumed == 1</c>(端数を次の工具へ持ち越す経路)、このテストは
+    /// <c>consumed == 2</c>(複数個の工具を1日で消費する経路)を押さえる。
+    /// <c>consumed == 1</c> では <c>consumed × N</c> と <c>N</c> が同値になり、
+    /// 「<c>consumed × N</c> を引かずに <c>N</c> だけ引く」変異を判別できない
+    /// (2巡目レビュー象限I-a)。
+    /// </para>
+    /// <para>
+    /// <b>変異の実測(2026-09-16)。</b><c>ProductionSystem.WearTools</c> の
+    /// <c>household.ToolWearCount -= consumed * _definition.ProductionRunsPerToolWear;</c> を
+    /// <c>household.ToolWearCount -= _definition.ProductionRunsPerToolWear;</c>(掛け忘れ)に
+    /// 変える変異を当てたところ、<c>Assert.Equal(1, ...ToolWearCount)</c> が実際値4
+    /// (7 − 3 = 4。「工具在庫がある間は 0 ≤ ToolWearCount &lt; N」の後条件が破れる)で
+    /// 失敗した(赤を確認)。変異を戻して緑に復帰させた。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void ToolWearConsumesMultipleToolsInOneDay()
+    {
+        var recipe = new Recipe(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = Output, Quantity = 1 } },
+            inputs: Array.Empty<ItemQuantity>(),
+            laborPermille: 1000);
+
+        var definition = EconomySystemTestFixtures.BuildDefinition(
+            recipe, laborPermilleByRank: new[] { 7000, 0, 0 }, productionRunsPerToolWear: 3);
+        var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(new[] { NpcRank.Master });
+        world.Households[0].WorkshopInventory[Item.Tools] = 3;
+
+        EconomySystemTestFixtures.RunDays(world, new ProductionSystem(definition), days: 1);
+
+        Assert.Equal(1, world.Households[0].WorkshopInventory[Item.Tools]);
+        Assert.Equal(1, world.Households[0].ToolWearCount);
+    }
+
+    /// <summary>
+    /// 【核心】別表 #31。入力A(数量2・在庫4)と入力B(数量3・在庫15)を持つレシピで
+    /// 生産能力3 → 実行2回。入力Aは0、入力Bは9が残る。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 表 #5(<c>ProductionIsLimitedByTheScarcestInput</c>)は置き換えない ──
+    /// あちらは入力2本の <c>min</c>(最も逼迫した入力で決まること)を押さえ、
+    /// このテストは <c>Quantity &gt; 1</c> のときの除算・乗算を押さえる。
+    /// 数量が常に1のテストだけでは、「在庫の個数」と「数量で割った回数」が一致してしまい、
+    /// 割り忘れ・掛け忘れのどちらも判別できない(2巡目レビュー象限I-a)。
+    /// </para>
+    /// <para>
+    /// <b>変異の実測1(2026-09-16)。</b><c>ProductionSystem.RunOneHousehold</c> の
+    /// <c>IntegerMath.FloorDiv(household.WorkshopInventory[input.ItemId], input.Quantity)</c> を
+    /// <c>household.WorkshopInventory[input.ItemId]</c>(在庫の個数をそのまま使う)に変える変異を
+    /// 当てたところ、実行回数が3回(min(capacity=3, stockA=4, stockB=15))になり、
+    /// <c>Assert.Equal(0, ...InputA)</c> が実際値-2(4 − 2×3 = -2。在庫が負に落ちる)で
+    /// 失敗した(赤を確認)。変異を戻して緑に復帰させた。
+    /// </para>
+    /// <para>
+    /// <b>変異の実測2(2026-09-16)。</b>入力の減算
+    /// <c>household.WorkshopInventory[input.ItemId] -= input.Quantity * runs;</c> の
+    /// <c>input.Quantity *</c> を落とす変異(<c>-= runs;</c>)を当てたところ、
+    /// <c>Assert.Equal(0, ...InputA)</c> が実際値2(4 − 2 = 2)、
+    /// <c>Assert.Equal(9, ...InputB)</c> が実際値13(15 − 2 = 13)で失敗した(赤を確認)。
+    /// 変異を戻して緑に復帰させた。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void ProductionDividesAndMultipliesByInputQuantity()
+    {
+        var recipe = new Recipe(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = Output, Quantity = 1 } },
+            inputs: new[]
+            {
+                new ItemQuantity { ItemId = InputA, Quantity = 2 },
+                new ItemQuantity { ItemId = InputB, Quantity = 3 },
+            },
+            laborPermille: 1000);
+
+        // 生産能力3: Master単独3000‰ ÷ 所要労働1000‰。
+        var definition = EconomySystemTestFixtures.BuildDefinition(
+            recipe, laborPermilleByRank: new[] { 3000, 0, 0 });
+        var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(new[] { NpcRank.Master });
+        world.Households[0].WorkshopInventory[Item.Tools] = 1;
+        world.Households[0].WorkshopInventory[InputA] = 4;
+        world.Households[0].WorkshopInventory[InputB] = 15;
+
+        EconomySystemTestFixtures.RunDays(world, new ProductionSystem(definition), days: 1);
+
+        Assert.Equal(0, world.Households[0].WorkshopInventory[InputA]);
+        Assert.Equal(9, world.Households[0].WorkshopInventory[InputB]);
+    }
 }
