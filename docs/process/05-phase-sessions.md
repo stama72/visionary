@@ -3,18 +3,18 @@
 | 項目     | 内容                                                                 |
 | -------- | -------------------------------------------------------------------- |
 | 種別     | 育てる文書(現行の運用を持つ)                                        |
-| 関連     | [ADR-0009](../adr/0009-phase-scoped-sessions.md) / [ADR-0004](../adr/0004-ai-driven-development-workflow.md) 論点1・論点2 |
+| 関連     | [ADR-0009](../adr/0009-phase-scoped-sessions.md)(3フェーズ) / [ADR-0010](../adr/0010-phase-pipeline-and-halt-conditions.md)(連鎖と停止則) / [ADR-0004](../adr/0004-ai-driven-development-workflow.md) 論点1・論点2 |
 
-**1タスクを3つのフェーズに切り、境界で開発者が `/clear` する。** なぜそう切るかは [ADR-0009](../adr/0009-phase-scoped-sessions.md) が持つ。本書は**今どう運用するか**を持つ。
+**1タスクを3つのフェーズに切る。** なぜそう切るかは [ADR-0009](../adr/0009-phase-scoped-sessions.md) が、**フェーズ2・3 を機械が繋ぐこと**は [ADR-0010](../adr/0010-phase-pipeline-and-halt-conditions.md) が持つ。本書は**今どう運用するか**を持つ。
 
 ## 3つのフェーズ
 
 | | フェーズ1 設計 | フェーズ2 実装とレビュー | フェーズ3 文書更新と PR |
 | --- | --- | --- | --- |
 | 起動 | 既定のメインセッション | [`/impl`](../../.claude/commands/impl.md) | [`/wrap`](../../.claude/commands/wrap.md) |
-| モデル | Opus | Opus(実装は Sonnet の implementer) | Sonnet でよい |
+| モデル | Opus | Opus(実装は Sonnet の implementer) | **Sonnet**([`wrap.md`](../../.claude/commands/wrap.md) の `model:` とパイプラインの `--model` が握る) |
 | 成果物 | タスク仕様の凍結 | 緑のコードとコミット | PR と切り出した issue |
-| 終わり方 | 引き継ぎメモを書いて**止まる** | 引き継ぎメモに追記して**止まる** | PR を作って終わる |
+| 終わり方 | 引き継ぎメモを書いて**止まる** | 引き継ぎメモに追記し `PIPELINE: DONE` | PR を作り `PIPELINE: DONE` |
 
 **フェーズ2 のメインはコードを読み書きしない。** 実装も、レビュー指摘の修正も implementer に渡す。ここが崩れると、実装を Sonnet に逃がした節約がそのまま消える。
 
@@ -66,11 +66,34 @@
 
 ## フェーズをまたぐときの手順
 
-1. 前のフェーズが「止まった」と言ったら、**開発者が `/clear` する**
-2. 次のフェーズを `/impl` または `/wrap` で開く。引数に issue 番号を渡す
-3. コマンドが、タスク仕様と引き継ぎメモと `git log master..HEAD` を読んで再構成する
+**フェーズ1 の成果物(凍結したタスク仕様と引き継ぎメモ)が出たら、あとはパイプラインが回す。**
 
-**`/clear` は機械で守れない。** 忘れても何も壊れないが、節約も起きない。
+```powershell
+pwsh scripts/pipeline.ps1 -Issue 35
+```
+
+`claude -p "/impl 35"` → `claude -p "/wrap 35"` を**別プロセス**で順に回す。プロセスが別なのでコンテキスト窓も別で、`/clear` と同じ隔離になる。
+
+**Git Bash からは呼べない。** MSYS が先頭の `/` を `C:/Program Files/Git/...` に変換し、スラッシュコマンドとして解決されない。PowerShell から回すこと。
+
+### 停止則 — 4つだけ
+
+| コード | 条件 |
+| ------ | ---- |
+| `SPEC-OUTSIDE` | 象限I-b の訂正が**タスク仕様の外**(GDD / TDD / ADR)に及ぶ |
+| `IMPL-BLOCKED` | implementer が「止まって報告」した |
+| `REVIEW-EXHAUSTED` | レビュー4巡目到達 / implementer が2回試して緑にならない |
+| `RED` | build / test / format が赤のまま先へ進みそう |
+
+止まると**デスクトップ通知が飛び**、スクリプトは終了コード 2 で終わる。生ログは `.pipeline/`(Git 管理外)。**`PIPELINE: DONE` も `HALT` も出さずに終わったフェーズは、停止扱いにする。**
+
+止まらないもの(implementer の「決めて報告」/ レビュー1〜3巡の指摘と修正 / 気付いたことの issue 化)の根拠は [ADR-0010](../adr/0010-phase-pipeline-and-halt-conditions.md) 論点2。
+
+### 手で回すとき
+
+停止則に当たった後の再開や、パイプラインを使わない場合は、**開発者が `/clear` してから** `/impl <issue番号>` `/wrap <issue番号>` を開く。フェーズ3 だけやり直すなら `pwsh scripts/pipeline.ps1 -Issue 35 -From wrap`。
+
+**`/clear` は機械で守れない。** 忘れても何も壊れないが、節約も起きない。パイプラインを通す限りこれは起きない — 境界がプロセス境界になるためである。
 
 ## 何が「実装タスク」か
 
