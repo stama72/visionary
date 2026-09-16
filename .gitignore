@@ -18,3 +18,6 @@ export_presets.cfg
 # OS
 Thumbs.db
 .DS_Store
+
+# フェーズ連鎖の生ログ(ADR-0010)。停止したときに読むもので、Git 管理しない
+.pipeline/

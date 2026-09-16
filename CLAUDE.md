@@ -52,17 +52,19 @@ dotnet format Visionary.sln               # CIのフォーマット検証を通�
 
 ## タスクの進め方
 
-**実装タスクは3フェーズに切り、境界で開発者が `/clear` する**([ADR-0009](docs/adr/0009-phase-scoped-sessions.md)、運用の正は [docs/process/05-phase-sessions.md](docs/process/05-phase-sessions.md))。
+**実装タスクは3フェーズに切る**([ADR-0009](docs/adr/0009-phase-scoped-sessions.md))。**フェーズ1 が仕様を凍らせたら、フェーズ2・3 はパイプラインが別プロセスで連鎖させる**([ADR-0010](docs/adr/0010-phase-pipeline-and-halt-conditions.md))。運用の正は [docs/process/05-phase-sessions.md](docs/process/05-phase-sessions.md)。
 
-| フェーズ | 起動 | 成果物 |
-| -------- | ---- | ------ |
-| 1 設計 | 既定のセッション | タスク仕様の凍結 |
-| 2 実装とレビュー | `/impl <issue番号>` | 緑のコードとコミット |
-| 3 文書更新と PR | `/wrap <issue番号>` | PR と切り出した issue |
+| フェーズ | 起動 | モデル | 成果物 |
+| -------- | ---- | ------ | ------ |
+| 1 設計 | 既定のセッション | Opus | タスク仕様の凍結 |
+| 2 実装とレビュー | `pwsh scripts/pipeline.ps1 -Issue <番号>` が `/impl` を開く | Opus(実装は Sonnet の implementer) | 緑のコードとコミット |
+| 3 文書更新と PR | 同じパイプラインが続けて `/wrap` を開く | Sonnet | PR と切り出した issue |
+
+**パイプラインは停止則4つ**(`SPEC-OUTSIDE` / `IMPL-BLOCKED` / `REVIEW-EXHAUSTED` / `RED`)**に当たったときだけ止まり、デスクトップ通知を出す。** `SPEC-OUTSIDE`(フェーズ2 が GDD / TDD / ADR を触った)は機械が差分で見ている。手で回すときは `/clear` してから `/impl <issue番号>` `/wrap <issue番号>` を開く。
 
 - **`docs/tasks/` に仕様があるものが実装タスクであり、その実装は必ず implementer(Sonnet)が書く**([ADR-0004](docs/adr/0004-ai-driven-development-workflow.md) 論点1)。**レビュー指摘の修正も含む**(ADR-0009 論点3)。**設計セッションが自分で実装しない** — 書いた本人が実装すると、仕様に穴があっても自分の頭から埋めてしまい表面化しない
 - **フェーズ2 のメインはコードを読み書きしない。** ここが崩れると、実装を Sonnet に逃がした節約がそのまま消える
-- **各フェーズは成果物を出したら止まる。** 次のフェーズへ自分で進まない
+- **各フェーズは成果物を出したら `PIPELINE: DONE` か `PIPELINE: HALT <コード>` を出して止まる。** 自分で次のフェーズを開かない。**どちらも出さずに終わると停止扱いになる**
 - 引き継ぎメモ `docs/tasks/W*.handoff.md` は**フェーズをまたいで消える4件だけ**を持つ(却下した設計案 / implementer の件数 / 直さないと決めた指摘 / 巡ごとの件数)。既にコミット本文や doc コメントに残るものは書かない。フェーズ3 で PR 説明へ転記して削除する
 - **設計・プロセス・文書のみの変更はこの3フェーズに乗らない。** フェーズ1 だけで終わる
 
