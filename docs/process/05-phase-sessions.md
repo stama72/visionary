@@ -78,12 +78,14 @@ pwsh scripts/pipeline.ps1 -Issue 35
 
 ### 停止則 — 4つだけ
 
-| コード | 条件 |
-| ------ | ---- |
-| `SPEC-OUTSIDE` | 象限I-b の訂正が**タスク仕様の外**(GDD / TDD / ADR)に及ぶ |
-| `IMPL-BLOCKED` | implementer が「止まって報告」した |
-| `REVIEW-EXHAUSTED` | レビュー4巡目到達 / implementer が2回試して緑にならない |
-| `RED` | build / test / format が赤のまま先へ進みそう |
+| コード | 条件 | 判定 |
+| ------ | ---- | ---- |
+| `SPEC-OUTSIDE` | 象限I-b の訂正が**タスク仕様の外**(GDD / TDD / ADR)に及ぶ | **機械** + 自己申告 |
+| `IMPL-BLOCKED` | implementer が「止まって報告」した | 自己申告 |
+| `REVIEW-EXHAUSTED` | レビュー4巡目到達 / implementer が2回試して緑にならない | 自己申告 |
+| `RED` | build / test / format が赤のまま先へ進みそう | 自己申告 |
+
+**`SPEC-OUTSIDE` だけは機械が見ている。** フェーズ2 が `PIPELINE: DONE` を出しても、**フェーズ2 起動直前の `HEAD` から見て `docs/03-gdd/` `docs/04-tdd/` `docs/adr/` に差分があれば止める。** 基準が `master` でないのは、フェーズ1 が仕様を凍らせるときに GDD を直すのが正当な仕事で、その変更が既にブランチ上にあるためである。フェーズ3 は文書を触るのが仕事なので検査しない。
 
 止まると**デスクトップ通知が飛び**、スクリプトは終了コード 2 で終わる。生ログは `.pipeline/`(Git 管理外)。**`PIPELINE: DONE` も `HALT` も出さずに終わったフェーズは、停止扱いにする。**
 
