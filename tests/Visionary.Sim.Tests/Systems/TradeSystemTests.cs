@@ -62,11 +62,20 @@ public sealed class TradeSystemTests
     /// 全売り手の <c>Market</c> の値が <c>CostFloor(UnitCost(...))</c> と一致。期待値は定義から計算する。
     /// </summary>
     /// <remarks>
-    /// <b>変異の実測(2026-09-16)。</b><c>TradeSystem.Step</c> の
+    /// <para>
+    /// <b>変異の実測1(2026-09-16)。</b><c>TradeSystem.Step</c> の
     /// <c>household.PurchaseUnitCostAverage</c> を渡す箇所を <c>new int[Item.Count]</c>(取得原価を
     /// 読まない、初日の原価が0に固定される経路)に変える変異を当てたところ、
     /// <c>Assert.Equal(expected, actual)</c> が全売り手で失敗した(期待値は非0の原価下限、
     /// 実際値は0。赤を確認)。変異を戻して緑に復帰させた。
+    /// </para>
+    /// <para>
+    /// <b>変異の実測2(2026-09-16、レビュー1巡目指摘2)。</b><c>TradeSystem.Step</c> の
+    /// <c>if (sellableStock &lt;= 0)</c> を <c>if (sellableStock &lt;= 0 || true)</c>
+    /// (全世帯が空振りする経路)に変えたところ、<c>Assert.NotEmpty(world.Market)</c> が
+    /// 「Collection was empty」で失敗した(赤を確認)。この行を足す前は、下のループが
+    /// 「エントリが無い」だけを確認して素通りするため緑のままだった。変異を戻して緑に復帰させた。
+    /// </para>
     /// </remarks>
     [Fact]
     public void FirstDayOffersAreExactlyTheCostFloor()
@@ -83,6 +92,10 @@ public sealed class TradeSystemTests
             },
             new RandomSource(1));
         scheduler.Advance(world, ticks: 24);
+
+        // レビュー1巡目指摘2: 空振り(全売り手が販売在庫0)で緑になるのを防ぐ。M0のinitialWorkshopInputDays
+        // (現在5、#28が動かす前提)が0になると下のループが値付けを一度も検証せず素通りする。
+        Assert.NotEmpty(world.Market);
 
         foreach (var household in world.Households)
         {
@@ -307,6 +320,59 @@ public sealed class TradeSystemTests
 
         // 同じ観測を世帯主のKnowledgeに置くと相場基準が立つ(101、#22と同じ計算)。
         Assert.Equal(101, RunSecondDayPrice(HeadNpcId));
+    }
+
+    /// <summary>
+    /// 【核心】レビュー1巡目指摘1。<c>TradeSystem.Step</c> が <c>OfferPrice.TryMarketReference</c> の
+    /// <c>selfHouseholdId</c> に渡すのは <c>household.Id</c> であって <c>household.HeadNpcId</c> ではない
+    /// ことを、パイプライン側で押さえる。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>世帯主のNpcId(2)と世帯Id(0)を意図的に違えた世界</b>
+    /// (<see cref="BuildWorldWithHeadNpcIdDifferentFromHouseholdId"/>)を使い、世帯主の
+    /// <c>Knowledge</c> へ「<c>SellerId</c> = 自世帯Id(0)」の観測だけを置く。他の #21〜#29 は
+    /// 観測の <c>SellerId</c> が999固定・自世帯Idが0固定のため、<c>selfHouseholdId</c> に
+    /// <c>household.HeadNpcId</c>(2)を渡す変異が混入しても
+    /// <c>SellerId(999) != HeadNpcId(2)</c> で偶然除外が効いてしまい、どのテストも判別できない
+    /// (TDD01 §3.2「NpcId と世帯 Id の取り違えは型で防げない」経路)。
+    /// </para>
+    /// <para>
+    /// <b>変異の実測(2026-09-16)。</b><c>TradeSystem.Step</c> の
+    /// <c>OfferPrice.TryMarketReference</c> 呼び出しの3引数目(<c>selfHouseholdId</c>)を
+    /// <c>household.Id</c> から <c>household.HeadNpcId</c> に変える変異を当てたところ、
+    /// <c>Assert.Equal(2, ...)</c> が実際値151(<c>SellerId=0</c> の自己観測300が
+    /// <c>selfHouseholdId=2</c> と一致せず除外されず、相場基準 = CeilDiv(300+2,2)=151 が
+    /// 立ってしまった)で失敗した(赤を確認)。変異を戻して緑に復帰させた。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void MarketReferenceExcludesTheHouseholdsOwnObservationEvenWhenHeadNpcIdDiffers()
+    {
+        const int ShipmentTarget = 5;
+        const int SellableStock = 5;
+        const int SelfHouseholdId = 0; // BuildWorldWithHeadNpcIdDifferentFromHouseholdIdの世帯Id
+        const int HeadNpcId = 2;
+
+        var definition = BuildDefinition(ShipmentTarget, minimumMarginPermille: 0);
+        var world = BuildWorldWithHeadNpcIdDifferentFromHouseholdId();
+        world.Households[0].WorkshopInventory[Item.Flour] = SellableStock;
+        world.Households[0].PurchaseUnitCostAverage[Item.Grain] = 1; // 原価2
+
+        var system = new TradeSystem(definition);
+        EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目: 原価下限2で出品
+
+        // 自世帯(Id=0)の観測だけを世帯主のKnowledgeへ置く。SellerId(0)はhousehold.Idと一致し、
+        // household.HeadNpcId(2)とは一致しない。
+        world.Knowledge[HeadNpcId].Add(
+            Observation(Item.Flour, sellerId: SelfHouseholdId, price: 300, observedAt: Tick.Zero));
+
+        EconomySystemTestFixtures.RunDays(world, system, days: 1);
+
+        var key = new MarketKey(Item.Flour, world.Households[0].Id);
+
+        // 自世帯の観測しかないので相場基準が立たず、原価下限(2)のまま。
+        Assert.Equal(2, world.Market[key]);
     }
 
     /// <summary>テスト表 #27。IsBankrupt = 1 を直接立てて1日進める → 提示価格の下限が500‰になっている。</summary>
