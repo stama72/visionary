@@ -173,12 +173,25 @@ public sealed class TradeSystemTests
     /// (在庫比‰の計算経路)を一度も通らないため、<c>sellableStock</c> に世帯在庫を足す変異を
     /// 混入しても判別できない。#22 と同じ2日パターンで相場基準を立てて比較する。
     /// <para>
-    /// <b>変異の実測(2026-09-16)。</b><c>TradeSystem.Step</c> の <c>sellableStock</c> の取得を
+    /// <b>変異の実測1(2026-09-16)。</b><c>TradeSystem.Step</c> の <c>sellableStock</c> の取得を
     /// <c>household.WorkshopInventory[outputItemId] + household.HouseholdInventory[outputItemId]</c>
     /// (世帯在庫を足す)に変える変異を当てたところ、世帯在庫100を積んだケースの2日目の提示価格が
     /// 51(在庫比105/5=21000‰→係数clamp下限500‰→ApplyPermille(101,500)=51)になり、
     /// 積まない場合の101と食い違って <c>Assert.Equal</c> が失敗した(赤を確認)。
     /// 変異を戻して緑に復帰させた。
+    /// </para>
+    /// <para>
+    /// <b>絶対値の固定について(レビュー2巡目指摘)。</b>2回の実行の相等だけで判定すると、
+    /// 相場基準が立たなくなる変異(両者とも <c>costFloor</c> に落ちて一致してしまう)を見逃す
+    /// ため、<c>Assert.Equal(101, ...)</c> を足した。
+    /// </para>
+    /// <para>
+    /// <b>変異の実測2(2026-09-16)。</b><c>OfferPrice.TryMarketReference</c> の冒頭で常に
+    /// <c>marketReference = 0; return false;</c>(相場基準が常に立たない変異)を当てたところ、
+    /// <c>Assert.Equal(101, priceWithoutHouseholdStock)</c> が実際値2(<c>costFloor</c>)で
+    /// 失敗した(赤を確認)。絶対値の固定を足す前は、両ケースとも2で一致し
+    /// <c>Assert.Equal(priceWithoutHouseholdStock, priceWithHouseholdStock)</c> だけでは
+    /// この変異を判別できなかった。変異を戻して緑に復帰させた。
     /// </para>
     /// </remarks>
     [Fact]
@@ -213,6 +226,10 @@ public sealed class TradeSystemTests
         int priceWithoutHouseholdStock = RunAndGetPrice(householdInventoryFlour: 0);
         int priceWithHouseholdStock = RunAndGetPrice(householdInventoryFlour: 100);
 
+        // 絶対値も固定する(相場基準101、#22と同じ設定・同じ計算)。2回の実行の相等だけで
+        // 判定すると、相場基準が立たなくなる変異(両者ともcostFloor=2に落ちて一致する)を
+        // 見逃す(レビュー2巡目指摘)。
+        Assert.Equal(101, priceWithoutHouseholdStock);
         Assert.Equal(priceWithoutHouseholdStock, priceWithHouseholdStock);
     }
 
