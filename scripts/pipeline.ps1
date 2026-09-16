@@ -36,6 +36,33 @@ $AllowedTools = @(
 # フェーズごとのモデル。CLI の --model は コマンド側の `model:` frontmatter より強い(実測)。
 $PhaseModel = @{ impl = 'opus'; wrap = 'sonnet' }
 
+# SPEC-OUTSIDE が見る「仕様の外」。ADR-0010 が停止則4つの中心と呼んだもので、
+# 4つのうちこれだけが差分に現れるため機械で判定できる。
+$SpecPaths = @('docs/03-gdd', 'docs/04-tdd', 'docs/adr')
+
+function Get-SpecChange {
+    <#
+        フェーズ起動直前の HEAD から見て、仕様の外に差分があるかを返す。
+
+        **基準が master でないのは、フェーズ1 が仕様を凍らせるときに GDD を直すのが
+        正当な仕事だからである** — その変更は既にブランチ上にあるので、master 起点だと
+        毎回誤検出する(W2-03 の GDD02 §5.2・GDD03 §2.1 が実例)。
+
+        コミット済みと作業ツリーの両方を見る。**コミットしないまま `PIPELINE: DONE` を
+        出す経路があるので、片方だけでは素通りする。**
+    #>
+    param([Parameter(Mandatory = $true)][string]$Baseline)
+
+    $committed = & git -C $RepoRoot diff --name-only $Baseline HEAD -- $SpecPaths
+    # --porcelain の各行は "XY <path>"。追跡外のファイル(?? 行)も拾う。
+    $working = & git -C $RepoRoot status --porcelain -- $SpecPaths |
+        ForEach-Object { $_.Substring(3).Trim('"') }
+
+    return @($committed) + @($working) |
+        Where-Object { $_ } |
+        Sort-Object -Unique
+}
+
 function Send-DesktopNotification {
     param([string]$Title, [string]$Text, [string]$Level = 'Info')
     try {
@@ -70,16 +97,20 @@ function Invoke-Phase {
     Write-Host "=== /$Command $Issue  (model: $model) ===" -ForegroundColor Cyan
     Write-Host "    log: $log"
 
+    $baseline = (& git -C $RepoRoot rev-parse HEAD).Trim()
+
     if ($DryRun) {
+        # **DryRun でも合図の判定と SPEC-OUTSIDE の検査は通す。** claude を呼ばない
+        # 部分だけを差し替えることで、配線そのものを claude 抜きで確認できる。
         Write-Host "    [DryRun] claude -p `"$prompt`" --model $model --allowedTools ..."
-        return 'DONE'
+        $out = 'PIPELINE: DONE'
+    } else {
+        # プロンプトは可変長フラグ(--allowedTools)より前に置く。後ろだと引数として吸われる(実測)。
+        & claude -p $prompt --model $model --allowedTools $AllowedTools 2>&1 |
+            Tee-Object -FilePath $log
+
+        $out = Get-Content -Path $log -Raw -Encoding UTF8
     }
-
-    # プロンプトは可変長フラグ(--allowedTools)より前に置く。後ろだと引数として吸われる(実測)。
-    & claude -p $prompt --model $model --allowedTools $AllowedTools 2>&1 |
-        Tee-Object -FilePath $log
-
-    $out = Get-Content -Path $log -Raw -Encoding UTF8
 
     # **fail-closed。** HALT が無くても DONE が無ければ進めない。
     # 停止則を踏んだかどうか判らないまま次のフェーズへ渡すほうが危ない。
@@ -87,6 +118,22 @@ function Invoke-Phase {
         return @{ Status = 'HALT'; Reason = $Matches[1]; Detail = $Matches[2].Trim(); Log = $log }
     }
     if ($out -match 'PIPELINE:\s*DONE') {
+        # **DONE を出していても、仕様の外に差分があれば止める。**
+        # --allowedTools は Edit / Write を無条件で渡すので、GDD を書き換えたうえで
+        # DONE を出すセッションを合図の読み取りだけでは素通りさせてしまう。
+        # **フェーズ3 は文書を触るのが仕事なので検査しない**(05-phase-sessions)。
+        if ($Command -eq 'impl') {
+            $changed = Get-SpecChange -Baseline $baseline
+            if ($changed) {
+                return @{
+                    Status = 'HALT'
+                    Reason = 'SPEC-OUTSIDE'
+                    Detail = "仕様の外に差分がある: {0}" -f ($changed -join ', ')
+                    Log    = $log
+                }
+            }
+        }
+
         return @{ Status = 'DONE'; Log = $log }
     }
     return @{ Status = 'HALT'; Reason = 'NO-SENTINEL'; Detail = 'フェーズが DONE も HALT も出さずに終了した'; Log = $log }
@@ -98,7 +145,6 @@ $phases = if ($From -eq 'wrap') { @('wrap') } else { @('impl', 'wrap') }
 
 foreach ($phase in $phases) {
     $r = Invoke-Phase -Command $phase
-    if ($r -is [string]) { continue }   # DryRun
 
     if ($r.Status -eq 'HALT') {
         $title = "Visionary #$Issue — フェーズ /$phase が停止"

@@ -14,12 +14,21 @@ namespace Visionary.Sim.Tests.Systems;
 /// </remarks>
 internal static class EconomySystemTestFixtures
 {
-    /// <summary>テストが直接操作しない4職業ぶんの、実行しても無害な最小レシピ。</summary>
+    /// <summary>
+    /// テストが直接操作しない4職業ぶんの、実行しても無害な最小レシピ。
+    /// </summary>
+    /// <remarks>
+    /// <b>入力を1件持たせる。</b><see cref="TradeSystem"/> のコンストラクタが全レシピ
+    /// (この「使わない」4件を含む)の入力0件/出力2件以上を拒む(#35 タスク仕様)ため。
+    /// <see cref="BuildWorldWithOneHousehold"/> がこれらの職業の世帯を作らない以上、
+    /// <see cref="Systems.ProductionSystem"/> / <see cref="Systems.ConsumptionSystem"/> の
+    /// テストの挙動には影響しない。
+    /// </remarks>
     private static Recipe UnusedRecipe(Occupation occupation) =>
         new(
             occupation,
             outputs: new[] { new ItemQuantity { ItemId = 0, Quantity = 1 } },
-            inputs: Array.Empty<ItemQuantity>(),
+            inputs: new[] { new ItemQuantity { ItemId = 1, Quantity = 1 } },
             laborPermille: 1);
 
     /// <summary>
@@ -30,7 +39,10 @@ internal static class EconomySystemTestFixtures
         int[]? laborPermilleByRank = null,
         int productionRunsPerToolWear = 30,
         int[][]? dailyConsumptionPerNpcByRank = null,
-        int[]? firewoodConsumptionSeasonPermille = null)
+        int[]? firewoodConsumptionSeasonPermille = null,
+        int minimumMarginPermille = 0,
+        int[][]? shipmentTargetStockByOccupation = null,
+        int observationRetentionDays = 7)
     {
         var recipes = new[]
         {
@@ -55,7 +67,34 @@ internal static class EconomySystemTestFixtures
             productionRunsPerToolWear: productionRunsPerToolWear,
             dailyConsumptionPerNpcByRank: dailyConsumptionPerNpcByRank ?? ZeroConsumptionTable(),
             firewoodConsumptionSeasonPermille:
-                firewoodConsumptionSeasonPermille ?? new[] { 1000, 1000, 1000, 1000 });
+                firewoodConsumptionSeasonPermille ?? new[] { 1000, 1000, 1000, 1000 },
+            minimumMarginPermille: minimumMarginPermille,
+            shipmentTargetStockByOccupation:
+                shipmentTargetStockByOccupation ?? DefaultShipmentTargetStockByOccupation(recipes),
+            observationRetentionDays: observationRetentionDays);
+    }
+
+    /// <summary>
+    /// 各職業の出力品目の欄だけ1を置き、残りは0にする(コンストラクタが出力品目以外の
+    /// 非0を拒むため)。<see cref="OfferPrice"/> / <see cref="TradeSystem"/> のテストは
+    /// 通常こちらを差し替えて使う。
+    /// </summary>
+    private static int[][] DefaultShipmentTargetStockByOccupation(Recipe[] recipes)
+    {
+        var rows = new int[recipes.Length][];
+
+        for (int occupationId = 0; occupationId < recipes.Length; occupationId++)
+        {
+            var row = new int[Item.Count];
+            foreach (var output in recipes[occupationId].Outputs)
+            {
+                row[output.ItemId] = 1;
+            }
+
+            rows[occupationId] = row;
+        }
+
+        return rows;
     }
 
     private static int[][] ZeroConsumptionTable() =>

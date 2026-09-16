@@ -56,6 +56,17 @@ public sealed class WorldDefinition
     /// <summary>添字 = (int)Season の薪の消費の季節係数‰。長さ4(GDD02 §9 / GDD03 §2.1)。</summary>
     public int[] FirewoodConsumptionSeasonPermille { get; }
 
+    /// <summary>最低利幅‰。原価下限 = ApplyPermille(原価, 1000 + これ)(GDD02 §8.1)。</summary>
+    public int MinimumMarginPermille { get; }
+
+    /// <summary>
+    /// 出荷目標在庫。添字 = [(int)Occupation][itemId]。単位: 個(GDD02 §8.1.1)。
+    /// </summary>
+    public int[][] ShipmentTargetStockByOccupation { get; }
+
+    /// <summary>相場観測の保持期間。単位: 日(GDD06 §3.1)。</summary>
+    public int ObservationRetentionDays { get; }
+
     /// <summary>職業数。<see cref="Recipes"/> の長さから導く。</summary>
     public int OccupationCount => Recipes.Length;
 
@@ -87,7 +98,10 @@ public sealed class WorldDefinition
         int[] laborPermilleByRank,
         int productionRunsPerToolWear,
         int[][] dailyConsumptionPerNpcByRank,
-        int[] firewoodConsumptionSeasonPermille)
+        int[] firewoodConsumptionSeasonPermille,
+        int minimumMarginPermille,
+        int[][] shipmentTargetStockByOccupation,
+        int observationRetentionDays)
     {
         ArgumentNullException.ThrowIfNull(recipes);
         ArgumentNullException.ThrowIfNull(initialAcquisitionCost);
@@ -96,6 +110,7 @@ public sealed class WorldDefinition
         ArgumentNullException.ThrowIfNull(laborPermilleByRank);
         ArgumentNullException.ThrowIfNull(dailyConsumptionPerNpcByRank);
         ArgumentNullException.ThrowIfNull(firewoodConsumptionSeasonPermille);
+        ArgumentNullException.ThrowIfNull(shipmentTargetStockByOccupation);
 
         if (recipes.Length == 0)
         {
@@ -229,6 +244,81 @@ public sealed class WorldDefinition
             }
         }
 
+        // 負だけを拒む。0(利幅なし = 原価がそのまま下限)は構造として成立する(GDD02 §12-5)。
+        if (minimumMarginPermille < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(minimumMarginPermille), minimumMarginPermille, "最低利幅‰は非負(GDD02 §8.1)。");
+        }
+
+        // 行数 = 職業数(Recipes.Length)。長さの一致は行ごとに itemCount と照合する
+        // (dailyConsumptionPerNpcByRank と同じ形の検査)。
+        if (shipmentTargetStockByOccupation.Length != recipes.Length)
+        {
+            throw new ArgumentException(
+                $"出荷目標在庫の行数は職業数({recipes.Length})と一致する必要がある。",
+                nameof(shipmentTargetStockByOccupation));
+        }
+
+        for (int occupationId = 0; occupationId < shipmentTargetStockByOccupation.Length; occupationId++)
+        {
+            var row = shipmentTargetStockByOccupation[occupationId];
+
+            ArgumentNullException.ThrowIfNull(row, nameof(shipmentTargetStockByOccupation));
+
+            if (row.Length != itemCount)
+            {
+                throw new ArgumentException(
+                    $"出荷目標在庫の各行の長さは品目数({itemCount})と一致する必要がある。",
+                    nameof(shipmentTargetStockByOccupation));
+            }
+
+            var outputs = recipes[occupationId].Outputs;
+
+            for (int itemId = 0; itemId < itemCount; itemId++)
+            {
+                bool isOutputItem = false;
+                foreach (var output in outputs)
+                {
+                    if (output.ItemId == itemId)
+                    {
+                        isOutputItem = true;
+                        break;
+                    }
+                }
+
+                int target = row[itemId];
+
+                if (isOutputItem)
+                {
+                    // 在庫比‰ = CeilDiv(1000 × 販売在庫, 出荷目標在庫) の分母。0だとゼロ除算になる
+                    // (GDD02 §8.1.1「定数にすれば停止中の工房も正しく判定される」の前提)。
+                    if (target <= 0)
+                    {
+                        throw new ArgumentOutOfRangeException(
+                            nameof(shipmentTargetStockByOccupation), target,
+                            $"出力品目(itemId={itemId})の出荷目標在庫は1以上(GDD02 §8.1.1)。");
+                    }
+                }
+                else if (target != 0)
+                {
+                    // 出力品目以外を0に強制するのは、表から「どの欄が効くか」を読めるようにするため
+                    // (品目×職業45欄のうち意味を持つのは出力品目ぶんだけ)。
+                    throw new ArgumentOutOfRangeException(
+                        nameof(shipmentTargetStockByOccupation), target,
+                        $"出力品目でない欄(itemId={itemId})の出荷目標在庫は0(GDD02 §8.1.1)。");
+                }
+            }
+        }
+
+        // 0だと有効な観測が永久に0件になる(下記の境界規則が「差1日以上」を要求するため)。
+        if (observationRetentionDays < 1)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(observationRetentionDays), observationRetentionDays,
+                "相場観測の保持期間は1日以上(GDD06 §3.1)。");
+        }
+
         if (householdsPerOccupation < 1)
         {
             throw new ArgumentOutOfRangeException(
@@ -275,6 +365,17 @@ public sealed class WorldDefinition
         }
 
         FirewoodConsumptionSeasonPermille = firewoodConsumptionSeasonPermille.ToArray();
+
+        MinimumMarginPermille = minimumMarginPermille;
+
+        // jagged配列は行ごとに複製する(DailyConsumptionPerNpcByRankと同じ理由)。
+        ShipmentTargetStockByOccupation = new int[shipmentTargetStockByOccupation.Length][];
+        for (int occupationId = 0; occupationId < shipmentTargetStockByOccupation.Length; occupationId++)
+        {
+            ShipmentTargetStockByOccupation[occupationId] = shipmentTargetStockByOccupation[occupationId].ToArray();
+        }
+
+        ObservationRetentionDays = observationRetentionDays;
     }
 
     private static void ValidateItemIdsAreInRange(ItemQuantity[] items, int itemCount, string paramName)
@@ -372,6 +473,22 @@ public sealed class WorldDefinition
         // 添字 = (int)Season(Spring, Summer, Autumn, Winter)。GDD03 §2.1。基準は秋の1000‰。
         var firewoodConsumptionSeasonPermille = new[] { 800, 400, 1000, 2000 }; // 単位: ‰
 
+        const int MinimumMarginPermilleForM0 = 200; // ‰。20%
+
+        // 出荷目標在庫。添字 = [(int)Occupation][itemId]。単位: 個(GDD02 §8.1.1)。
+        // 初期値は「3日分の出力」— 生産能力が 1実行/日 に張り付いている(#28 への申し送り、
+        // W2-03)ので、出力数量 × 3 を置く。出力品目以外は 0(コンストラクタが強制する)。
+        var shipmentTargetStockByOccupation = new[]
+        {
+            NewShipmentRow(Item.Flour, 3),     // Miller:     小麦粉1/日 × 3
+            NewShipmentRow(Item.Bread, 6),     // Baker:      パン2/日 × 3
+            NewShipmentRow(Item.Beer, 3),      // Brewer:     ビール1/日 × 3
+            NewShipmentRow(Item.Firewood, 9),  // Woodworker: 薪3/日 × 3
+            NewShipmentRow(Item.Tools, 3),     // Smith:      工具1/日 × 3
+        };
+
+        const int ObservationRetentionDaysForM0 = 7; // 日(GDD06 §3.1)
+
         return new WorldDefinition(
             itemCount: Item.Count,
             householdsPerOccupation: 2,
@@ -385,6 +502,21 @@ public sealed class WorldDefinition
             laborPermilleByRank: laborPermilleByRank,
             productionRunsPerToolWear: 30, // 単位: 回(GDD02 §5.3)
             dailyConsumptionPerNpcByRank: dailyConsumptionPerNpcByRank,
-            firewoodConsumptionSeasonPermille: firewoodConsumptionSeasonPermille);
+            firewoodConsumptionSeasonPermille: firewoodConsumptionSeasonPermille,
+            minimumMarginPermille: MinimumMarginPermilleForM0,
+            shipmentTargetStockByOccupation: shipmentTargetStockByOccupation,
+            observationRetentionDays: ObservationRetentionDaysForM0);
+    }
+
+    /// <summary>
+    /// 出荷目標在庫の1行(長さ <see cref="Item.Count"/>)を作る。<paramref name="itemId"/> の欄だけ
+    /// <paramref name="target"/> を入れ、残りは0(コンストラクタが出力品目以外の非0を拒む)。
+    /// </summary>
+    private static int[] NewShipmentRow(int itemId, int target)
+    {
+        var row = new int[Item.Count];
+        row[itemId] = target;
+
+        return row;
     }
 }

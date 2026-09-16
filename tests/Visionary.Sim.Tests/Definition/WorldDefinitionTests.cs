@@ -13,7 +13,10 @@ public sealed class WorldDefinitionTests
         int[]? laborPermilleByRank = null,
         int? productionRunsPerToolWear = null,
         int[][]? dailyConsumptionPerNpcByRank = null,
-        int[]? firewoodConsumptionSeasonPermille = null)
+        int[]? firewoodConsumptionSeasonPermille = null,
+        int? minimumMarginPermille = null,
+        int[][]? shipmentTargetStockByOccupation = null,
+        int? observationRetentionDays = null)
     {
         var m0 = WorldDefinition.M0;
 
@@ -31,7 +34,11 @@ public sealed class WorldDefinitionTests
             productionRunsPerToolWear: productionRunsPerToolWear ?? m0.ProductionRunsPerToolWear,
             dailyConsumptionPerNpcByRank: dailyConsumptionPerNpcByRank ?? m0.DailyConsumptionPerNpcByRank,
             firewoodConsumptionSeasonPermille:
-                firewoodConsumptionSeasonPermille ?? m0.FirewoodConsumptionSeasonPermille);
+                firewoodConsumptionSeasonPermille ?? m0.FirewoodConsumptionSeasonPermille,
+            minimumMarginPermille: minimumMarginPermille ?? m0.MinimumMarginPermille,
+            shipmentTargetStockByOccupation:
+                shipmentTargetStockByOccupation ?? m0.ShipmentTargetStockByOccupation,
+            observationRetentionDays: observationRetentionDays ?? m0.ObservationRetentionDays);
     }
 
     [Fact]
@@ -226,5 +233,76 @@ public sealed class WorldDefinitionTests
         givenRows[0][0] = 999;
 
         Assert.Equal(m0.DailyConsumptionPerNpcByRank[0], definition.DailyConsumptionPerNpcByRank[0]);
+    }
+
+    /// <summary>
+    /// テスト表 #30。#35 が足した3欄(最低利幅‰・出荷目標在庫・保持期間)それぞれの検証を確かめる。
+    /// 出力品目の欄の0を通すと在庫比‰(CeilDiv(1000×販売在庫, 出荷目標在庫))がゼロ除算になり、
+    /// 表の形を検査しないと「どの欄が効くか」が読めない値(出力品目でない欄の非0)が住み着く。
+    /// </summary>
+    [Fact]
+    public void WorldDefinitionRejectsMalformedShipmentTargets()
+    {
+        var m0 = WorldDefinition.M0;
+
+        // 行数 ≠ 職業数(5行のうち4行しかない)
+        Assert.Throws<ArgumentException>(() => BuildDefinition(
+            shipmentTargetStockByOccupation: m0.ShipmentTargetStockByOccupation.Take(4).ToArray()));
+
+        // 行の長さ ≠ itemCount
+        var shortRow = CloneShipmentTargets(m0);
+        shortRow[0] = new[] { 1 };
+        Assert.Throws<ArgumentException>(
+            () => BuildDefinition(shipmentTargetStockByOccupation: shortRow));
+
+        // 出力品目(Miller: 小麦粉)の欄が0(ゼロ除算の元)
+        var zeroedOutput = CloneShipmentTargets(m0);
+        zeroedOutput[(int)Occupation.Miller][Item.Flour] = 0;
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => BuildDefinition(shipmentTargetStockByOccupation: zeroedOutput));
+
+        // 出力品目でない欄(Miller: 穀物は入力であって出力ではない)が非0
+        var nonOutputFilled = CloneShipmentTargets(m0);
+        nonOutputFilled[(int)Occupation.Miller][Item.Grain] = 1;
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => BuildDefinition(shipmentTargetStockByOccupation: nonOutputFilled));
+
+        // 保持期間が0(有効な観測が永久に0件になる)
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => BuildDefinition(observationRetentionDays: 0));
+
+        // 負の最低利幅‰
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => BuildDefinition(minimumMarginPermille: -1));
+    }
+
+    /// <summary>
+    /// テスト表 #31。渡した jagged 配列の行の中身を後から書き換えても定義が変わらないこと。
+    /// 外側だけ <c>ToArray()</c> すると、検証を通した後に呼び出し側が元の行を書き換えられてしまう。
+    /// </summary>
+    [Fact]
+    public void WorldDefinitionCopiesEachShipmentTargetRow()
+    {
+        var m0 = WorldDefinition.M0;
+        var givenRows = CloneShipmentTargets(m0);
+
+        var definition = BuildDefinition(shipmentTargetStockByOccupation: givenRows);
+
+        // 検証を通した後に、渡した行の中身を書き換える。
+        givenRows[0][Item.Flour] = 999;
+
+        Assert.Equal(
+            m0.ShipmentTargetStockByOccupation[0], definition.ShipmentTargetStockByOccupation[0]);
+    }
+
+    private static int[][] CloneShipmentTargets(WorldDefinition definition)
+    {
+        var rows = new int[definition.ShipmentTargetStockByOccupation.Length][];
+        for (int i = 0; i < rows.Length; i++)
+        {
+            rows[i] = (int[])definition.ShipmentTargetStockByOccupation[i].Clone();
+        }
+
+        return rows;
     }
 }
