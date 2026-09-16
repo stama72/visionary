@@ -3,7 +3,7 @@ using Visionary.Sim.Randomness;
 namespace Visionary.Sim.Systems;
 
 /// <summary>
-/// 交易(TDD01 §3.3 順5)。<b>本タスクが実装するのは値付けの段だけである。</b>
+/// 交易(TDD01 §3.3 順5)。<b>本タスクが実装するのは値付けの段と観測の段だけである。</b>
 /// 店の選択・約定(#37)はこのクラスの中に足す ── 順5 に2つのシステムを置けない
 /// (<see cref="SimScheduler"/> が <see cref="Stream"/> の重複登録を拒む。共通乱数法が壊れる)。
 /// </summary>
@@ -18,6 +18,12 @@ namespace Visionary.Sim.Systems;
 /// 2段である。</b>1. 全売り手ぶんの新しい提示価格を求める(この間 <c>Market</c> は読むだけ)。
 /// 2. <c>Market.Clear()</c> してから、1 の結果を一括で書く。売り手ごとに読んでは書くと、
 /// 先に <c>Clear()</c> してしまった売り手が自分の前日価格を失う。
+/// </para>
+/// <para>
+/// <b>観測の段は値付けの後である(#36)。</b>GDD06 §3.1「今日の知覚 = 自区画から距離 R 以内に
+/// 出ている売り注文」なので、観測するのは当日の提示価格である。生まれた観測は
+/// <see cref="OfferPrice.TryMarketReference"/> の鮮度判定(差1日以上)により翌日から有効な
+/// 記憶になる ── 同一tick内での相互参照を切る。
 /// </para>
 /// <para>
 /// <b>乱数を一切引かない。</b><see cref="Stream"/> が <see cref="RandomStream.Trade"/> を持つのは
@@ -119,6 +125,17 @@ public sealed class TradeSystem : ISimSystem
         foreach (var offer in newOffers)
         {
             world.Market[offer.Key] = offer.Price;
+        }
+
+        // 3. 観測(GDD06 §3.1 / GDD08 §8.1、#36)。失効を先に呼ぶ ── 当日生まれた観測は差0なので
+        // どちらの順でも消えないが、「生まれた当日は失効しない」が順序に依存しない形になる。
+        Observations.Expire(world, _definition.ObservationRetentionDays);
+
+        // 世帯Id昇順に(Householdsは添字=Idなので先頭から走査するだけで規約を満たす)。
+        // 訪れた区画は本タスクでは常に空(#37が買い物で訪れた区画を渡す)。
+        foreach (var household in world.Households)
+        {
+            Observations.CollectAndShare(world, household, Array.Empty<int>());
         }
     }
 }

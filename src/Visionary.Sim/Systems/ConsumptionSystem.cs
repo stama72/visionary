@@ -1,4 +1,3 @@
-using Visionary.Sim.Numerics;
 using Visionary.Sim.Randomness;
 using Visionary.Sim.Time;
 
@@ -57,7 +56,9 @@ public sealed class ConsumptionSystem : ISimSystem
     {
         for (int itemId = 0; itemId < _definition.ItemCount; itemId++)
         {
-            int requiredQuantity = RequiredQuantityFor(world, household, itemId, season);
+            // 消費量の計算は1か所にしか置かない(#36 タスク仕様)。目標在庫(#36)の先読みも
+            // 同じ式を使う ── 書き分けると目標在庫と実消費が静かにずれる。
+            int requiredQuantity = DailyConsumption.Quantity(_definition, world, household, itemId, season);
 
             int consumedQuantity = Math.Min(requiredQuantity, household.HouseholdInventory[itemId]);
             household.HouseholdInventory[itemId] -= consumedQuantity;
@@ -66,25 +67,5 @@ public sealed class ConsumptionSystem : ISimSystem
             // #40 の Need として残り続ける(タスク仕様)。
             household.UnmetConsumption[itemId] = requiredQuantity - consumedQuantity;
         }
-    }
-
-    private int RequiredQuantityFor(World world, HouseholdState household, int itemId, Season season)
-    {
-        int requiredQuantity = 0;
-
-        // 構成員は先頭から(MemberNpcIdsの昇順は構築時に検証済み)。
-        foreach (int npcId in household.MemberNpcIds)
-        {
-            int baseQuantity = _definition.DailyConsumptionPerNpcByRank[(int)world.Npcs[npcId].Rank][itemId];
-
-            // 季節係数を掛けるのは薪だけ(GDD02 §9)。構成員ごとに切り上げてから合計する ──
-            // 世帯合計に先に掛けると、基礎量が奇数の場合に結果がずれる(GDD02 §6.1)。
-            requiredQuantity += itemId == Item.Firewood
-                ? IntegerMath.ApplyPermille(
-                    baseQuantity, _definition.FirewoodConsumptionSeasonPermille[(int)season])
-                : baseQuantity;
-        }
-
-        return requiredQuantity;
     }
 }
