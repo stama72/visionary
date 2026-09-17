@@ -42,7 +42,14 @@ internal static class EconomySystemTestFixtures
         int[]? firewoodConsumptionSeasonPermille = null,
         int minimumMarginPermille = 0,
         int[][]? shipmentTargetStockByOccupation = null,
-        int observationRetentionDays = 7)
+        int observationRetentionDays = 7,
+        int[][]? inputTargetStockByOccupation = null,
+        int[]? necessityTargetStockDays = null,
+        int[]? preferenceTargetStockDays = null,
+        int toolTargetStockPermille = 1000,
+        int[]? rankCoefficientPermille = null,
+        int necessityTolerancePermille = 1000,
+        int[]? budgetRatioPermilleByPurpose = null)
     {
         var recipes = new[]
         {
@@ -71,7 +78,15 @@ internal static class EconomySystemTestFixtures
             minimumMarginPermille: minimumMarginPermille,
             shipmentTargetStockByOccupation:
                 shipmentTargetStockByOccupation ?? DefaultShipmentTargetStockByOccupation(recipes),
-            observationRetentionDays: observationRetentionDays);
+            observationRetentionDays: observationRetentionDays,
+            inputTargetStockByOccupation:
+                inputTargetStockByOccupation ?? DefaultInputTargetStockByOccupation(recipes),
+            necessityTargetStockDays: necessityTargetStockDays ?? new int[Item.Count],
+            preferenceTargetStockDays: preferenceTargetStockDays ?? new int[Item.Count],
+            toolTargetStockPermille: toolTargetStockPermille,
+            rankCoefficientPermille: rankCoefficientPermille ?? new[] { 1000, 1000, 1000 },
+            necessityTolerancePermille: necessityTolerancePermille,
+            budgetRatioPermilleByPurpose: budgetRatioPermilleByPurpose ?? new[] { 0, 1, 0, 1 });
     }
 
     /// <summary>
@@ -99,6 +114,29 @@ internal static class EconomySystemTestFixtures
 
     private static int[][] ZeroConsumptionTable() =>
         new[] { new int[Item.Count], new int[Item.Count], new int[Item.Count] };
+
+    /// <summary>
+    /// 各職業のレシピの入力品目の欄だけ1を置き、残りは0にする(コンストラクタが入力品目以外の
+    /// 非0を拒むため)。<see cref="BuyerBudget"/> / <see cref="BuyerDemand"/> のテストは通常
+    /// こちらを差し替えて使う。
+    /// </summary>
+    private static int[][] DefaultInputTargetStockByOccupation(Recipe[] recipes)
+    {
+        var rows = new int[recipes.Length][];
+
+        for (int occupationId = 0; occupationId < recipes.Length; occupationId++)
+        {
+            var row = new int[Item.Count];
+            foreach (var input in recipes[occupationId].Inputs)
+            {
+                row[input.ItemId] = 1;
+            }
+
+            rows[occupationId] = row;
+        }
+
+        return rows;
+    }
 
     /// <summary>
     /// 構成員 <paramref name="memberRanks"/>(先頭が世帯主)を持つ、世帯1戸だけの世界を作る。

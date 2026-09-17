@@ -24,6 +24,16 @@ public static class District
     /// <summary>都市外市場は中心の区画に固定(GDD02 §4.3・§10)。</summary>
     public const int ExternalMarketDistrictId = 4;
 
+    /// <summary>
+    /// 視界半径 R(GDD06 §3.1)。単位: 区画。<see cref="WorldDefinition"/> に置かない
+    /// (GDD02 §13.2「視界半径 R は値ではなく構造」)。
+    /// </summary>
+    /// <remarks>
+    /// R=0 なら誰も他区画の店を知れず、R=2 なら中心の区画(4)の世帯が初日から全区画を
+    /// 見通す ── いずれも GDD06 §3.1 の「情報の摩擦」が構造として成立しなくなる。
+    /// </remarks>
+    public const int VisionRadius = 1;
+
     /// <summary>行(0〜<see cref="GridSide"/>-1)。区画Idは行優先(GDD02 §4.3)。</summary>
     public static int RowOf(int districtId)
     {

@@ -16,7 +16,14 @@ public sealed class WorldDefinitionTests
         int[]? firewoodConsumptionSeasonPermille = null,
         int? minimumMarginPermille = null,
         int[][]? shipmentTargetStockByOccupation = null,
-        int? observationRetentionDays = null)
+        int? observationRetentionDays = null,
+        int[][]? inputTargetStockByOccupation = null,
+        int[]? necessityTargetStockDays = null,
+        int[]? preferenceTargetStockDays = null,
+        int? toolTargetStockPermille = null,
+        int[]? rankCoefficientPermille = null,
+        int? necessityTolerancePermille = null,
+        int[]? budgetRatioPermilleByPurpose = null)
     {
         var m0 = WorldDefinition.M0;
 
@@ -38,7 +45,16 @@ public sealed class WorldDefinitionTests
             minimumMarginPermille: minimumMarginPermille ?? m0.MinimumMarginPermille,
             shipmentTargetStockByOccupation:
                 shipmentTargetStockByOccupation ?? m0.ShipmentTargetStockByOccupation,
-            observationRetentionDays: observationRetentionDays ?? m0.ObservationRetentionDays);
+            observationRetentionDays: observationRetentionDays ?? m0.ObservationRetentionDays,
+            inputTargetStockByOccupation:
+                inputTargetStockByOccupation ?? m0.InputTargetStockByOccupation,
+            necessityTargetStockDays: necessityTargetStockDays ?? m0.NecessityTargetStockDays,
+            preferenceTargetStockDays: preferenceTargetStockDays ?? m0.PreferenceTargetStockDays,
+            toolTargetStockPermille: toolTargetStockPermille ?? m0.ToolTargetStockPermille,
+            rankCoefficientPermille: rankCoefficientPermille ?? m0.RankCoefficientPermille,
+            necessityTolerancePermille: necessityTolerancePermille ?? m0.NecessityTolerancePermille,
+            budgetRatioPermilleByPurpose:
+                budgetRatioPermilleByPurpose ?? m0.BudgetRatioPermilleByPurpose);
     }
 
     [Fact]
@@ -293,6 +309,107 @@ public sealed class WorldDefinitionTests
 
         Assert.Equal(
             m0.ShipmentTargetStockByOccupation[0], definition.ShipmentTargetStockByOccupation[0]);
+    }
+
+    /// <summary>
+    /// テスト表 #38。#36 が足した7欄それぞれの検証を確かめる。使われない調整軸(ProductionInput
+    /// の予算比率)と単位の違う2本の行(Item.Toolsを必需・嗜好に置く)が定義から入るのを防ぐ。
+    /// </summary>
+    [Fact]
+    public void WorldDefinitionRejectsMalformedBudgetTables()
+    {
+        var m0 = WorldDefinition.M0;
+
+        // 入力品目(Miller: 穀物)の欄が0(「この入力は要らない」と読めてしまう)
+        var zeroedInput = CloneInputTargets(m0);
+        zeroedInput[(int)Occupation.Miller][Item.Grain] = 0;
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => BuildDefinition(inputTargetStockByOccupation: zeroedInput));
+
+        // 入力品目でない欄(Miller: 小麦粉は出力であって入力ではない)が非0
+        var nonInputFilled = CloneInputTargets(m0);
+        nonInputFilled[(int)Occupation.Miller][Item.Flour] = 1;
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => BuildDefinition(inputTargetStockByOccupation: nonInputFilled));
+
+        // 行数 ≠ 職業数(5行のうち4行しかない)
+        Assert.Throws<ArgumentException>(() => BuildDefinition(
+            inputTargetStockByOccupation: m0.InputTargetStockByOccupation.Take(4).ToArray()));
+
+        // 必需と嗜好で同じ品目(薪)が両方で正
+        var necessityWithFirewood = (int[])m0.NecessityTargetStockDays.Clone();
+        var preferenceWithFirewood = (int[])m0.PreferenceTargetStockDays.Clone();
+        preferenceWithFirewood[Item.Firewood] = 1; // 必需は既にFirewood=7(M0)
+        Assert.Throws<ArgumentException>(() => BuildDefinition(
+            necessityTargetStockDays: necessityWithFirewood,
+            preferenceTargetStockDays: preferenceWithFirewood));
+
+        // Item.Toolsを必需に置く(耐久と単位が異なる)
+        var necessityWithTools = (int[])m0.NecessityTargetStockDays.Clone();
+        necessityWithTools[Item.Tools] = 1;
+        Assert.Throws<ArgumentException>(
+            () => BuildDefinition(necessityTargetStockDays: necessityWithTools));
+
+        // 予算比率の長さ ≠ 4
+        Assert.Throws<ArgumentException>(() => BuildDefinition(
+            budgetRatioPermilleByPurpose: new[] { 0, 50, 200 }));
+
+        // ProductionInputの比率が非0(母数を持たない派生需要に調整軸を作らない)
+        var productionInputRatioSet = (int[])m0.BudgetRatioPermilleByPurpose.Clone();
+        productionInputRatioSet[(int)DemandPurpose.ProductionInput] = 1;
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => BuildDefinition(budgetRatioPermilleByPurpose: productionInputRatioSet));
+
+        // Necessityの比率が0(詰みを作る)
+        var necessityRatioZero = (int[])m0.BudgetRatioPermilleByPurpose.Clone();
+        necessityRatioZero[(int)DemandPurpose.Necessity] = 0;
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => BuildDefinition(budgetRatioPermilleByPurpose: necessityRatioZero));
+
+        // Durableの比率が0(詰みを作る)
+        var durableRatioZero = (int[])m0.BudgetRatioPermilleByPurpose.Clone();
+        durableRatioZero[(int)DemandPurpose.Durable] = 0;
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => BuildDefinition(budgetRatioPermilleByPurpose: durableRatioZero));
+
+        // 階層係数‰が0(その階層の世帯主の工具の目標在庫が0になる)
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => BuildDefinition(rankCoefficientPermille: new[] { 1000, 600, 0 }));
+
+        // 必需の許容乖離‰が0
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => BuildDefinition(necessityTolerancePermille: 0));
+    }
+
+    /// <summary>
+    /// テスト表 #39。渡した jagged 配列の行の中身を後から書き換えても定義が変わらないこと。
+    /// 外側だけ <c>ToArray()</c> すると、検証を通した後に呼び出し側が元の行を書き換えられてしまう。
+    /// </summary>
+    [Fact]
+    public void WorldDefinitionCopiesEachInputTargetRow()
+    {
+        var m0 = WorldDefinition.M0;
+        var givenRows = CloneInputTargets(m0);
+
+        var definition = BuildDefinition(inputTargetStockByOccupation: givenRows);
+
+        // 検証を通した後に、渡した行の中身を書き換える。
+        givenRows[(int)Occupation.Miller][Item.Grain] = 999;
+
+        Assert.Equal(
+            m0.InputTargetStockByOccupation[(int)Occupation.Miller],
+            definition.InputTargetStockByOccupation[(int)Occupation.Miller]);
+    }
+
+    private static int[][] CloneInputTargets(WorldDefinition definition)
+    {
+        var rows = new int[definition.InputTargetStockByOccupation.Length][];
+        for (int i = 0; i < rows.Length; i++)
+        {
+            rows[i] = (int[])definition.InputTargetStockByOccupation[i].Clone();
+        }
+
+        return rows;
     }
 
     private static int[][] CloneShipmentTargets(WorldDefinition definition)
