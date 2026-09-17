@@ -26,9 +26,8 @@ public enum PromiseState
 /// 信用変化の計算式(GDD01 §2.8)は持たない。
 /// </summary>
 /// <remarks>
-/// <see cref="NeedIndex"/> は暫定。<see cref="Need"/> 自体がまだ Id を持たないため、
-/// 生成時点の <see cref="World.Needs"/> の添字を仮に指す。Need の参照方式は
-/// Need に Id を持たせるかどうかと合わせて W2 で確定する。
+/// <see cref="NeedIndex"/> は W2 で変わる。今の仮の形と正すべき方向は
+/// TDD01 §3.6「W1 で置いた仮決め」の表が持つ(ここに複製しない)。
 /// </remarks>
 public readonly record struct Promise
 {
