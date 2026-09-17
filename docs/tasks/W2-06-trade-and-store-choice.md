@@ -327,6 +327,7 @@ demands[householdId].Lines を並び順そのままに走査する
  10. 買える数量 >= 1 なら TradeSettlement.Execute(…)
 ```
 
+- **手順1 と手順5 の換算は、名前付きの静的ヘルパー2つへ切り出す**(レビュー1巡目 I-b の訂正)。**用途による分岐もヘルパーの中へ入れる。** 段5 の本文に埋めると、耐久の約定が W2 では起きない以上どこからも踏めず、テスト #6 が判別力を持てない(上記「落ちるべき条件」の囲み)。名前は `TargetStockInUnits(purpose, targetStock, runsPerToolWear)` / `PurchaseQuantityInUnits(purpose, quantity, runsPerToolWear)` のように、**耐久値と個数のどちらを返すかが名前で分かる**こと
 - **`Market` を書くのは段2 だけである。** 約定は在庫・資金・帳簿を動かすが `Market` には触らない(現状の doc コメントの約束を守る)
 - **販売在庫は約定のたびに減るので、`TrySelect` は毎回 `world` を読み直す。** 候補を1日1回作って使い回さない — 使い回すと売り切れた店を選ぶ
 - **`BuyerDemand` / `StoreChoice` は `Step` のたびに作らず、コンストラクタで1つ持つ**(`_definition` と同じ)
@@ -345,10 +346,14 @@ demands[householdId].Lines を並び順そのままに走査する
 | 3 | `ErrandOpportunityCostReadsTheHouseholdOccupation` | 同じ構成員で `Occupation` だけ Miller(基準値5)→ Smith(基準値8)に変えると **1 → 2** | 職業を定数で引く(#36 引き継ぎ表 J と同型。**#39 の職業付け替え後に機会費用が追随しない**) | |
 | 4 | `TravelHoursCountsTheRoundTrip` | 区画0→区画8(距離4)・1時間/区画 → **8**。同一区画 → **0** | `× 2` を落とす(片道だけ数え、**空間の摩擦が半分になる**) | |
 | 5 | `TravelCostIsDividedByTheTargetStock` | 移動時間8・機会費用3・目標在庫5 → **CeilDiv(24,5) = 5**。目標在庫**0** → **24**(零除算しない) | `max(目標在庫, 1)` を落とす(`DivideByZeroException`。**入力切れで停止した工房が入力を買い直せず永久に止まる**、GDD06 §2)。割らずに1回あたりの値を返す | **核心** |
-| 6 | `DurableTravelCostConvertsTheTargetStockToUnits` | 工具の目標在庫**15(耐久値)**・N=30・移動時間8・機会費用3 → 個数換算は `CeilDiv(15,30) = 1` なので **24**。耐久値のまま割ると **2** | 個数へ直さずに `line.TargetStock` を渡す(**移動費が 1/N になり、空間の摩擦が耐久財についてだけ消える**。GDD06 §2) | **核心** |
+| 6 | `DurableTravelCostConvertsTheTargetStockToUnits` | **段5 の換算そのものを呼ぶ**(下記の囲み)。用途 `Durable`・目標在庫 **15(耐久値)**・N=30 → 個数 **1**、用途 `Necessity`・目標在庫15 → **15**(換算しない)。購入量の換算(手順5)も同じテストで踏む: `Durable`・購入量15 → **1**、`Necessity`・購入量15 → **15** | 個数へ直さずに `line.TargetStock` を渡す(**移動費が 1/N になり、空間の摩擦が耐久財についてだけ消える**。GDD06 §2)。用途を見ずに常に換算する(**必需の移動費が 1/N になる**) | **核心** |
 | 7 | `FundsCapRoundsDown` | 流動資金100・実効価格30 → **3**。流動資金29・実効価格30 → **0** | `CeilDiv` にする(4個買えることになり**流動資金が負に落ちる**)。実質コストで割る(**移動費ぶん買える数が減る**。移動費は貨幣として支払わない、GDD02 §6.2.1) | **核心** |
 | 8 | `FundsCapRejectsNonPositivePrice` | 実効価格 0 / −1 で `ArgumentOutOfRangeException` | 0 を通す(`FloorDiv` が `DivideByZeroException`) | |
 | 9 | `UpdatedAcquisitionCostRoundsOnlyOnce` | 旧20・単価20・β250‰ → **20**(動かない)。旧20・単価40・β250‰ → **25** | 2項を別々に `ApplyPermille` して足す(前者が **21** になり、**価格が動いていない日でも原価が上がり続ける**)。β を逆向きに掛ける(新しい単価に `1000 − β` を掛ける) | **核心** |
+
+> **#6 は `TravelCostPerUnit` を直接呼んではならない(レビュー1巡目 I-b の訂正)。** 換算をテスト側で手で書き、`TravelCostPerUnit(8, 3, CeilDiv(15, 30))` と `TravelCostPerUnit(8, 3, 15)` を比べる形は、**`CeilDiv(15, 30) == 1` という恒真命題を確かめているだけ**で、段5 が実際に何を渡しているかを見ていない。狙った変異(段5 が `line.TargetStock` をそのまま渡す)を当てても、テストが呼ぶ2つの値は動かない。**耐久の約定は W2 では構造的に起きない**(下記「耐久の約定は本タスクでは検証しない」)ので、パイプラインからも踏めない。
+>
+> **したがって段5 の手順1・手順5 の換算を `TradeSystem` の名前付き静的ヘルパー2つへ切り出し、#6 はそれを直接呼ぶこと**(下記「8.」の該当項)。**用途による分岐をヘルパーの中に入れる** — 分岐が段5 の本文に残ると、ヘルパーを呼んでも分岐は踏めない。
 
 ### 単体(店の選択)
 
@@ -359,7 +364,7 @@ demands[householdId].Lines を並び順そのままに走査する
 | 12 | `SeesDistantStoresOnlyThroughYesterdaysObservation` | 距離2の売り手のみ → **候補0件**。**前日**の観測を1件置くと候補に入る。**当日(差0)の観測では入らない** | 4b の「差 ≥ 1」を落とす(**日内の相互参照が戻る**、GDD06 §3.1)。4b ごと落とす(**知識が永久に自宅の R 以内に閉じる**) | **核心** |
 | 13 | `IgnoresSellersWithoutSellableStock` | `Market` にエントリはあるが `WorkshopInventory[itemId] == 0` の売り手は候補に入らない。距離0のその店と距離2(観測あり)の在庫ありの店なら**後者**が選ばれる | 在庫を見ない(**売り切れた店を選んで0個買い、その日は何も買えない**。GDD06 §3) | |
 | 14 | `IgnoresOwnOffer` | 自分が売っている品目について、自分は候補に入らない | `sellerId != buyer.Id` を落とす(**自分から自分へ売買し、帳簿と在庫だけが増える**) | |
-| 15 | `UsesTheHeadObservationsForMemory` | 観測を**世帯主以外の構成員にだけ**置く → 候補に入らない。世帯主に置くと入る | `Knowledge[household.Id]` で引く(#36 引き継ぎ表 B と同型。**型が止めない取り違え**、TDD01 §3.2) | |
+| 15 | `UsesTheHeadObservationsForMemory` | 観測を**世帯主以外の構成員にだけ**置く → 候補に入らない。世帯主に置くと入る。**世帯 Id ≠ 世帯主 NpcId の世帯を使うこと**(M0 と同じく `HeadNpcId = 世帯Id × 2` など。レビュー1巡目 I-b の訂正 — `Id == HeadNpcId` の世帯では2つの添字が同じ配列を指し、**変異を素通りさせる**) | `Knowledge[household.Id]` で引く(#36 引き継ぎ表 B と同型。**型が止めない取り違え**、TDD01 §3.2) | |
 
 ### 単体(約定)
 
@@ -383,7 +388,7 @@ demands[householdId].Lines を並び順そのままに走査する
 | 22 | `PreferenceIsActuallyBought` | 30日回した後、**ビール(嗜好)の約定が1件以上**ある | #36 引き継ぎ表 **C**(嗜好の目標在庫が0 → ビールが一度も買われない)、**D**(嗜好の予想在庫が工房在庫) | **核心** |
 | 23 | `KnowledgeSpreadsBeyondTheHomeVisionRadius` | 30日回した後、**自区画から距離2以上の売り手の観測を持つ世帯が1つ以上ある** | 段6 に訪問区画を渡さない(**知識が永久に自宅の R 以内に閉じる**。#36 引き継ぎ表 **H** と GDD06 §3.1) | **核心** |
 | 24 | `ObservationsDoNotGrowWithoutBound` | 60日回した後、`Knowledge` の総件数が **売り注文数 × (保持期間 + 1) × 構成員数** 以下 | 段3 の `Expire` に `int.MaxValue` を渡す(#36 引き継ぎ表 **G**。**`StateHasher` の対象が単調増加する**) | |
-| 25 | `NecessityIsSettledBeforePreference` | 必需だけが買える資金しか持たない世帯を作り(初期資金を絞った定義で1日回す)、**必需の約定が成立し、嗜好の約定が0件**である | `Lines` を並べ替える / 用途でソートし直す(**「資金不足で必需品が買えなかった」が買い物の順序の関数になり、困窮の指標として読めなくなる**。GDD02 §6.2.1) | **核心** |
+| 25 | `NecessityIsSettledBeforePreference` | 必需だけが買える資金しか持たない世帯を作り(初期資金を絞った定義で1日回す)、**必需の約定が成立し、嗜好の約定が0件**である。**あわせて「資金さえあれば嗜好は買える」ことを対照で確かめる** — 同じ世帯の初期資金だけを増やした世界で**嗜好の約定が成立する**こと(レビュー1巡目 I-b の訂正。これが無いと嗜好が手順3(予算 < 実質コスト)で**順序と無関係に**落ち、並べ替え変異を素通りさせる) | `Lines` を並べ替える / 用途でソートし直す(**「資金不足で必需品が買えなかった」が買い物の順序の関数になり、困窮の指標として読めなくなる**。GDD02 §6.2.1) | **核心** |
 | 26 | `UnaffordableNecessityCountsOnlyTheFundsShortfall` | 流動資金0の世帯 → 必需の行で **`UnaffordableNecessityCount >= 1`**。**売り手の在庫が0で買えなかっただけの世帯 → 0 のまま**。**嗜好が買えなくても 0 のまま**。翌日に買えたら **0 に戻る** | 在庫切れも数える(**#39 のフラグが品切れの検出器になる**。GDD02 §6.2.2)。用途を見ずに数える。毎日0にし忘れる(**一度立つと二度と降りない**) | **核心** |
 | 27 | `TradeIsDeterministicAcrossRuns` | 同じシードで2つの世界を30日回し、`StateHasher` の値が一致する | `Dictionary` の列挙順に依存する / 世帯の走査順を崩す | |
 | 28 | `SpatialFrictionSurvives` | 30日回した後、**同一品目の約定単価の分布が区画によって一致しない**(区画間の価格差が消えていない) | 移動費を実質コストに乗せ忘れる(**GDD02 §12-4 の判定が構造的に不通過になる**)。**値の調整(#28)で揺れうるので閾値を置かず、「一致しない」ことだけを見る** | |
