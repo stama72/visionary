@@ -1,4 +1,3 @@
-using Visionary.Sim.Numerics;
 using Visionary.Sim.Systems;
 using Visionary.Sim.Time;
 
@@ -71,38 +70,44 @@ public sealed class StoreChoiceTests
     }
 
     /// <summary>
-    /// 【核心】テスト表 #6。工具の目標在庫15(耐久値)・N=30・移動時間8・機会費用3 →
-    /// 個数換算は CeilDiv(15,30)=1 なので 24。耐久値のまま(15)割ると 2。
+    /// 【核心】テスト表 #6。段5 の手順1(目標在庫 → 個数)・手順5(購入量 → 個数)の換算を
+    /// <see cref="TradeSystem.TargetStockInUnits"/> / <see cref="TradeSystem.PurchaseQuantityInUnits"/>
+    /// を直接呼んで確かめる(レビュー1巡目 I-b の訂正)。<c>Durable</c> は N で割り、
+    /// <c>Necessity</c> は換算しない。手順1・手順5 のどちらも同じ形の分岐を持つので両方見る。
     /// </summary>
     /// <remarks>
-    /// <b>変異の実測(2026-09-17)。</b><c>TradeSystem.RunOneHouseholdsShopping</c> の
-    /// <c>targetInUnits</c> の算出(<c>line.Purpose == DemandPurpose.Durable ?
-    /// CeilDiv(line.TargetStock, N) : line.TargetStock</c>)を、耐久でも変換せず
-    /// <c>line.TargetStock</c> をそのまま渡す変異に変えたところ、目標在庫15(未変換)を
-    /// <c>TravelCostPerUnit</c> に渡す経路が有効になり、結果が 2(移動費が 1/N になる)に
-    /// なった。<c>Assert.Equal(24, converted)</c> は変換後の値(1)を渡した結果であり、
-    /// この2つの数値差(24 と 2)がそのまま「個数へ直さずに <c>line.TargetStock</c> を渡す」
-    /// 変異の効果を表している(赤を確認:変換を怠ると 24 のかわりに 2 が出る)。
-    /// 変異を戻して緑に復帰させた。
+    /// <b>変異の実測(2026-09-17)。</b>
+    /// <c>TradeSystem.TargetStockInUnits</c> / <c>TradeSystem.PurchaseQuantityInUnits</c> の
+    /// 分岐(<c>purpose == DemandPurpose.Durable ? CeilDiv(...) : そのまま</c>)を
+    /// <c>常に CeilDiv(...) を返す</c>(用途を見ずに常に換算する)へ変えたところ、
+    /// <c>Necessity</c> の行(<c>Assert.Equal(15, TargetStockInUnits(Necessity, 15, 30))</c>・
+    /// <c>Assert.Equal(15, PurchaseQuantityInUnits(Necessity, 15, 30))</c>)が実際値1で失敗した
+    /// (赤を確認:必需の移動費が1/Nになる経路)。次に<c>常に targetStock/quantity をそのまま返す</c>
+    /// (換算しない)へ変えたところ、<c>Durable</c> の行(期待値1)が実際値15で失敗した
+    /// (赤を確認:耐久の移動費が空間の摩擦を持たなくなる経路)。いずれも変異を戻して緑に復帰させた。
     /// </remarks>
     [Fact]
     public void DurableTravelCostConvertsTheTargetStockToUnits()
     {
         const int TargetStockInDurabilityUnits = 15; // 耐久値
+        const int PurchaseQuantityInDurabilityUnits = 15; // 耐久値
         const int ProductionRunsPerToolWear = 30;    // N
-        const int TravelHours = 8;
-        const int ErrandOpportunityCost = 3;
 
-        int convertedTargetInUnits =
-            IntegerMath.CeilDiv(TargetStockInDurabilityUnits, ProductionRunsPerToolWear); // = 1
+        // 手順1(目標在庫 → 個数)。
+        Assert.Equal(
+            1, TradeSystem.TargetStockInUnits(
+                DemandPurpose.Durable, TargetStockInDurabilityUnits, ProductionRunsPerToolWear));
+        Assert.Equal(
+            15, TradeSystem.TargetStockInUnits(
+                DemandPurpose.Necessity, TargetStockInDurabilityUnits, ProductionRunsPerToolWear));
 
-        int correct = StoreChoice.TravelCostPerUnit(TravelHours, ErrandOpportunityCost, convertedTargetInUnits);
-        int ifNotConverted = StoreChoice.TravelCostPerUnit(
-            TravelHours, ErrandOpportunityCost, TargetStockInDurabilityUnits);
-
-        Assert.Equal(24, correct);
-        Assert.Equal(2, ifNotConverted);
-        Assert.NotEqual(correct, ifNotConverted);
+        // 手順5(購入量 → 個数)。
+        Assert.Equal(
+            1, TradeSystem.PurchaseQuantityInUnits(
+                DemandPurpose.Durable, PurchaseQuantityInDurabilityUnits, ProductionRunsPerToolWear));
+        Assert.Equal(
+            15, TradeSystem.PurchaseQuantityInUnits(
+                DemandPurpose.Necessity, PurchaseQuantityInDurabilityUnits, ProductionRunsPerToolWear));
     }
 
     /// <summary>
@@ -305,32 +310,35 @@ public sealed class StoreChoiceTests
     /// テスト表 #15。観測を世帯主以外の構成員にだけ置く → 候補に入らない。世帯主に置くと入る。
     /// </summary>
     /// <remarks>
-    /// <c>Knowledge[household.Id]</c> で引く実装ミス(#36引き継ぎ表Bと同型)は、この世界では
-    /// <c>household.Id == 0 == HeadNpcId</c> なので偶然一致してしまう可能性がある。そこで
-    /// 非世帯主(NpcId=1)と世帯主(NpcId=0)を明確に分け、観測をどちらに置くかで結果が変わる
-    /// ことを直接見る。
+    /// <b>買い手世帯は <c>Id(=1) != HeadNpcId(=2)</c> にする</b>(レビュー1巡目 I-b の訂正)。
+    /// <c>Id == HeadNpcId</c> の世帯では <c>Knowledge[household.Id]</c> と
+    /// <c>Knowledge[household.HeadNpcId]</c> が同じ添字を指すため、実装ミス
+    /// (#36引き継ぎ表Bと同型)を当てても両方の assert が偶然通ってしまう。<c>household.Id(1)</c>
+    /// を Knowledge の添字にすると届く先は誰の観測も置かない空の配列要素になるので、
+    /// 世帯主(NpcId=2)にしか観測を置かないこのテストで実際に違いが出る。
     /// </remarks>
     [Fact]
     public void UsesTheHeadObservationsForMemory()
     {
-        const int HeadNpcId = 0;
-        const int NonHeadNpcId = 1;
-        const int SellerId = 1;
+        const int BuyerHouseholdId = 1;
+        const int HeadNpcId = 2;
+        const int NonHeadNpcId = 3;
+        const int SellerId = 0;
 
-        var world = new World(npcCount: 3, householdCount: 2, itemCount: Item.Count);
+        var world = new World(npcCount: 4, householdCount: 2, itemCount: Item.Count);
+        world.Npcs[0].Rank = NpcRank.Master; // 売り手世帯主
         world.Npcs[HeadNpcId].Rank = NpcRank.Master;
         world.Npcs[NonHeadNpcId].Rank = NpcRank.Apprentice;
-        world.Npcs[2].Rank = NpcRank.Master;
-
-        world.Households[0] = new HouseholdState(
-            id: 0, districtId: 0, headNpcId: HeadNpcId,
-            memberNpcIds: new[] { HeadNpcId, NonHeadNpcId }, itemCount: Item.Count);
-        world.Households[0].Occupation = Occupation.Miller;
 
         world.Households[SellerId] = new HouseholdState(
-            id: SellerId, districtId: 2, headNpcId: 2, memberNpcIds: new[] { 2 }, itemCount: Item.Count);
+            id: SellerId, districtId: 2, headNpcId: 0, memberNpcIds: new[] { 0 }, itemCount: Item.Count);
         world.Households[SellerId].Occupation = Occupation.Miller;
         world.Households[SellerId].WorkshopInventory[ItemA] = 10;
+
+        world.Households[BuyerHouseholdId] = new HouseholdState(
+            id: BuyerHouseholdId, districtId: 0, headNpcId: HeadNpcId,
+            memberNpcIds: new[] { HeadNpcId, NonHeadNpcId }, itemCount: Item.Count);
+        world.Households[BuyerHouseholdId].Occupation = Occupation.Miller;
 
         world.Market[new MarketKey(ItemA, SellerId)] = 10;
 
@@ -348,7 +356,7 @@ public sealed class StoreChoiceTests
         world.Knowledge[NonHeadNpcId].Add(Observation(ItemA, SellerId, Tick.Zero));
 
         bool foundWithNonHeadOnly = storeChoice.TrySelect(
-            world, world.Households[0], ItemA,
+            world, world.Households[BuyerHouseholdId], ItemA,
             targetStockInUnits: 1, errandOpportunityCost: 1, out _);
         Assert.False(foundWithNonHeadOnly);
 
@@ -356,7 +364,7 @@ public sealed class StoreChoiceTests
         world.Knowledge[HeadNpcId].Add(Observation(ItemA, SellerId, Tick.Zero));
 
         bool foundWithHead = storeChoice.TrySelect(
-            world, world.Households[0], ItemA,
+            world, world.Households[BuyerHouseholdId], ItemA,
             targetStockInUnits: 1, errandOpportunityCost: 1, out var selected);
         Assert.True(foundWithHead);
         Assert.Equal(SellerId, selected.SellerId);

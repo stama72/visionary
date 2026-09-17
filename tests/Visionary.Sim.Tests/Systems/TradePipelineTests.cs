@@ -223,46 +223,76 @@ public sealed class TradePipelineTests
 
     /// <summary>
     /// テスト表 #25。必需だけが買える資金しか持たない世帯を作り(初期資金を絞った定義で1日回す)、
-    /// 必需の約定が成立し、嗜好の約定が0件である。
+    /// 必需の約定が成立し、嗜好の約定が0件である。あわせて「資金さえあれば嗜好は買える」ことを
+    /// 対照で確かめる ── 同じ世帯の初期資金だけを増やした世界で嗜好の約定が成立すること。
     /// </summary>
+    /// <remarks>
+    /// <b>対照が無いと並べ替え変異を判別できない(レビュー1巡目 I-b の訂正)。</b>この世界では
+    /// ビール(嗜好)は手順3(<c>store.UnitRealCost &gt; line.Budget</c>)で落ちており、これは
+    /// <c>demand.Lines</c> の走査順とは無関係に成立する。したがって <c>Lines</c> を逆順に
+    /// 走査する変異を当てても「絞った世界でビールが0件」は崩れず、対照(資金を増やすとビールが
+    /// 買える)が無ければこのテストは並べ替え変異を判別できない。
+    /// </remarks>
     /// <remarks>
     /// <b>世帯Id0(Brewer、区画4=中心)を使う。</b>中心区画は初日から <see cref="District.VisionRadius"/>
     /// で木工(薪の売り手)2戸を見通せるので、初日のうちに必需(薪)の約定が成立しうる世帯である。
     /// 初期資金を100に絞ると、必需(フォールバック予算 = 流動資金 × 既定比率)は薪の実質コストへ
     /// 届くが、嗜好(ビール)の基礎値の母数である余剰資金はほぼ残らず、ビールの約定は起きない
-    /// (実測、シード1)。
+    /// (実測、シード1)。<b>対照の世界は2日回す</b> ── 初日は他の醸造家の売り注文の観測(記憶)が
+    /// まだ無く、資金をいくら積んでも「知っている店」が0件のままビールを買えない(実測、シード1)。
     /// </remarks>
     [Fact]
     public void NecessityIsSettledBeforePreference()
     {
         const int TargetHouseholdId = 0;
         const int ScarceLiquidFunds = 100; // 必需は買えるが嗜好へは届かない額(値の検算対象、#28)
+        const int AmpleLiquidFunds = 1000; // 嗜好も届く額(対照。値の検算対象、#28)
 
         var definition = WorldDefinition.M0;
-        var world = WorldGenerator.Generate(definition, new RandomSource(1));
-        world.Households[TargetHouseholdId].LiquidFunds = ScarceLiquidFunds;
 
-        var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(1));
-        scheduler.Advance(world, ticks: 24);
+        // 絞った世界: 必需だけ成立し、嗜好は0件。
+        {
+            var world = WorldGenerator.Generate(definition, new RandomSource(1));
+            world.Households[TargetHouseholdId].LiquidFunds = ScarceLiquidFunds;
 
-        var household = world.Households[TargetHouseholdId];
+            var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(1));
+            scheduler.Advance(world, ticks: 24);
 
-        // 必需(薪)の約定が成立した ── TradeSettlement.Executeが用途で行き先を振り分けるので、
-        // 世帯在庫が増えていることが必需の約定の証拠になる(GDD02 §6.2.1)。初期の世帯在庫は
-        // その日のうちにConsumptionSystemが使い切るので、値が残っていれば買い直した証拠になる。
-        Assert.True(
-            household.HouseholdInventory[Item.Firewood] > 0,
-            "必需(薪)の約定が成立しなかった(値の問題の可能性)。");
+            var household = world.Households[TargetHouseholdId];
 
-        bool boughtBeer = world.Ledgers[TargetHouseholdId].Any(
-            entry => entry.Direction == LedgerDirection.Purchase && entry.ItemId == Item.Beer);
-        Assert.False(boughtBeer, "嗜好(ビール)の約定が成立した(資金を絞った意味が無い)。");
+            // 必需(薪)の約定が成立した ── TradeSettlement.Executeが用途で行き先を振り分けるので、
+            // 世帯在庫が増えていることが必需の約定の証拠になる(GDD02 §6.2.1)。初期の世帯在庫は
+            // その日のうちにConsumptionSystemが使い切るので、値が残っていれば買い直した証拠になる。
+            Assert.True(
+                household.HouseholdInventory[Item.Firewood] > 0,
+                "必需(薪)の約定が成立しなかった(値の問題の可能性)。");
+
+            bool boughtBeer = world.Ledgers[TargetHouseholdId].Any(
+                entry => entry.Direction == LedgerDirection.Purchase && entry.ItemId == Item.Beer);
+            Assert.False(boughtBeer, "嗜好(ビール)の約定が成立した(資金を絞った意味が無い)。");
+        }
+
+        // 対照: 同じ世帯の初期資金だけを増やすと、嗜好(ビール)の約定が成立する。
+        {
+            var world = WorldGenerator.Generate(definition, new RandomSource(1));
+            world.Households[TargetHouseholdId].LiquidFunds = AmpleLiquidFunds;
+
+            var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(1));
+            scheduler.Advance(world, ticks: 2 * 24);
+
+            bool boughtBeer = world.Ledgers[TargetHouseholdId].Any(
+                entry => entry.Direction == LedgerDirection.Purchase && entry.ItemId == Item.Beer);
+            Assert.True(
+                boughtBeer,
+                "資金を増やしても嗜好(ビール)の約定が成立しなかった"
+                    + "(手順3の予算判定以外で嗜好が塞がれている可能性)。");
+        }
     }
 
     /// <summary>
-    /// 【核心】テスト表 #26。流動資金0の世帯 → 必需の行で <c>UnaffordableNecessityCount &gt;= 1</c>。
-    /// 売り手の在庫が0で買えなかっただけの世帯 → 0のまま。嗜好が買えなくても0のまま。
-    /// 翌日に買えたら0に戻る。
+    /// 【核心】テスト表 #26。流動資金0の世帯 → 必需の行で <c>UnaffordableNecessityCount</c> が
+    /// 厳密な期待値になる。売り手の在庫が0で買えなかっただけの世帯 → 0のまま。嗜好が買えなくても
+    /// 0のまま。翌日に買えたら0に戻る。
     /// </summary>
     /// <remarks>
     /// <b>変異の実測(2026-09-17)。</b><c>fundsCap == 0</c> への置換(<c>actualQuantity == 0</c> など)
@@ -277,6 +307,15 @@ public sealed class TradePipelineTests
     /// <c>Assert.Equal(0, world.Households[0].UnaffordableNecessityCount)</c> が実際値1で
     /// 失敗した(赤を確認、#39の破産フラグが品切れ・情報不足の検出器になる経路)。変異を戻して
     /// 緑に復帰させた。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測・追補(2026-09-17、レビュー1巡目 I-b の訂正)。</b>手順9 の
+    /// <c>line.Purpose == DemandPurpose.Necessity &amp;&amp;</c> を外す変異(用途を見ずに数える)を
+    /// 当てたところ、資金不足のケースの <c>UnaffordableNecessityCount</c> が実測2 → 3 になった
+    /// (赤を確認: 世帯Id0(Brewer)は2日目までに嗜好・生産の入力の行も「知っている店」を得ており、
+    /// 流動資金0の日はそれらの行も <c>fundsCap == 0</c> を通るため、用途を見ない変異は必需以外の
+    /// 行も加算する)。旧い <c>&gt;= 1</c> の期待値ではこの差(2 → 3)を判別できないため、
+    /// 厳密な期待値(2)へ変えた。変異を戻して緑に復帰させた。
     /// </remarks>
     [Fact]
     public void UnaffordableNecessityCountsOnlyTheFundsShortfall()
@@ -298,9 +337,14 @@ public sealed class TradePipelineTests
             world.Households[0].LiquidFunds = 0;
             scheduler.Advance(world, ticks: 24); // 2日目。資金不足で必需が買えない。
 
-            Assert.True(
-                world.Households[0].UnaffordableNecessityCount >= 1,
-                "流動資金0でもUnaffordableNecessityCountが立たなかった(値の問題の可能性)。");
+            // 厳密な期待値(実測、シード1)。世帯Id0(Brewer)の必需の行は薪とパンの2件であり、
+            // 2日目までに両方とも相場基準(知っている店)を得ているので、流動資金0の日は
+            // 両方とも資金不足で落ちる ── 期待値2。閾値を`>= 1`にすると、用途を見ずに数える
+            // 変異(嗜好・生産の入力の行も無条件で加算する)が「候補ありかつ資金0」の行を
+            // 余分に足しても`>= 1`のままなので判別できない(レビュー1巡目 I-b の訂正)。
+            const int ExpectedUnaffordableNecessityCount = 2;
+            Assert.Equal(
+                ExpectedUnaffordableNecessityCount, world.Households[0].UnaffordableNecessityCount);
 
             // 翌日、流動資金を戻すと0に戻る(毎日上書きする。GDD02 §6.2.2)。
             world.Households[0].LiquidFunds = 300;
@@ -368,13 +412,17 @@ public sealed class TradePipelineTests
     }
 
     /// <summary>
-    /// テスト表 #28。30日回した後、同一品目の約定単価の分布が区画によって一致しない
-    /// (区画間の価格差が消えていない)。
+    /// テスト表 #28。30日回した後、同一品目・同一日について、買い手の区画ごとの約定単価の集合が
+    /// 一致しない(区画間の価格差が消えていない)。
     /// </summary>
     /// <remarks>
-    /// <b>閾値を置かない</b>(値の調整(#28)で揺れうるため)。「一致しない」ことだけを見る ──
-    /// 移動費を実質コストに乗せ忘れると、買い手は常に最安値の売り手へ収束し、
-    /// 区画によらず同一価格になる(GDD02 §12-4)。
+    /// <b>「日」ではなく「区画」の違いを見る</b>(レビュー1巡目 I-b の訂正)。単純に品目ごとの
+    /// 全期間・全区画の価格を1つの集合へ <c>SelectMany</c> して <c>Distinct</c> すると、区画の
+    /// 区別がその時点で消える ── 提示価格は毎日動くので、全買い手が同じ区画に居ても
+    /// 「価格の種類が複数ある」という結果になり、移動費を実質コストに乗せ忘れる変異
+    /// (区画によらず最安値の売り手へ全員収束する)を当てても真のままになる。
+    /// 同一品目・同一日に絞って区画ごとの価格<b>集合</b>を比べることで、区画そのものが
+    /// 価格差を生んでいるかを見る。<b>閾値を置かない</b>(値の調整(#28)で揺れうるため)。
     /// </remarks>
     [Fact]
     public void SpatialFrictionSurvives()
@@ -385,8 +433,8 @@ public sealed class TradePipelineTests
         var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(1));
         scheduler.Advance(world, ticks: 30 * 24);
 
-        // itemId → (買い手の区画 → その区画で観測された単価の集合)。
-        var pricesByItemAndDistrict = new Dictionary<int, Dictionary<int, HashSet<int>>>();
+        // (itemId, dayIndex) → (買い手の区画 → その日その品目で約定した単価の集合)。
+        var pricesByItemDayAndDistrict = new Dictionary<(int ItemId, long DayIndex), Dictionary<int, HashSet<int>>>();
 
         foreach (var household in world.Households)
         {
@@ -397,10 +445,12 @@ public sealed class TradePipelineTests
                     continue;
                 }
 
-                if (!pricesByItemAndDistrict.TryGetValue(entry.ItemId, out var byDistrict))
+                var key = (entry.ItemId, entry.OccurredAt.DayIndex);
+
+                if (!pricesByItemDayAndDistrict.TryGetValue(key, out var byDistrict))
                 {
                     byDistrict = new Dictionary<int, HashSet<int>>();
-                    pricesByItemAndDistrict[entry.ItemId] = byDistrict;
+                    pricesByItemDayAndDistrict[key] = byDistrict;
                 }
 
                 if (!byDistrict.TryGetValue(household.DistrictId, out var prices))
@@ -413,19 +463,25 @@ public sealed class TradePipelineTests
             }
         }
 
-        bool anyItemHasDistrictVariation = pricesByItemAndDistrict.Values.Any(byDistrict =>
+        // 同一品目・同一日のなかで、区画ごとの価格集合が互いに一致しない組が1つでもあれば真。
+        bool anyDayHasDistrictPriceDisagreement = pricesByItemDayAndDistrict.Values.Any(byDistrict =>
         {
-            var distinctPricesAcrossDistricts = byDistrict.Values
-                .SelectMany(prices => prices)
-                .Distinct()
-                .Count();
+            var priceSetsByDistrict = byDistrict.Values.ToList();
 
-            return distinctPricesAcrossDistricts > 1;
+            for (int i = 1; i < priceSetsByDistrict.Count; i++)
+            {
+                if (!priceSetsByDistrict[i].SetEquals(priceSetsByDistrict[0]))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         });
 
         Assert.True(
-            anyItemHasDistrictVariation,
-            "30日回しても区画間の約定単価が一致したまま(空間の摩擦が消えている、"
-                + "または値の問題の可能性)。");
+            anyDayHasDistrictPriceDisagreement,
+            "30日回しても、同一品目・同一日の区画ごとの約定単価の集合が一致したまま"
+                + "(空間の摩擦が消えている、または値の問題の可能性)。");
     }
 }

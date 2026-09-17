@@ -185,6 +185,25 @@ public sealed class TradeSystem : ISimSystem
         }
     }
 
+    /// <summary>
+    /// 目標在庫を個数へ直す(段5 手順1。移動費の分母。GDD06 §2)。耐久だけ耐久値で持つので
+    /// 変換が要る。<b>用途による分岐をここに持つ</b> ── 段5 の本文に残すと、耐久の約定が
+    /// W2 では構造的に起きない以上どこからもテストが踏めない(レビュー1巡目 I-b の訂正)。
+    /// </summary>
+    public static int TargetStockInUnits(DemandPurpose purpose, int targetStock, int runsPerToolWear) =>
+        purpose == DemandPurpose.Durable
+            ? IntegerMath.CeilDiv(targetStock, runsPerToolWear)
+            : targetStock;
+
+    /// <summary>
+    /// 購入量(用途の単位)を個数へ直す(段5 手順5。GDD02 §8.2.1)。耐久だけ耐久値で持つので
+    /// 変換が要る。<b>用途による分岐をここに持つ</b>(理由は <see cref="TargetStockInUnits"/> と同じ)。
+    /// </summary>
+    public static int PurchaseQuantityInUnits(DemandPurpose purpose, int quantity, int runsPerToolWear) =>
+        purpose == DemandPurpose.Durable
+            ? IntegerMath.CeilDiv(quantity, runsPerToolWear)
+            : quantity;
+
     /// <summary>段5 の1世帯ぶんの買い物(タスク仕様の10手順)。</summary>
     private void RunOneHouseholdsShopping(
         World world, HouseholdState household, HouseholdDemand demand, List<int> visitedDistrictIds)
@@ -198,10 +217,9 @@ public sealed class TradeSystem : ISimSystem
         // 耐久→嗜好、同一用途は品目Id昇順)そのものである(#36引き継ぎ「並べ直さないこと」)。
         foreach (var line in demand.Lines)
         {
-            // 1. 目標在庫を個数へ直す(移動費の分母。GDD06 §2)。耐久だけ耐久値なので変換が要る。
-            int targetInUnits = line.Purpose == DemandPurpose.Durable
-                ? IntegerMath.CeilDiv(line.TargetStock, _definition.ProductionRunsPerToolWear)
-                : line.TargetStock;
+            // 1. 目標在庫を個数へ直す(移動費の分母。GDD06 §2)。
+            int targetInUnits = TargetStockInUnits(
+                line.Purpose, line.TargetStock, _definition.ProductionRunsPerToolWear);
 
             // 2. 知っている店のうち実質コストが最小のものを選ぶ。0件ならこのlineは終わり
             // (Needは立てない、#40)。販売在庫は約定のたびに減るのでworldを毎回読み直す ──
@@ -222,10 +240,9 @@ public sealed class TradeSystem : ISimSystem
             int purchaseQuantity = BuyerBudget.PurchaseQuantity(
                 line.BaseValue, store.UnitRealCost, line.TargetStock, line.ExpectedStock);
 
-            // 5. 個数へ直す(耐久だけ)。
-            int purchaseQuantityInUnits = line.Purpose == DemandPurpose.Durable
-                ? IntegerMath.CeilDiv(purchaseQuantity, _definition.ProductionRunsPerToolWear)
-                : purchaseQuantity;
+            // 5. 個数へ直す。
+            int purchaseQuantityInUnits = PurchaseQuantityInUnits(
+                line.Purpose, purchaseQuantity, _definition.ProductionRunsPerToolWear);
 
             // 6. 0以下なら、このlineは終わり(店は選んだが買う量が0。訪問にも数えない)。
             if (purchaseQuantityInUnits <= 0)

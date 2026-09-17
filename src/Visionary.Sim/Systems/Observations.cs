@@ -42,8 +42,8 @@ public static class Observations
     /// であり、<see cref="ObservationSource.Heard"/> を区別して読む処理が M0 に無い。区別を入れる
     /// のは Rumor(#42)。
     /// </para>
-    /// <para><paramref name="visitedDistrictIds"/> は本タスクでは常に空である。買い物の段(#37)が
-    /// 訪れた区画を渡す。</para>
+    /// <para><paramref name="visitedDistrictIds"/> は買い物の段(<see cref="TradeSystem"/> 段5)が
+    /// 訪れた区画を渡す(#37)。</para>
     /// </remarks>
     public static void CollectAndShare(
         World world, HouseholdState household, IReadOnlyList<int> visitedDistrictIds)
