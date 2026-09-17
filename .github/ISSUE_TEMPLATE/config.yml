@@ -1,1 +1,2 @@
-blank_issues_enabled: true
+# 空の issue を塞ぐ。必須項目(閉じる条件・スコープ)を素通りさせないため。
+blank_issues_enabled: false
