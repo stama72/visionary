@@ -163,12 +163,13 @@ public sealed class BuyerBudgetTests
     /// 【核心】テスト表 #12。余剰資金0 → 0。余剰資金1000・200‰ → 200。
     /// </summary>
     /// <remarks>
-    /// <b>変異の実測(2026-09-16)。</b><c>PreferenceBaseValue</c> の引数を無視して、常に
-    /// 固定の流動資金値(1000)を母数にする変異(呼び出し元で余剰資金の代わりに流動資金を渡す
-    /// 誤りを模した)を <c>PreferenceBaseValue(surplusFunds: 0, ratioPermille: 200)</c> の
-    /// 呼び出しに対して当てたところ、<c>Assert.Equal(0, ...)</c> が実際値200
-    /// (GDD02 §8.2.1が名指しした黒字倒産 ── 余剰資金0の世帯が嗜好を買う)で失敗した(赤を確認)。
-    /// 変異を戻して緑に復帰させた。
+    /// <b>このテストは式(GDD02 §8.2.1)そのものを守るだけである。</b>
+    /// <see cref="BuyerBudget.PreferenceBaseValue(int, int)"/> は母数を引数で1つしか受け取らない
+    /// ため、「母数に流動資金を使う」という誤りは<b>この関数の中には書けない</b>(レビュー1巡目
+    /// 指摘、象限I-b)。純関数に切り出した時点で、その取り違えは呼び出し側
+    /// (<see cref="Visionary.Sim.Systems.BuyerDemand.Build"/>)へ移っている。<b>製品コードへの
+    /// 変異とその実測は
+    /// <see cref="BuyerDemandTests.PreferenceLineUsesSurplusFundsNotLiquidFunds"/>(R1-2)が持つ。</b>
     /// </remarks>
     [Fact]
     public void PreferenceBaseValueUsesSurplusFundsNotLiquidFunds()

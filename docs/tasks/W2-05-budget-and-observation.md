@@ -596,6 +596,29 @@ CollectAndShare:
 
 > **核心が多いのは W2-04 と同じ理由である** — 予算の式も「間違っても、それらしい整数が出る」。丸めの向き・母数の取り違え・用途の畳み込みは、いずれも例外を出さず在庫も負にしない。[ADR-0008](../adr/0008-review-scope-narrowed-to-unnoticeable-defects.md) の象限I-a(緑のまま壊れる)そのものであり、判別力はテストの値の選び方にしかない。
 
+### 別表: レビュー1巡目で足したテスト(フェーズ2)
+
+**上の表は implementer に渡した時点の指示であり、最終形ではない。** レビュー1巡目が、上の表のとおりに書くと判別力ゼロになる行を2つ見つけたので、**上の表は書き換えずにここへ足す**(表が最初からこう書けていたのか、レビューで育ったのかを後から見分けられるようにするため)。
+
+**#12 と #28 は、名指しした誤りが住めない場所へ変異を割り当てていた**(象限I-b):
+
+- **#12** の対象 `BuyerBudget.PreferenceBaseValue(int surplusFunds, int ratioPermille)` は**母数を引数で1つしか受け取らない**ので、「母数に流動資金を使う」という誤りを関数の中に書けない。**純関数に切り出した時点で、その取り違えは呼び出し側(`BuyerDemand.Build`)へ移っている。** 誤りが住める唯一の場所を、上の表はどの行も見ていなかった
+- **#28** は3つの変異を1行に束ねているが、3番目「`selfHouseholdId` に `HeadNpcId` を渡す」は、1・2番目が要求するシナリオでは**原理的に落ちない** — 観測の `SellerId` を自世帯 Id または世帯主 NpcId に一致させる別のケースが要る。**W2-04 が同じ理由で専用テストを分けている**([`TradeSystemTests`](../../tests/Visionary.Sim.Tests/Systems/TradeSystemTests.cs) の R1)
+
+**根の原因は同じである** — `BuyerBudget` の純関数テストは**式**を守るが、`BuyerDemand` が「どの母数・どの比率‰・どの引数順で」呼ぶかは**別の情報**であり、式のテストは1件もそこに当たらない。`BuyerDemand` は本タスクでは誰も呼ばない(スコープの節)ので、実行時にも誰も踏まない。
+
+| #    | テスト | 検証内容 | この実装ミスで落ちる | 核心 |
+| ---- | ------ | -------- | -------------------- | ---- |
+| R1-1 | `BuyerReferenceExcludesOwnHouseholdNotTheHeadNpcId` | 自世帯 Id を `SellerId` とする観測と、**世帯主 NpcId を `SellerId` とする観測**を両方置く → 前者だけが相場基準から外れ、後者は**含まれる** | `selfHouseholdId` に `HeadNpcId` を渡す。[`WorldGenerator`](../../src/Visionary.Sim/Definition/WorldGenerator.cs) は `headNpcId = householdId × 2` なので、世帯主の NpcId は**実在する別世帯の Id** である。取り違えた実装は別世帯の売り注文を毎日無言で捨て、相場基準が別の平均になる。**#28 は `SellerId` を999固定にしたので、0 とも 2 とも一致せず偶然除外が効く** | **核心** |
+| R1-2 | `PreferenceLineUsesSurplusFundsNotLiquidFunds` | **`BuyerDemand.Build` が返す嗜好の行**の `BaseValue`。運転資金で余剰資金が0に潰れた世帯 → **0**。余剰のある世帯 → `ApplyPermille(余剰資金, 比率‰)` | `BuyerDemand` が `PreferenceBaseValue` へ `household.LiquidFunds` を渡す。**#12 が名指しした黒字倒産が、#12 が見ていない場所でそのまま成立する** | **核心** |
+| R1-3 | `EveryLineCarriesItsOwnStockPressureAndBudget` | 目標14・予想3 の必需の行で `StockPressurePermille` = **1000**、`Budget` = `ApplyPermille(BaseValue, 1000)` | `BuildLine` が `StockPressurePermille(expectedStock, targetStock)` を**引数逆順**で呼ぶ(0‰ に落ち、必需を永久に買わない)。`Budget` 欄を埋め忘れる。**`DemandLine` のこの2欄は上の表のどの行も assert していない** | **核心** |
+| R1-4 | `DurableAndPreferenceReadTheirOwnBudgetRatio` | 耐久と嗜好で**違う比率‰** を与えた定義で、両方の行の `BaseValue` がそれぞれの比率で出る | `BudgetRatioPermilleByPurpose` の添字を入れ替える(M0 の 10‰ と 200‰ が入れ替わり、耐久の基礎値が20倍になる) |  |
+| R1-5 | `ProductionInputFallbackUsesTheNecessityRatio` | 観測ゼロかつ `hasPreviousOutputOfferPrice = false` の世帯 → 生産の入力の `BaseValue` = `ApplyPermille(流動資金, 必需の比率‰)` で **0 ではない** | `DerivedDemand` へ `DemandPurpose.ProductionInput` の比率(**定義が0を強制している**)を渡す。**#38 まで `W == 0` の経路が常態である**(申し送り)ので、M0 の既定が「原材料を一切買わない」になる | **核心** |
+| R1-6 | `WorkingCapitalIgnoresPreferenceEvenWhenConsumedAndObserved` | #26 の**嗜好側を実際に効かせる**: 嗜好の品目に**正の1日消費量**と**相場基準の立つ観測**を与えたうえで目標在庫を膨らませても `WorkingCapital` が変わらない | 消費量0・観測なしのまま日数だけ膨らませる。`Lookahead` も相場基準も0なので、嗜好を運転資金へ足す変異が `0 × 0` を足して**通過する**(#26 が主張する判別力の半分が無い) | **核心** |
+| R1-7 | `DurableTargetIgnoresNonHeadMemberRanks` | 世帯主 `Master`(1000‰)+ 徒弟 `Apprentice`(200‰)の**混成世帯**で、目標在庫が**世帯主**の係数で出る | 構成員の最小/最大を採る。**#29・#30 はどちらも構成員1名なので、世帯主・最小・最大が同じ値になり落ちない。M0 の世帯は親方+徒弟の混成であり、この誤りは M0 で実際に踏まれる** |  |
+
+**あわせて #27 の変異記録を実態に合わせる。** 記録は「`Assert.Equal(95, zeroStockWorkingCapital)` が実際値35で失敗した」となっているが、記載の変異(`target − expected`)で実際に落ちるのは次行の在庫あり/なしの比較である。**テストの判別力は仕様どおりあるので、直すのは記録のほうである**([process/03](../process/03-corrections.md))。
+
 ## 申し送り
 
 ### #37(Trade システムと店の選択)へ
