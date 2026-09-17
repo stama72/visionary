@@ -487,8 +487,10 @@ public sealed class BuyerDemandTests
     }
 
     /// <summary>
-    /// 【核心】別表 R1-3。目標14・予想3 の必需の行で <c>StockPressurePermille</c> = 1000、
-    /// <c>Budget</c> = <c>ApplyPermille(BaseValue, 1000)</c>。
+    /// 【核心】別表 R1-3(レビュー2巡目指摘R2-1で強化)。目標14・予想3 の必需の行で
+    /// <c>StockPressurePermille</c> = 1000、<c>Budget</c> = <c>ApplyPermille(BaseValue, 1000)</c>。
+    /// あわせて目標14・予想20(圧力572‰、0 &lt; p &lt; 1000)の行でも
+    /// <c>Budget</c> = <c>ApplyPermille(BaseValue, 572)</c> かつ <c>Budget != BaseValue</c> を見る。
     /// </summary>
     /// <remarks>
     /// <b>レビュー1巡目指摘。</b><c>DemandLine</c> の <c>StockPressurePermille</c> / <c>Budget</c>
@@ -501,6 +503,20 @@ public sealed class BuyerDemandTests
     /// (14を「予想在庫」、3を「目標在庫」として読み、予想14が目標3の2倍(6)を超えるため0‰に
     /// 落ちた)で失敗した(赤を確認)。変異を戻して緑に復帰させた。
     /// </para>
+    /// <para>
+    /// <b>レビュー2巡目指摘(R2-1)。</b>圧力1000‰の行だけだと
+    /// <c>ApplyPermille(x, 1000) == x</c> の恒等式しか確かめておらず、<c>BuildLine</c> の
+    /// <c>int budget = baseValue;</c>(在庫圧力を掛けない変異)が全テスト緑のまま通ってしまう
+    /// (1巡目の <c>SellerId = 999</c> と同じ形の縮退)。圧力572‰(0 &lt; p &lt; 1000)の行を
+    /// 追加で見る。
+    /// <b>変異の実測1(2026-09-17)。</b><c>int budget = baseValue;</c>(在庫圧力を掛けない変異)を
+    /// 当てたところ、<c>Assert.Equal(ApplyPermille(baseValue,572), lineAtPartialPressure.Budget)</c>
+    /// が実際値10(<c>baseValue</c> そのもの)で失敗した(赤を確認、期待値6)。
+    /// <b>変異の実測2(2026-09-17)。</b><c>ApplyPermille</c> を通さず
+    /// <c>(int)((long)baseValue * pressure / 1000)</c>(C#の整数除算=切り捨て)と手で書く変異を
+    /// 当てたところ、同じ assert が実際値5(floor(10×572/1000)=floor(5.72)=5、期待値6)で
+    /// 失敗した(赤を確認)。いずれも変異を戻して緑に復帰させた。
+    /// </para>
     /// </remarks>
     [Fact]
     public void EveryLineCarriesItsOwnStockPressureAndBudget()
@@ -508,17 +524,33 @@ public sealed class BuyerDemandTests
         var definition = BuildDefinition();
         var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(new[] { NpcRank.Master });
         world.Households[0].LiquidFunds = 200; // フォールバック基礎値を0にしないため(観測なし)
+
+        // 圧力1000‰(予想 <= 目標)の行。
         world.Households[0].HouseholdInventory[Item.Firewood] = 3;
-
-        var demand = new BuyerDemand(definition).Build(
+        var demandAtFullPressure = new BuyerDemand(definition).Build(
             world, world.Households[0], hasPreviousOutputOfferPrice: false, previousOutputOfferPrice: 0);
-        var line = FindLine(demand, DemandPurpose.Necessity, Item.Firewood);
+        var lineAtFullPressure = FindLine(demandAtFullPressure, DemandPurpose.Necessity, Item.Firewood);
 
-        Assert.Equal(14, line.TargetStock);
-        Assert.Equal(3, line.ExpectedStock);
-        Assert.Equal(1000, line.StockPressurePermille);
-        Assert.NotEqual(0, line.BaseValue); // Budget=0 が「欄の埋め忘れ」による偶然の一致でないことを見る
-        Assert.Equal(line.BaseValue, line.Budget); // ApplyPermille(BaseValue,1000)==BaseValue
+        Assert.Equal(14, lineAtFullPressure.TargetStock);
+        Assert.Equal(3, lineAtFullPressure.ExpectedStock);
+        Assert.Equal(1000, lineAtFullPressure.StockPressurePermille);
+        // Budget=0 が「欄の埋め忘れ」による偶然の一致でないことを見る。
+        Assert.NotEqual(0, lineAtFullPressure.BaseValue);
+        Assert.Equal(lineAtFullPressure.BaseValue, lineAtFullPressure.Budget); // ApplyPermille(x,1000)==x
+
+        // 圧力572‰(目標 < 予想 <= 目標×2)の行。1000‰の行だけでは恒等式しか確かめられない
+        // (レビュー2巡目指摘R2-1)。
+        world.Households[0].HouseholdInventory[Item.Firewood] = 20;
+        var demandAtPartialPressure = new BuyerDemand(definition).Build(
+            world, world.Households[0], hasPreviousOutputOfferPrice: false, previousOutputOfferPrice: 0);
+        var lineAtPartialPressure = FindLine(demandAtPartialPressure, DemandPurpose.Necessity, Item.Firewood);
+
+        Assert.Equal(14, lineAtPartialPressure.TargetStock);
+        Assert.Equal(20, lineAtPartialPressure.ExpectedStock);
+        Assert.Equal(572, lineAtPartialPressure.StockPressurePermille); // CeilDiv(1000×(28−20),14)
+        Assert.Equal(
+            IntegerMath.ApplyPermille(lineAtPartialPressure.BaseValue, 572), lineAtPartialPressure.Budget);
+        Assert.NotEqual(lineAtPartialPressure.BaseValue, lineAtPartialPressure.Budget);
     }
 
     /// <summary>

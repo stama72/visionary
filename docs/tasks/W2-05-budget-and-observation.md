@@ -615,9 +615,21 @@ CollectAndShare:
 | R1-4 | `DurableAndPreferenceReadTheirOwnBudgetRatio` | 耐久と嗜好で**違う比率‰** を与えた定義で、両方の行の `BaseValue` がそれぞれの比率で出る | `BudgetRatioPermilleByPurpose` の添字を入れ替える(M0 の 10‰ と 200‰ が入れ替わり、耐久の基礎値が20倍になる) |  |
 | R1-5 | `ProductionInputFallbackUsesTheNecessityRatio` | 観測ゼロかつ `hasPreviousOutputOfferPrice = false` の世帯 → 生産の入力の `BaseValue` = `ApplyPermille(流動資金, 必需の比率‰)` で **0 ではない** | `DerivedDemand` へ `DemandPurpose.ProductionInput` の比率(**定義が0を強制している**)を渡す。**#38 まで `W == 0` の経路が常態である**(申し送り)ので、M0 の既定が「原材料を一切買わない」になる | **核心** |
 | R1-6 | `WorkingCapitalIgnoresPreferenceEvenWhenConsumedAndObserved` | #26 の**嗜好側を実際に効かせる**: 嗜好の品目に**正の1日消費量**と**相場基準の立つ観測**を与えたうえで目標在庫を膨らませても `WorkingCapital` が変わらない | 消費量0・観測なしのまま日数だけ膨らませる。`Lookahead` も相場基準も0なので、嗜好を運転資金へ足す変異が `0 × 0` を足して**通過する**(#26 が主張する判別力の半分が無い) | **核心** |
-| R1-7 | `DurableTargetIgnoresNonHeadMemberRanks` | 世帯主 `Master`(1000‰)+ 徒弟 `Apprentice`(200‰)の**混成世帯**で、目標在庫が**世帯主**の係数で出る | 構成員の最小/最大を採る。**#29・#30 はどちらも構成員1名なので、世帯主・最小・最大が同じ値になり落ちない。M0 の世帯は親方+徒弟の混成であり、この誤りは M0 で実際に踏まれる** |  |
+| R1-7 | `DurableTargetIgnoresNonHeadMemberRanks` | 世帯主 `Master`(1000‰)+ 徒弟 `Apprentice`(200‰)の**混成世帯**で、目標在庫が**世帯主**の係数で出る | 構成員の**最小**を採る。**#29・#30 はどちらも構成員1名なので、世帯主・最小・最大が同じ値になり落ちない。M0 の世帯は親方+徒弟の混成であり、この誤りは M0 で実際に踏まれる** |  |
 
 **あわせて #27 の変異記録を実態に合わせる。** 記録は「`Assert.Equal(95, zeroStockWorkingCapital)` が実際値35で失敗した」となっているが、記載の変異(`target − expected`)で実際に落ちるのは次行の在庫あり/なしの比較である。**テストの判別力は仕様どおりあるので、直すのは記録のほうである**([process/03](../process/03-corrections.md))。
+
+### 別表: レビュー2巡目で足したテスト(フェーズ2)
+
+**R1-7 の「この実装ミスで落ちる」欄を狭めた**(「最小/最大」→「**最小**」)。`RankCoefficientPermille` は Master(1000‰)> Journeyman(600‰)> Apprentice(200‰)の単調順であり、**M0 の世帯主は全員 Master なので、「構成員の最大を採る」実装と「世帯主を採る」実装は M0 では観測上まったく同じ結果を出す。** 差が出るのは [GDD10](../03-gdd/10-guild-and-employment.md) の雇用で階層の違う世帯主が現れてからである。**テストを増やす価値は無いので、主張のほうを狭い側に倒した** — 広い主張を残すと「この誤りは表が押さえてある」と読ませ、踏んでも気付けなくなる([process/03](../process/03-corrections.md))。
+
+| #    | テスト | 検証内容 | この実装ミスで落ちる | 核心 |
+| ---- | ------ | -------- | -------------------- | ---- |
+| R2-1 | `EveryLineCarriesItsOwnStockPressureAndBudget`(R1-3 に**行を足す**) | **在庫圧力が 0 < p < 1000 になる行**を1本足す(例: 目標14・予想20 → `CeilDiv(1000 × (28 − 20), 14)` = **572**)。その行で `Budget` = `ApplyPermille(BaseValue, 572)` **かつ** `Budget != BaseValue` | `BuildLine` が `Budget` に `BaseValue` をそのまま入れる(**在庫圧力を掛け忘れる**)。`ApplyPermille` を通さず `× p / 1000` と手で書く。**R1-3 が選んだ行は圧力が 1000‰ なので `Assert.Equal(line.BaseValue, line.Budget)` が `ApplyPermille(x, 1000) == x` の恒等式になっており、掛け算そのものを一度も検証していない。`DemandLine.Budget` を assert しているのはコードベース中この1行だけである** | **核心** |
+
+- **`予算 = 基礎値 × 在庫圧力‰`([GDD02 §8.2](../03-gdd/02-economy.md))は GDD が名前を付けている式である。** 落ちたまま #37 へ渡ると、在庫が目標を超えた世帯でも満額の上限で店を選び、[§8.2.2](../03-gdd/02-economy.md) の「上限は 1000‰」と [§8.2.4](../03-gdd/02-economy.md) の右下がりの需要曲線が**予算側で無効化される**
+- **#37 の実装者はこれに気付けない** — `StockPressurePermille` 欄には正しい値が入っているからである
+- **`PurchaseQuantity` は `Budget` ではなく `BaseValue` を受け取る**ので、購入量は別経路で在庫圧力と等価な制約を受ける。したがって壊れ方は「1個も買わないはずが買う」ではなく、**丸め境界と店選択の候補集合がずれる**形である。それでも式が1つ死んだまま引き渡されるので直す
 
 ## 申し送り
 
