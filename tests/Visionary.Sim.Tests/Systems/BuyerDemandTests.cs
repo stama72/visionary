@@ -13,10 +13,14 @@ public sealed class BuyerDemandTests
     /// パン屋を模したレシピ。小麦粉+薪 → パン。<c>Occupation.Miller</c>(添字0)として登録される
     /// (<see cref="EconomySystemTestFixtures.BuildDefinition"/> の仕様)。
     /// </summary>
-    private static Recipe BakerLikeRecipe() =>
+    /// <param name="outputQuantity">
+    /// 出力数量。既定2。R3-2 が#15(<c>BuyerBudgetTests.DerivedDemandSharesTheAllowedCostWithoutExceedingIt</c>)
+    /// と同じ数値の組を通すため1を渡す。
+    /// </param>
+    private static Recipe BakerLikeRecipe(int outputQuantity = 2) =>
         new(
             Occupation.Miller,
-            outputs: new[] { new ItemQuantity { ItemId = Item.Bread, Quantity = 2 } },
+            outputs: new[] { new ItemQuantity { ItemId = Item.Bread, Quantity = outputQuantity } },
             inputs: new[]
             {
                 new ItemQuantity { ItemId = Item.Flour, Quantity = 1 },
@@ -86,9 +90,11 @@ public sealed class BuyerDemandTests
         int[]? budgetRatioPermilleByPurpose = null,
         int[]? necessityTargetStockDays = null,
         int[]? preferenceTargetStockDays = null,
-        int productionRunsPerToolWear = 30) =>
+        int productionRunsPerToolWear = 30,
+        int minimumMarginPermille = 0,
+        int outputQuantity = 2) =>
         EconomySystemTestFixtures.BuildDefinition(
-            BakerLikeRecipe(),
+            BakerLikeRecipe(outputQuantity),
             productionRunsPerToolWear: productionRunsPerToolWear,
             dailyConsumptionPerNpcByRank:
                 ConsumptionTable(firewoodConsumptionQty, breadConsumptionQty, beerConsumptionQty),
@@ -98,7 +104,8 @@ public sealed class BuyerDemandTests
             toolTargetStockPermille: toolTargetStockPermille,
             rankCoefficientPermille: rankCoefficientPermille ?? new[] { 1000, 600, 200 },
             necessityTolerancePermille: necessityTolerancePermille,
-            budgetRatioPermilleByPurpose: budgetRatioPermilleByPurpose ?? new[] { 0, 50, 200, 10 });
+            budgetRatioPermilleByPurpose: budgetRatioPermilleByPurpose ?? new[] { 0, 50, 200, 10 },
+            minimumMarginPermille: minimumMarginPermille);
 
     private static DemandLine FindLine(HouseholdDemand demand, DemandPurpose purpose, int itemId) =>
         demand.Lines.Single(line => line.Purpose == purpose && line.ItemId == itemId);
@@ -681,6 +688,93 @@ public sealed class BuyerDemandTests
 
         // 世帯主(Master,1000‰)の係数で15。徒弟(200‰)の最小を採ると3になる。
         Assert.Equal(15, durableLine.TargetStock);
+    }
+
+    /// <summary>
+    /// 【核心】別表 R3-1。流動資金2000・耐久の予算比率10‰(=20)に対し <c>Item.Tools</c> の
+    /// 相場基準を10にした観測を置く世帯 → 耐久の行の <c>BaseValue</c> = 10(配線が無ければ20)。
+    /// </summary>
+    /// <remarks>
+    /// <b>レビュー3巡目指摘(I-a-1)。</b><c>BuyerDemand.Build</c> の
+    /// <c>isReferenceRelevant[Item.Tools] = true;</c> を踏むテストが1件も無く、この行を消しても
+    /// 281件すべて緑のまま通った。<c>hasReference[Item.Tools]</c> が恒久に <c>false</c> になると
+    /// <c>DurableBaseValue</c> の <c>min(相場基準, 流動資金×比率‰)</c> が常に else 側へ落ち、
+    /// <c>min</c> が死ぬ(#13が名指しした誤りそのものだが、#13は純関数を守るだけなので
+    /// 呼び出し配線の欠落までは押さえられない)。R1-4は耐久の <c>BaseValue</c> を assert するが
+    /// 観測を一切置いていないため、この経路を通らない。
+    /// <para>
+    /// <b>変異の実測(2026-09-17)。</b><c>BuyerDemand.Build</c> の
+    /// <c>isReferenceRelevant[Item.Tools] = true;</c> の行を削る変異を当てたところ、
+    /// <c>Assert.Equal(10, durableLine.BaseValue)</c> が実際値20
+    /// (<c>hasReference[Item.Tools]</c> が常にfalseに落ち、<c>ApplyPermille(2000,10)=20</c> の
+    /// else側がそのまま採られた。相場基準10より高い上限で工具を買う経路)で失敗した(赤を確認)。
+    /// 変異を戻して緑に復帰させた。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void DurableLineReadsItsOwnMarketReference()
+    {
+        var definition = BuildDefinition(); // Durableの予算比率10‰(既定)
+        var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(new[] { NpcRank.Master });
+        world.Households[0].LiquidFunds = 2000; // ApplyPermille(2000,10) = 20
+
+        SetReference(world, world.Households[0].HeadNpcId, Item.Tools, price: 10);
+
+        var demand = new BuyerDemand(definition).Build(
+            world, world.Households[0], hasPreviousOutputOfferPrice: false, previousOutputOfferPrice: 0);
+        var durableLine = FindLine(demand, DemandPurpose.Durable, Item.Tools);
+
+        Assert.Equal(10, durableLine.BaseValue);
+    }
+
+    /// <summary>
+    /// 【核心】別表 R3-2。<c>hasPreviousOutputOfferPrice: true</c>・前日価格12・
+    /// <c>minimumMarginPermille: 200</c>(許容原価合計10)・入力2品目に相場基準3と4の観測 →
+    /// 生産の入力の行の <c>BaseValue</c> が4と5(#15と同じ値の組を <c>BuyerDemand</c> 越しに通す)。
+    /// </summary>
+    /// <remarks>
+    /// <b>レビュー3巡目指摘(I-a-2)。</b><c>BuyerDemandTests</c> の <c>Build</c> 呼び出しは
+    /// 全件が <c>hasPreviousOutputOfferPrice: false, previousOutputOfferPrice: 0</c> であり、
+    /// <c>DerivedDemand</c> の按分の枝(前日価格ありの経路)は <c>BuyerDemand</c> 越しに一度も
+    /// 評価されていなかった。R1-5 が当てたのはフォールバック枝だけである。仕様が
+    /// 「doc コメントで契約を固定する」と明言した経路(設計の前提の派生需要の節)について、
+    /// その引数が結果を変えることを示すテストが0件のまま#37へ渡ると、#37が取り違えても
+    /// W2-05側からは何も鳴らない。
+    /// <para>
+    /// <b>変異の実測1(2026-09-17)。</b><c>BuyerDemand.Build</c> が <c>DerivedDemand</c> へ渡す
+    /// <c>hasPreviousOutputOfferPrice</c> 引数を、呼び出し元から受け取った値ではなく固定の
+    /// <c>false</c> に変える変異を当てたところ、<c>Assert.Equal(4, flourLine.BaseValue)</c> が
+    /// 実際値0(按分の枝を評価せず、フォールバック <c>ApplyPermille(liquidFunds=0,
+    /// necessityRatio=50)=0</c> に落ちた。このテストは流動資金を明示的に設定していない)で
+    /// 失敗した(赤を確認)。
+    /// </para>
+    /// <para>
+    /// <b>変異の実測2(2026-09-17)。</b><c>BuyerDemand.Build</c> が <c>DerivedDemand</c> へ渡す
+    /// <c>minimumMarginPermille</c> 引数を <c>definition.MinimumMarginPermille</c> ではなく
+    /// 固定値 <c>1_000_000</c>‰ に変える変異を当てたところ、
+    /// <c>Assert.Equal(4, flourLine.BaseValue)</c> が実際値0(許容原価合計が
+    /// <c>FloorDiv(12×1000,1001000)=0</c> まで潰れた。出力数量1なので見込み収益は12)で
+    /// 失敗した(赤を確認)。変異はいずれも戻して緑に復帰させた。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void ProductionInputSharesTheAllowedCostWhenAPreviousPriceExists()
+    {
+        // 出力数量1(#15と同じ値の組を通すため)。
+        var definition = BuildDefinition(minimumMarginPermille: 200, outputQuantity: 1);
+        var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(new[] { NpcRank.Master });
+
+        SetReference(world, world.Households[0].HeadNpcId, Item.Flour, price: 3);
+        SetReference(world, world.Households[0].HeadNpcId, Item.Firewood, price: 4);
+
+        var demand = new BuyerDemand(definition).Build(
+            world, world.Households[0], hasPreviousOutputOfferPrice: true, previousOutputOfferPrice: 12);
+
+        var flourLine = FindLine(demand, DemandPurpose.ProductionInput, Item.Flour);
+        var firewoodLine = FindLine(demand, DemandPurpose.ProductionInput, Item.Firewood);
+
+        Assert.Equal(4, flourLine.BaseValue);
+        Assert.Equal(5, firewoodLine.BaseValue);
     }
 
     /// <summary>世帯主の <c>Knowledge</c> に、過去日(他の売り手999)の観測を1件仕込む。</summary>

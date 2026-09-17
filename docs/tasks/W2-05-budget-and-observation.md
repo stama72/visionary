@@ -631,7 +631,19 @@ CollectAndShare:
 - **#37 の実装者はこれに気付けない** — `StockPressurePermille` 欄には正しい値が入っているからである
 - **`PurchaseQuantity` は `Budget` ではなく `BaseValue` を受け取る**ので、購入量は別経路で在庫圧力と等価な制約を受ける。したがって壊れ方は「1個も買わないはずが買う」ではなく、**丸め境界と店選択の候補集合がずれる**形である。それでも式が1つ死んだまま引き渡されるので直す
 
-## 申し送り
+### 別表: レビュー3巡目で足したテスト(フェーズ2)
+
+**2件とも R1 別表と同じ類型である** — `BuyerDemand.Build` の**呼び出し側の配線**のうち、テストが一度も踏まない経路。R1 別表が埋めたのは5経路のうち3つ(嗜好の母数 / `selfHouseholdId` / フォールバック比率)で、**耐久の相場基準**と**派生需要の按分枝**の2つが残っていた。**指摘の種類を捉えることと、その種類の全インスタンスを列挙することは別の作業である。**
+
+**どちらもレビュアーが実際に製品コードへ変異を当て、281件緑のまま通ることを実測している。**
+
+| #    | テスト | 検証内容 | この実装ミスで落ちる | 核心 |
+| ---- | ------ | -------- | -------------------- | ---- |
+| R3-1 | `DurableLineUsesTheMarketReferenceWhenObserved` | 流動資金2000・耐久の予算比率10‰(= 20)に対し `Item.Tools` の**相場基準を10 にした観測を置く**世帯 → 耐久の行の `BaseValue` = **10**(配線が無ければ 20) | `Build` の手順0 の `∪ { Item.Tools }`(`isReferenceRelevant[Item.Tools] = true`)を落とす。`hasReference[Item.Tools]` が恒久に `false` になり、`DurableBaseValue` の `min(相場基準, 流動資金 × 比率‰)` が**常に else 側**へ落ちて `min` が死ぬ。**流動資金の大きい世帯が相場より高い上限で工具を買う** — #13 が名指しした誤りそのものだが、**#13 は純関数を守っているので表を読むと押さえてあるように見える**。`BuyerDemandTests` で耐久の `BaseValue` を assert しているのは R1-4 だけで、そこは観測を一切置いていない | **核心** |
+| R3-2 | `ProductionInputSharesTheAllowedCostThroughBuyerDemand` | `hasPreviousOutputOfferPrice: true`・前日価格**12**・`minimumMarginPermille: 200`(許容原価合計 **10**)・入力2品目に相場基準 **3** と **4** の観測 → 生産の入力の行の `BaseValue` が **4 と 5**(#15 と同じ値の組を `BuyerDemand` 越しに通す) | `hasPreviousOutputOfferPrice` を渡し忘れる・常に `false` にする(**生産の入力の基礎値が恒久にフォールバックへ張り付き、最低利幅の保証も相場基準による按分も効かない**)。`definition.MinimumMarginPermille` でない値を渡す(**実現利幅が最低利幅を下回る**)。`hasReference` / `reference`(itemId 添字)でない配列を渡す。**`BuyerDemandTests` の `Build` 呼び出しは全件が `hasPreviousOutputOfferPrice: false, previousOutputOfferPrice: 0` であり、按分の枝は `BuyerDemand` 越しに一度も評価されていない。R1-5 が当てたのはフォールバック枝だけである** | **核心** |
+
+- **R3-2 が守るのは、仕様が「doc コメントで固定する」と書いた契約そのものである。** 「設計の前提」の節は、前日価格を呼び出し側が渡す契約について**本タスクは控える側を書かない・代わりに引数の doc コメントで契約を固定する**と決めている。**文書1行だけが守っている契約**について、その引数が結果を変えることを示すテストが0件のまま #37 へ渡ると、#37 が当日価格を渡す/`false` を渡す取り違えをしても**W2-05 側からは何も鳴らない**
+- **`BuyerDemandTests` の定義ヘルパーは `minimumMarginPermille` を引数に取っていない**(`EconomySystemTestFixtures` の既定 0 のまま)。R3-2 には転送が要る
 
 ### #37(Trade システムと店の選択)へ
 
