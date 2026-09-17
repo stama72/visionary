@@ -49,7 +49,10 @@ internal static class EconomySystemTestFixtures
         int toolTargetStockPermille = 1000,
         int[]? rankCoefficientPermille = null,
         int necessityTolerancePermille = 1000,
-        int[]? budgetRatioPermilleByPurpose = null)
+        int[]? budgetRatioPermilleByPurpose = null,
+        int[]? opportunityCostBaseByOccupation = null,
+        int travelHoursPerDistrict = 1,
+        int acquisitionCostSmoothingPermille = 250)
     {
         var recipes = new[]
         {
@@ -86,7 +89,11 @@ internal static class EconomySystemTestFixtures
             toolTargetStockPermille: toolTargetStockPermille,
             rankCoefficientPermille: rankCoefficientPermille ?? new[] { 1000, 1000, 1000 },
             necessityTolerancePermille: necessityTolerancePermille,
-            budgetRatioPermilleByPurpose: budgetRatioPermilleByPurpose ?? new[] { 0, 1, 0, 1 });
+            budgetRatioPermilleByPurpose: budgetRatioPermilleByPurpose ?? new[] { 0, 1, 0, 1 },
+            opportunityCostBaseByOccupation:
+                opportunityCostBaseByOccupation ?? Enumerable.Repeat(1, recipes.Length).ToArray(),
+            travelHoursPerDistrict: travelHoursPerDistrict,
+            acquisitionCostSmoothingPermille: acquisitionCostSmoothingPermille);
     }
 
     /// <summary>

@@ -153,6 +153,9 @@ public static class StateHasher
                 WriteInt64(hasher, buffer, entry.OccurredAt.Value);
                 WriteInt32(hasher, buffer, (int)entry.Terms);
                 WriteInt64(hasher, buffer, entry.CreditDueAt.Value);
+
+                // #37が足した欄。既存の値は動かさず末尾へ足す(TDD01 §3.8の規律)。
+                WriteInt32(hasher, buffer, (int)entry.Direction);
             }
         }
 
@@ -189,6 +192,9 @@ public static class StateHasher
             // #34が足した2欄。既存の値は動かさず末尾へ足す(同じ規律)。
             WriteInt32(hasher, buffer, household.ToolWearCount);
             WriteInt32Array(hasher, buffer, household.UnmetConsumption);
+
+            // #37が足した欄。既存の値は動かさず末尾へ足す(同じ規律)。
+            WriteInt32(hasher, buffer, household.UnaffordableNecessityCount);
         }
 
         // EventLog は含めない(§3.8 の除外表)。意思決定に関与せず、追記専用で巨大。

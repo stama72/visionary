@@ -118,6 +118,23 @@ public static class OfferPrice
         return Math.Max(costFloor, referencePrice);
     }
 
+    /// <summary>
+    /// 仕入れ移動平均単価の更新(GDD02 §8.1.1「仕入れ移動平均単価の更新」)。
+    /// <c>CeilDiv(旧移動平均 × (1000 − β‰) + 約定単価 × β‰, 1000)</c>。
+    /// </summary>
+    /// <remarks>
+    /// <b>丸めは最後に1回だけ掛ける。</b>2項をそれぞれ <see cref="IntegerMath.ApplyPermille"/> で
+    /// 丸めてから足すと両方が切り上がり、<b>価格が動いていない日でも移動平均が1ずつ上がり続ける</b>。
+    /// </remarks>
+    public static int UpdatedAcquisitionCost(int previousAverage, int unitPrice, int smoothingPermille)
+    {
+        // 中間の積はlong(旧移動平均×(1000−β)はintを超えうる)。
+        long weightedPrevious = (long)previousAverage * (IntegerMath.PermilleScale - smoothingPermille);
+        long weightedNew = (long)unitPrice * smoothingPermille;
+
+        return checked((int)IntegerMath.CeilDiv(weightedPrevious + weightedNew, IntegerMath.PermilleScale));
+    }
+
     /// <summary>相場基準(GDD02 §8.1.1「相場基準」)。0件なら false を返す。</summary>
     /// <remarks>
     /// <para>

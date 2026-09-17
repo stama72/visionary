@@ -424,4 +424,31 @@ public sealed class OfferPriceTests
         Assert.True(found);
         Assert.Equal(200, marketReference);
     }
+
+    /// <summary>
+    /// 【核心】タスク仕様テスト表 #9。旧20・単価20・β250‰ → 20(動かない)。旧20・単価40・β250‰ → 25。
+    /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-17)。</b><c>OfferPrice.UpdatedAcquisitionCost</c> を、2項をそれぞれ
+    /// <c>IntegerMath.ApplyPermille</c> で丸めてから足す形(<c>ApplyPermille(previousAverage, 1000 -
+    /// smoothingPermille) + ApplyPermille(unitPrice, smoothingPermille)</c>)に変える変異を
+    /// 当てたところ、<c>Assert.Equal(20, ...(20, 20, 250))</c> が実際値21
+    /// (<c>CeilDiv(20×750,1000)=15</c> と <c>CeilDiv(20×250,1000)=5</c> がそれぞれ切り上がり
+    /// 15+5=20…とはならず、750‰側が <c>CeilDiv(15000,1000)=15</c> ちょうどで割り切れるため
+    /// 実際は変異を当てても20のままでは崩れない。<b>そこで旧21・単価21・β250‰</b> の組で再試行
+    /// したところ、<c>CeilDiv(21×750,1000)=CeilDiv(15750,1000)=16</c>、
+    /// <c>CeilDiv(21×250,1000)=CeilDiv(5250,1000)=6</c>、16+6=22 が実際値になり、
+    /// 「価格が動いていない日でも移動平均が1ずつ上がり続ける」ことを確認した(期待値21、実際値22。
+    /// 赤を確認)。変異を戻して緑に復帰させた。
+    /// </remarks>
+    [Fact]
+    public void UpdatedAcquisitionCostRoundsOnlyOnce()
+    {
+        Assert.Equal(20, OfferPrice.UpdatedAcquisitionCost(previousAverage: 20, unitPrice: 20, smoothingPermille: 250));
+        Assert.Equal(25, OfferPrice.UpdatedAcquisitionCost(previousAverage: 20, unitPrice: 40, smoothingPermille: 250));
+
+        // 「動かない」ケースが丸め2回でも偶然一致しうるため(上の変異の実測メモ参照)、
+        // 割り切れない組でも同じ性質(β適用後の合計をceilDivするのが正)を確かめる。
+        Assert.Equal(21, OfferPrice.UpdatedAcquisitionCost(previousAverage: 21, unitPrice: 21, smoothingPermille: 250));
+    }
 }
