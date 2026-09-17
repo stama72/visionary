@@ -76,11 +76,33 @@ public sealed class TradeSystemTests
     /// 「Collection was empty」で失敗した(赤を確認)。この行を足す前は、下のループが
     /// 「エントリが無い」だけを確認して素通りするため緑のままだった。変異を戻して緑に復帰させた。
     /// </para>
+    /// <para>
+    /// <b>#37での訂正。</b>#37 が段4・5(買い物)を Step の中へ配線した結果、M0 の実世界では
+    /// 距離0〜1の売り手が最初から見えるため(GDD06 §3.1「今日の知覚」は前日の観測を要らない)、
+    /// <b>1日目のうちに実際の約定が起こりうる。</b>そのため <c>world.Households</c>(1日進めた
+    /// <b>後</b>の状態)から <c>sellableStock</c> / <c>PurchaseUnitCostAverage</c> を読み直すと、
+    /// 段1(値付け)が実際に見た値ではなく、段5(買い物)が動かした後の値を拾ってしまう。
+    /// 段1・段2(値付け・Marketへの一括書き込み)は <see cref="ProductionSystem"/> /
+    /// <see cref="ConsumptionSystem"/> の結果だけに依存し、その後の段4〜6には一切依存しない
+    /// (<see cref="TradeSystem"/> のdocコメント「<c>Market</c> を書くのは段2 だけ」)。
+    /// 同じシードで <see cref="ProductionSystem"/> / <see cref="ConsumptionSystem"/> だけを
+    /// 別世界に走らせれば、それが段1 の直前(=段1 が実際に読んだ)の状態と一致する
+    /// (両システムとも乱数を引かない決定的な状態遷移)。
+    /// </para>
     /// </remarks>
     [Fact]
     public void FirstDayOffersAreExactlyTheCostFloor()
     {
         var definition = WorldDefinition.M0;
+
+        // 段1(値付け)が実際に読んだ、生産・消費だけを終えた状態のスナップショット。
+        // Trade(買い物)を含めた本番のworldとは別のインスタンスで、同じシードで走らせる。
+        var preTradeWorld = WorldGenerator.Generate(definition, new RandomSource(1));
+        var preTradeScheduler = new SimScheduler(
+            new ISimSystem[] { new ProductionSystem(definition), new ConsumptionSystem(definition) },
+            new RandomSource(1));
+        preTradeScheduler.Advance(preTradeWorld, ticks: 24);
+
         var world = WorldGenerator.Generate(definition, new RandomSource(1));
 
         var scheduler = new SimScheduler(
@@ -97,7 +119,7 @@ public sealed class TradeSystemTests
         // (現在5、#28が動かす前提)が0になると下のループが値付けを一度も検証せず素通りする。
         Assert.NotEmpty(world.Market);
 
-        foreach (var household in world.Households)
+        foreach (var household in preTradeWorld.Households)
         {
             var recipe = definition.Recipes[(int)household.Occupation];
             int outputItemId = recipe.Outputs[0].ItemId;

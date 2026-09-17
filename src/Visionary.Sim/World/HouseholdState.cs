@@ -19,6 +19,7 @@ public sealed class HouseholdState
 {
     private int isBankrupt;
     private int toolWearCount;
+    private int unaffordableNecessityCount;
 
     /// <summary><see cref="World.Households"/> の添字と一致する、非負の Id(TDD01 §3.2)。</summary>
     public int Id { get; }
@@ -142,6 +143,29 @@ public sealed class HouseholdState
     /// </remarks>
     public int[] UnmetConsumption { get; }
 
+    /// <summary>
+    /// 当日、必需品を「資金不足で買えなかった」購入の件数(GDD02 §6.2.1 / §6.2.2)。0以上。
+    /// </summary>
+    /// <remarks>
+    /// <b>#39 の破産中フラグの入力である。</b>順3 Household が読む時点ではまだ前日の値であり
+    /// (順5 Trade が上書きするのはその後)、GDD02 §6.2.2「前日の購入結果を評価する」が
+    /// 順序の帰結として成立する。<b>フラグそのものは本タスクでは立てない。</b>
+    /// </remarks>
+    public int UnaffordableNecessityCount
+    {
+        get => unaffordableNecessityCount;
+        set
+        {
+            if (value < 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(value), value, "資金不足で買えなかった件数は0以上(GDD02 §6.2.1)。");
+            }
+
+            unaffordableNecessityCount = value;
+        }
+    }
+
     public HouseholdState(int id, int districtId, int headNpcId, int[] memberNpcIds, int itemCount)
     {
         if (id < 0)
@@ -213,5 +237,6 @@ public sealed class HouseholdState
         UnmetConsumption = new int[itemCount];
         IsBankrupt = 0;
         ToolWearCount = 0;
+        UnaffordableNecessityCount = 0;
     }
 }

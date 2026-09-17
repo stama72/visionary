@@ -23,7 +23,10 @@ public sealed class WorldDefinitionTests
         int? toolTargetStockPermille = null,
         int[]? rankCoefficientPermille = null,
         int? necessityTolerancePermille = null,
-        int[]? budgetRatioPermilleByPurpose = null)
+        int[]? budgetRatioPermilleByPurpose = null,
+        int[]? opportunityCostBaseByOccupation = null,
+        int? travelHoursPerDistrict = null,
+        int? acquisitionCostSmoothingPermille = null)
     {
         var m0 = WorldDefinition.M0;
 
@@ -54,7 +57,12 @@ public sealed class WorldDefinitionTests
             rankCoefficientPermille: rankCoefficientPermille ?? m0.RankCoefficientPermille,
             necessityTolerancePermille: necessityTolerancePermille ?? m0.NecessityTolerancePermille,
             budgetRatioPermilleByPurpose:
-                budgetRatioPermilleByPurpose ?? m0.BudgetRatioPermilleByPurpose);
+                budgetRatioPermilleByPurpose ?? m0.BudgetRatioPermilleByPurpose,
+            opportunityCostBaseByOccupation:
+                opportunityCostBaseByOccupation ?? m0.OpportunityCostBaseByOccupation,
+            travelHoursPerDistrict: travelHoursPerDistrict ?? m0.TravelHoursPerDistrict,
+            acquisitionCostSmoothingPermille:
+                acquisitionCostSmoothingPermille ?? m0.AcquisitionCostSmoothingPermille);
     }
 
     [Fact]
@@ -399,6 +407,40 @@ public sealed class WorldDefinitionTests
         Assert.Equal(
             m0.InputTargetStockByOccupation[(int)Occupation.Miller],
             definition.InputTargetStockByOccupation[(int)Occupation.Miller]);
+    }
+
+    /// <summary>
+    /// #37 が足した3欄(機会費用の基準値・1区画あたりの移動時間・仕入れ移動平均単価の
+    /// 平滑化係数‰)それぞれの検証を確かめる。0を通すと移動費が全区画で0になるか
+    /// (GDD08 §7.4「信用インフレを止める唯一の絞り」が恒偽になる)、移動平均が凍るか、
+    /// 1000超で高値で仕入れるほど原価が下がる経路が入る。
+    /// </summary>
+    [Fact]
+    public void WorldDefinitionRejectsMalformedTradeFields()
+    {
+        var m0 = WorldDefinition.M0;
+
+        // 行数(長さ) ≠ 職業数(5要素のうち4要素しかない)
+        Assert.Throws<ArgumentException>(() => BuildDefinition(
+            opportunityCostBaseByOccupation: m0.OpportunityCostBaseByOccupation.Take(4).ToArray()));
+
+        // 機会費用の基準値が0(移動費が全区画で0になる)
+        var zeroedBase = (int[])m0.OpportunityCostBaseByOccupation.Clone();
+        zeroedBase[0] = 0;
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => BuildDefinition(opportunityCostBaseByOccupation: zeroedBase));
+
+        // 1区画あたりの移動時間が0(空間の摩擦が消える)
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => BuildDefinition(travelHoursPerDistrict: 0));
+
+        // 平滑化係数‰が0(移動平均が初期値に凍る)
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => BuildDefinition(acquisitionCostSmoothingPermille: 0));
+
+        // 平滑化係数‰が1000超(高値で仕入れるほど原価が下がる)
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => BuildDefinition(acquisitionCostSmoothingPermille: 1001));
     }
 
     private static int[][] CloneInputTargets(WorldDefinition definition)

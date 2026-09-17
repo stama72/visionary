@@ -92,6 +92,17 @@ public sealed class WorldDefinition
     /// </summary>
     public int[] BudgetRatioPermilleByPurpose { get; }
 
+    /// <summary>
+    /// 機会費用の職業別の基準値。添字 = (int)Occupation。単位: 貨幣/1時間(GDD08 §9)。
+    /// </summary>
+    public int[] OpportunityCostBaseByOccupation { get; }
+
+    /// <summary>1区画あたりの移動時間。単位: 時間(GDD02 §4.3)。</summary>
+    public int TravelHoursPerDistrict { get; }
+
+    /// <summary>仕入れ移動平均単価の平滑化係数‰(GDD02 §8.1.1)。単位: ‰。</summary>
+    public int AcquisitionCostSmoothingPermille { get; }
+
     /// <summary>職業数。<see cref="Recipes"/> の長さから導く。</summary>
     public int OccupationCount => Recipes.Length;
 
@@ -133,7 +144,10 @@ public sealed class WorldDefinition
         int toolTargetStockPermille,
         int[] rankCoefficientPermille,
         int necessityTolerancePermille,
-        int[] budgetRatioPermilleByPurpose)
+        int[] budgetRatioPermilleByPurpose,
+        int[] opportunityCostBaseByOccupation,
+        int travelHoursPerDistrict,
+        int acquisitionCostSmoothingPermille)
     {
         ArgumentNullException.ThrowIfNull(recipes);
         ArgumentNullException.ThrowIfNull(initialAcquisitionCost);
@@ -148,6 +162,7 @@ public sealed class WorldDefinition
         ArgumentNullException.ThrowIfNull(preferenceTargetStockDays);
         ArgumentNullException.ThrowIfNull(rankCoefficientPermille);
         ArgumentNullException.ThrowIfNull(budgetRatioPermilleByPurpose);
+        ArgumentNullException.ThrowIfNull(opportunityCostBaseByOccupation);
 
         if (recipes.Length == 0)
         {
@@ -574,6 +589,41 @@ public sealed class WorldDefinition
                 nameof(householdsPerOccupation));
         }
 
+        // 長さ = 職業数(Recipes.Length)。全要素1以上 ── 0を許すと移動費が全区画で0になり、
+        // GDD08 §7.4「信用インフレを止める唯一の絞り」が恒偽になる(GDD02 §8.1.1)。
+        if (opportunityCostBaseByOccupation.Length != recipes.Length)
+        {
+            throw new ArgumentException(
+                $"機会費用の基準値の長さは職業数({recipes.Length})と一致する必要がある。",
+                nameof(opportunityCostBaseByOccupation));
+        }
+
+        foreach (int baseValue in opportunityCostBaseByOccupation)
+        {
+            if (baseValue < 1)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(opportunityCostBaseByOccupation), baseValue, "機会費用の基準値は1以上(GDD02 §8.1.1)。");
+            }
+        }
+
+        // 0はGDD06 §3.1の囲みが挙げるR=0と同じ構造の破壊 ── 実質コストの第2項(移動費)が
+        // 全区画で消える。
+        if (travelHoursPerDistrict < 1)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(travelHoursPerDistrict), travelHoursPerDistrict, "1区画あたりの移動時間は1以上(GDD02 §4.3)。");
+        }
+
+        // 0は移動平均が初期値に凍る。1000超は「旧移動平均×(1000−β)」が負になり、
+        // 高値で仕入れるほど原価が下がる(GDD02 §8.1.1)。
+        if (acquisitionCostSmoothingPermille is < 1 or > 1000)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(acquisitionCostSmoothingPermille), acquisitionCostSmoothingPermille,
+                "仕入れ移動平均単価の平滑化係数‰は1〜1000(GDD02 §8.1.1)。");
+        }
+
         ItemCount = itemCount;
         HouseholdsPerOccupation = householdsPerOccupation;
         Recipes = recipes.ToArray();
@@ -620,6 +670,9 @@ public sealed class WorldDefinition
         RankCoefficientPermille = rankCoefficientPermille.ToArray();
         NecessityTolerancePermille = necessityTolerancePermille;
         BudgetRatioPermilleByPurpose = budgetRatioPermilleByPurpose.ToArray();
+        OpportunityCostBaseByOccupation = opportunityCostBaseByOccupation.ToArray();
+        TravelHoursPerDistrict = travelHoursPerDistrict;
+        AcquisitionCostSmoothingPermille = acquisitionCostSmoothingPermille;
     }
 
     private static void ValidateItemIdsAreInRange(ItemQuantity[] items, int itemCount, string paramName)
@@ -784,6 +837,16 @@ public sealed class WorldDefinition
             10,  // Durable:    流動資金の 1%(GDD02 §8.2.1)
         };
 
+        // 添字 = (int)Occupation(Miller, Baker, Brewer, Woodworker, Smith)。単位: 貨幣/1時間。
+        // 目安は GDD08 §5.1 の「親方の1日粗利 ÷ 可処分時間12時間」だが、初期の提示価格が原価下限に
+        // 張り付く前提(GDD02 §8.2.7)で粗利を見積もると5職業とも 1 未満になり、階層係数200‰ を
+        // 掛けた徒弟も切り上げで 1 になって階層の差が消える。職業ごとに差が出る最小の水準まで
+        // 持ち上げてある(#28 の検算対象)。
+        var opportunityCostBaseByOccupation = new[] { 5, 6, 6, 4, 8 };
+
+        const int TravelHoursPerDistrictForM0 = 1;             // 時間/区画(GDD02 §4.3)
+        const int AcquisitionCostSmoothingPermilleForM0 = 250; // ‰。実効的な窓は7件程度(2/β − 1)
+
         return new WorldDefinition(
             itemCount: Item.Count,
             householdsPerOccupation: 2,
@@ -807,7 +870,10 @@ public sealed class WorldDefinition
             toolTargetStockPermille: ToolTargetStockPermilleForM0,
             rankCoefficientPermille: rankCoefficientPermille,
             necessityTolerancePermille: NecessityTolerancePermilleForM0,
-            budgetRatioPermilleByPurpose: budgetRatioPermilleByPurpose);
+            budgetRatioPermilleByPurpose: budgetRatioPermilleByPurpose,
+            opportunityCostBaseByOccupation: opportunityCostBaseByOccupation,
+            travelHoursPerDistrict: TravelHoursPerDistrictForM0,
+            acquisitionCostSmoothingPermille: AcquisitionCostSmoothingPermilleForM0);
     }
 
     /// <summary>
