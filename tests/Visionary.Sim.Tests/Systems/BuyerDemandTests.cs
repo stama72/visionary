@@ -1,4 +1,5 @@
 using Visionary.Sim.Numerics;
+using Visionary.Sim.Randomness;
 using Visionary.Sim.Systems;
 using Visionary.Sim.Time;
 
@@ -775,6 +776,85 @@ public sealed class BuyerDemandTests
 
         Assert.Equal(4, flourLine.BaseValue);
         Assert.Equal(5, firewoodLine.BaseValue);
+    }
+
+    /// <summary>
+    /// 【核心】テスト表 #29。必要運転資金 &gt; 0 の世帯で、耐久の行の <c>BaseValue</c> が
+    /// <c>BuyerBudget.DurableBaseValue(…, household.LiquidFunds, 耐久の予算比率‰)</c> と一致する。
+    /// </summary>
+    /// <remarks>
+    /// <b>耐久の基礎値の母数は流動資金であって、必要運転資金を差し引いた余剰資金ではない</b>
+    /// (GDD02 §8.2.1)。<c>demand.SurplusFunds &lt; household.LiquidFunds</c> を先に確かめる ──
+    /// これを省くと、必要運転資金0の縮退した世界では <c>surplus == LiquidFunds</c> になり、
+    /// 母数の取り違え(#36引き継ぎ表A)を判別できない(既存の
+    /// <see cref="DurableAndPreferenceReadTheirOwnBudgetRatio"/> が踏んでいる縮退そのもの)。
+    /// <b>手組みの世界ではなく <see cref="WorldGenerator.Generate"/>(<c>WorldDefinition.M0</c>)を
+    /// 使う</b> ── 必要運転資金を正にするため(<see cref="TradePipelineTests"/> と同じ理由)。
+    /// <para>
+    /// <b>変異の実測(2026-09-17)。</b><c>BuyerDemand.Build</c> の耐久の基礎値の呼び出し
+    /// (<c>BuyerBudget.DurableBaseValue(hasReference[Item.Tools], reference[Item.Tools],
+    /// household.LiquidFunds, ...)</c>)の <c>household.LiquidFunds</c> を <c>surplus</c>
+    /// (#36引き継ぎ表Aそのもの)に変える変異を当てたところ、
+    /// <c>Assert.Equal(expectedBaseValue, durableLine.BaseValue)</c> が Expected: 1, Actual: 0 で
+    /// 失敗した(赤を確認 ── 対象世帯の必要運転資金が正のため surplus &lt; liquidFunds となり、
+    /// 母数の取り違えが基礎値の差として現れた。運転資金で余剰が圧縮された世帯の耐久基礎値が
+    /// 過小になり、工具を買えず設備係数0‰に陥る経路)。変異を戻して緑に復帰させた。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void DurableBaseValueIsMeasuredOnLiquidFundsNotSurplus()
+    {
+        var definition = WorldDefinition.M0;
+        var world = WorldGenerator.Generate(definition, new RandomSource(1));
+
+        var scheduler = new SimScheduler(
+            new ISimSystem[]
+            {
+                new ProductionSystem(definition),
+                new ConsumptionSystem(definition),
+                new TradeSystem(definition),
+            },
+            new RandomSource(1));
+        scheduler.Advance(world, ticks: 5 * 24);
+
+        var buyerDemand = new BuyerDemand(definition);
+
+        HouseholdState? targetHousehold = null;
+        HouseholdDemand targetDemand = default;
+
+        foreach (var household in world.Households)
+        {
+            var demand = buyerDemand.Build(
+                world, household, hasPreviousOutputOfferPrice: false, previousOutputOfferPrice: 0);
+
+            if (demand.SurplusFunds < household.LiquidFunds)
+            {
+                targetHousehold = household;
+                targetDemand = demand;
+                break;
+            }
+        }
+
+        Assert.True(
+            targetHousehold is not null,
+            "5日回してもSurplusFunds<LiquidFundsの世帯が1件も現れなかった"
+                + "(このテストが判別力を持たない。値の問題の可能性)。");
+
+        var selectedHousehold = targetHousehold!;
+        var durableLine = targetDemand.Lines.Single(
+            line => line.Purpose == DemandPurpose.Durable && line.ItemId == Item.Tools);
+
+        bool hasReference = OfferPrice.TryMarketReference(
+            world.Knowledge[selectedHousehold.HeadNpcId], Item.Tools, selectedHousehold.Id, world.Now,
+            definition.ObservationRetentionDays,
+            hasOwnPreviousPrice: false, ownPreviousPrice: 0,
+            out int reference);
+
+        int expectedBaseValue = BuyerBudget.DurableBaseValue(
+            hasReference, reference, selectedHousehold.LiquidFunds,
+            definition.BudgetRatioPermilleByPurpose[(int)DemandPurpose.Durable]);
+
+        Assert.Equal(expectedBaseValue, durableLine.BaseValue);
     }
 
     /// <summary>世帯主の <c>Knowledge</c> に、過去日(他の売り手999)の観測を1件仕込む。</summary>

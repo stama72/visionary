@@ -132,11 +132,18 @@ public sealed class TradePipelineTests
     }
 
     /// <summary>
-    /// 【核心】テスト表 #22。30日回した後、ビール(嗜好)の約定が1件以上あり、
-    /// 工具(耐久)の約定が1件以上ある。
+    /// 【核心】テスト表 #22。30日回した後、ビール(嗜好)の約定が1件以上ある。
     /// </summary>
+    /// <remarks>
+    /// <b>工具(耐久)の約定はここでは検証しない</b>(タスク仕様「耐久(工具)の約定は本タスクでは
+    /// 検証しない(フェーズ1 の裁定)」)。W2では1次産品に売り手が居ないため生産が5日で止まり、
+    /// 摩耗も5回で止まる。耐久の需要が立つには摩耗15回が要るので、耐久の約定はパイプラインでは
+    /// 構造的に成立しない。母数の取り違え(#36引き継ぎ表A)の検出は #29
+    /// (<see cref="BuyerDemandTests.DurableBaseValueIsMeasuredOnLiquidFundsNotSurplus"/>)が単体で担う。
+    /// 「工具が実際に買われる」ことの検証は #38 の Exit Criteria へ移された。
+    /// </remarks>
     [Fact]
-    public void PreferenceAndDurableAreActuallyBought()
+    public void PreferenceIsActuallyBought()
     {
         var definition = WorldDefinition.M0;
         var world = WorldGenerator.Generate(definition, new RandomSource(1));
@@ -148,7 +155,6 @@ public sealed class TradePipelineTests
             entry => entry.Direction == LedgerDirection.Purchase && entry.ItemId == itemId));
 
         Assert.True(AnyPurchase(Item.Beer), "30日でビールが一度も買われなかった(値の問題の可能性)。");
-        Assert.True(AnyPurchase(Item.Tools), "30日で工具が一度も買われなかった(値の問題の可能性)。");
     }
 
     /// <summary>
