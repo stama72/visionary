@@ -70,10 +70,12 @@ public sealed class StoreChoiceTests
     }
 
     /// <summary>
-    /// 【核心】テスト表 #6。段5 の手順1(目標在庫 → 個数)・手順5(購入量 → 個数)の換算を
-    /// <see cref="TradeSystem.TargetStockInUnits"/> / <see cref="TradeSystem.PurchaseQuantityInUnits"/>
-    /// を直接呼んで確かめる(レビュー1巡目 I-b の訂正)。<c>Durable</c> は N で割り、
-    /// <c>Necessity</c> は換算しない。手順1・手順5 のどちらも同じ形の分岐を持つので両方見る。
+    /// 【核心】テスト表 #6。<see cref="TradeSystem.TargetStockInUnits"/> /
+    /// <see cref="TradeSystem.PurchaseQuantityInUnits"/> ヘルパーの<b>内側の用途分岐</b>だけを
+    /// 直接呼んで確かめる(レビュー2巡目の訂正)。<c>Durable</c> は N で割り、<c>Necessity</c> は
+    /// 換算しない。手順1・手順5 のどちらも同じ形の分岐を持つので両方見る。
+    /// <b>段5(<see cref="TradeSystem.Step"/>)がこのヘルパーを実際に呼んでいることまでは
+    /// 確かめない</b>(下記remark)。
     /// </summary>
     /// <remarks>
     /// <b>変異の実測(2026-09-17)。</b>
@@ -85,6 +87,20 @@ public sealed class StoreChoiceTests
     /// (赤を確認:必需の移動費が1/Nになる経路)。次に<c>常に targetStock/quantity をそのまま返す</c>
     /// (換算しない)へ変えたところ、<c>Durable</c> の行(期待値1)が実際値15で失敗した
     /// (赤を確認:耐久の移動費が空間の摩擦を持たなくなる経路)。いずれも変異を戻して緑に復帰させた。
+    /// </remarks>
+    /// <remarks>
+    /// <b>呼び出し側がヘルパーを通ることは、このテストを含めどのテストも守っていない</b>
+    /// (レビュー2巡目の実測)。<c>TradeSystem.RunOneHouseholdsShopping</c> の段5 手順1・手順5 から
+    /// <c>TargetStockInUnits</c> / <c>PurchaseQuantityInUnits</c> の呼び出しを外し、
+    /// <c>int targetInUnits = line.TargetStock;</c> / <c>int purchaseQuantityInUnits = purchaseQuantity;</c>
+    /// (換算せず耐久値をそのまま個数として扱う)へ置き換えたところ、単体・統合を合わせた全317件が
+    /// 緑のままだった。<b>理由は W2 では耐久の約定が構造的に起きないから</b>(タスク仕様
+    /// 「耐久(工具)の約定は本タスクでは検証しない」節)。1次産品を誰も売っていないため生産は
+    /// 初期入力5日分で止まり、摩耗も5回で止まる。耐久の需要が立つには摩耗15回が要るので、
+    /// 換算漏れが観測できる
+    /// 挙動を一切変えない。<b>この穴はW2では原理的に塞げない</b> ── #38 で耐久の約定が起きるように
+    /// なって初めて、呼び出し側がヘルパーを通っていることを踏める検出器を足せる(issue #37の
+    /// 「先のタスクへ」#38 の項に引き取り条項がある)。
     /// </remarks>
     [Fact]
     public void DurableTravelCostConvertsTheTargetStockToUnits()
