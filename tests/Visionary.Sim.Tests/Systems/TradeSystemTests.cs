@@ -248,6 +248,112 @@ public sealed class TradeSystemTests
     }
 
     /// <summary>
+    /// 【核心】レビュー指摘C-1。<c>household.IsBankrupt</c> が段1から <c>OfferPrice.Calculate</c>
+    /// まで実際に届いていること。破産中フラグを直接立てた売り手の提示価格が、価格係数‰を
+    /// 500に固定した値(在庫比を無視)で出る。
+    /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21)。</b><c>TradeSystem.Step</c> が <c>OfferPrice.Calculate</c> へ渡す
+    /// 第5引数 <c>household.IsBankrupt</c> を <c>0</c> に置換する変異(タスク仕様C-1が名指し)を
+    /// 当てたところ、<c>Assert.Equal(100, world.Market[key])</c> が実際値200(在庫比1000‰・
+    /// 健全時の係数のまま、<c>ApplyPermille(200,1000)=200</c>)で失敗した(赤を確認)。
+    /// 変異を戻して緑に復帰させた。
+    /// </remarks>
+    [Fact]
+    public void BankruptSellerPostsTheHalvedFloorInThePipeline()
+    {
+        const int OtherSellerId = 999;
+
+        var definition = BuildShoppingDefinition(breadFloor: 10);
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+        AddHousehold(world, id: 0, districtId: 4, Occupation.Miller);
+        // 出荷目標在庫ちょうど(1)に合わせる ── 破産中でなければ在庫比1000‰(健全時の係数1000‰)に
+        // なる配置で、破産中の固定係数500‰との差が観測できるようにする。
+        world.Households[0].WorkshopInventory[Item.Bread] = 1;
+        world.Households[0].IsBankrupt = 1;
+
+        var system = new TradeSystem(definition);
+        var key = new MarketKey(Item.Bread, 0);
+
+        EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目: 相場基準が無く床のまま
+        Assert.Equal(10, world.Market[key]);
+
+        // 他の売り手の観測を1件仕込む(前日=1日目の日付)。
+        world.Knowledge[0].Add(new PriceObservation
+        {
+            ItemId = Item.Bread,
+            LocationId = 0,
+            Price = 200,
+            SellerId = OtherSellerId,
+            ObservedAt = Tick.Zero,
+            Source = ObservationSource.Direct,
+        });
+
+        EconomySystemTestFixtures.RunDays(world, system, days: 1); // 2日目
+
+        // 相場基準 = 200(自分は1日目に売れていないのでhasSettled=false、他の売り手の観測のみ)。
+        // 破産中は価格係数‰を500に固定する: ApplyPermille(200,500) = 100。
+        // 健全なら在庫比1000‰(係数1000‰)で200になるはずなので、100はその半分である。
+        Assert.Equal(100, world.Market[key]);
+    }
+
+    /// <summary>
+    /// 【核心】レビュー指摘C-2。販売在庫は工房在庫の出力品目だけであり、世帯在庫(消費財として
+    /// 持つぶん)は含まない(GDD02c §1.3)。パンは工房在庫(出力)と世帯在庫(必需の消費財)の
+    /// 両方に載りうる品目なので、世帯在庫を足しても提示価格が変わらないことを確かめる。
+    /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21)。</b><c>TradeSystem.Step</c> の
+    /// <c>sellableStock = household.WorkshopInventory[outputItemId]</c> を
+    /// <c>+ household.HouseholdInventory[outputItemId]</c> する変異(タスク仕様C-2が名指し)を
+    /// 当てたところ、世帯在庫100を積んだケースの2日目の提示価格が100(在庫比が跳ね上がり
+    /// 係数がclampの下限500‰へ落ちる: <c>ApplyPermille(200,500)=100</c>)になり、積まない場合の
+    /// 200と食い違って <c>Assert.Equal(priceWithoutHouseholdStock, priceWithHouseholdStock)</c> が
+    /// 失敗した(赤を確認)。変異を戻して緑に復帰させた。
+    /// </remarks>
+    [Fact]
+    public void SellableStockIsOnlyTheWorkshopOutputInventory()
+    {
+        const int OtherSellerId = 999;
+        var definition = BuildShoppingDefinition(breadFloor: 10);
+
+        int RunAndGetPrice(int householdInventoryBread)
+        {
+            var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+            AddHousehold(world, id: 0, districtId: 4, Occupation.Miller);
+            // 出荷目標在庫ちょうど(1)。世帯在庫(householdInventoryBread)は別軸として与える。
+            world.Households[0].WorkshopInventory[Item.Bread] = 1;
+            world.Households[0].HouseholdInventory[Item.Bread] = householdInventoryBread;
+
+            var system = new TradeSystem(definition);
+            EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目: 床のまま
+
+            world.Knowledge[0].Add(new PriceObservation
+            {
+                ItemId = Item.Bread,
+                LocationId = 0,
+                Price = 200,
+                SellerId = OtherSellerId,
+                ObservedAt = Tick.Zero,
+                Source = ObservationSource.Direct,
+            });
+
+            EconomySystemTestFixtures.RunDays(world, system, days: 1); // 2日目: 相場基準が立つ
+
+            return world.Market[new MarketKey(Item.Bread, 0)];
+        }
+
+        int priceWithoutHouseholdStock = RunAndGetPrice(householdInventoryBread: 0);
+        int priceWithHouseholdStock = RunAndGetPrice(householdInventoryBread: 100);
+
+        // 絶対値も固定する(相場基準200、在庫比1000‰なので係数1000‰でそのまま200)。
+        // 2回の実行の相等だけで判定すると、在庫比が常にclampの外に出る変異(両者とも係数500‰の
+        // 同じ値に落ちて偶然一致する)を見逃す。
+        Assert.Equal(200, priceWithoutHouseholdStock);
+        Assert.Equal(priceWithoutHouseholdStock, priceWithHouseholdStock);
+    }
+
+    /// <summary>
     /// 段1の値付けが <c>MarketReference.TrySeller</c> へ渡す2つの異なるId(観測を読む
     /// <c>household.HeadNpcId</c> と、自分を除外する <c>household.Id</c>)を取り違えないこと
     /// (TDD01 §3.2「取り違えを型で防げない」経路)。世帯主のNpcIdを世帯Idとわざと違える。
@@ -596,6 +702,84 @@ public sealed class TradeSystemTests
 
         EconomySystemTestFixtures.RunDays(world, system, days: 1); // 2日目
 
+        Assert.DoesNotContain(
+            world.Ledgers[0],
+            entry => entry.Direction == LedgerDirection.Purchase && entry.ItemId == Item.Grain);
+        Assert.Equal(0, world.Households[0].WorkshopInventory[Item.Grain]);
+    }
+
+    /// <summary>
+    /// 【核心】レビュー指摘C-3。販売在庫が0の日(出品しない日)でも、前日の出力提示価格は
+    /// 控え続け、生産の入力の利潤上限が引き続き立つこと(タスク仕様§9段1「hasOwnPreviousOffer
+    /// は販売在庫0の世帯についても控える。その世帯も買い手として利潤上限を持つ」)。
+    /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21)。</b><c>TradeSystem.Step</c> の
+    /// <c>hasOwnPreviousOffer[household.Id] = hasOwnOffer;</c> を
+    /// <c>hasOwnOffer &amp;&amp; sellableStock &gt; 0</c> に置換する変異(タスク仕様C-3が名指し。
+    /// 控えを <c>if (sellableStock &lt;= 0) continue;</c> の後ろへ移したのと同じ意味)を当てたところ、
+    /// <c>Assert.DoesNotContain(...Direction == Purchase &amp;&amp; ItemId == Item.Grain...)</c> が
+    /// 実際に1個の穀物購入(帳簿にPurchaseの行が現れる)で失敗した(赤を確認 ──
+    /// 販売在庫0の日に <c>hasOwnPreviousOffer</c> がfalseへ落ち、利潤上限が無い扱いになって
+    /// 相場では儲からない値でも入力を買い続ける経路。「まさに仕入れたい日の工房」で保証が外れる)。
+    /// 変異を戻して緑に復帰させた。
+    /// </remarks>
+    [Fact]
+    public void ProfitCapSurvivesWhenSellableStockIsZeroOnTheFollowingDay()
+    {
+        const int BreadFloor = 30;
+        const int GrainFloor = 100;
+
+        var recipe = new Recipe(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = Item.Bread, Quantity = 2 } },
+            inputs: new[] { new ItemQuantity { ItemId = Item.Grain, Quantity = 1 } },
+            laborPermille: 1000);
+
+        var externalBuyPrice = new int[Item.Count];
+        externalBuyPrice[Item.Bread] = BreadFloor;
+        externalBuyPrice[Item.Grain] = GrainFloor;
+
+        var definition = EconomySystemTestFixtures.BuildDefinition(
+            recipe,
+            tolerancePermille: 1200,
+            minimumMarginPermille: 0,
+            opportunityCostBaseByOccupation: new[] { 1, 1, 1, 1, 1 },
+            rankCoefficientPermille: new[] { 1000, 1000, 1000 },
+            travelHoursPerDistrict: 1,
+            shipmentDays: 1,
+            inputBufferDays: 1,
+            externalBuyPriceOverride: externalBuyPrice);
+
+        var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
+
+        // household0: パン屋(穀物→パン)。1日目は資金0で何も買わず、パンの提示価格(床30)だけを
+        // Marketへ残す。
+        AddHousehold(world, id: 0, districtId: 4, Occupation.Miller, liquidFunds: 0);
+        world.Households[0].WorkshopInventory[Item.Bread] = 1;
+
+        // household1: 穀物の売り手。
+        AddHousehold(world, id: 1, districtId: 4, Occupation.Baker, liquidFunds: 0);
+        world.Households[1].WorkshopInventory[Item.Grain] = 100;
+
+        var system = new TradeSystem(definition);
+
+        EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目: 資金0で何も買わない
+
+        Assert.Equal(30, world.Market[new MarketKey(Item.Bread, 0)]); // 前日の出力提示価格
+
+        // 2日目の直前: 資金を積み、かつ「売り切った/入力切れで作れなかった」状態(販売在庫0)を
+        // 作る。まさに仕入れたい日の工房である。
+        world.Households[0].LiquidFunds = 10_000;
+        world.Households[0].WorkshopInventory[Item.Bread] = 0;
+
+        EconomySystemTestFixtures.RunDays(world, system, days: 1); // 2日目
+
+        // 販売在庫0なので2日目は新しい売り注文を出さない(旧エントリも消える)。
+        Assert.False(world.Market.ContainsKey(new MarketKey(Item.Bread, 0)));
+
+        // それでも前日の出力提示価格(30)は控え続け、利潤上限(60)が実効価格(床100)を
+        // 下回るゲートを閉じたままにする。
         Assert.DoesNotContain(
             world.Ledgers[0],
             entry => entry.Direction == LedgerDirection.Purchase && entry.ItemId == Item.Grain);
