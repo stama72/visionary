@@ -46,10 +46,20 @@ public sealed class ProductionSystemTests
     /// 【核心】テスト表 #4(W2-03)。労働力1300‰・所要労働400‰ → floor(1300/400)=3(切り上げなら4)。
     /// </summary>
     /// <remarks>
-    /// <b>変異の実測(2026-09-15)。</b><c>ProductionSystem.RunOneHousehold</c> の生産能力の
-    /// <c>IntegerMath.FloorDiv</c> を <c>IntegerMath.CeilDiv</c> に変える変異を当てたところ、
-    /// <c>Assert.Equal(3, ...)</c> が実際値4(floor(1300/400)=3の代わりにceil=4)で失敗した
-    /// (赤を確認)。変異を戻して緑に復帰させた。
+    /// <b>変異の実測・再測(2026-09-19、レビュー2巡目 象限I-b-1)。</b>生産能力の式は本タスクで
+    /// <c>ProductionSystem.RunOneHousehold</c> から <see cref="Recipe.CapacityRuns"/> へ移った。
+    /// このテストのレシピは <c>inputs: Array.Empty&lt;ItemQuantity&gt;()</c> なので
+    /// <c>RunOneHousehold</c> の入力充足ループ(<c>IntegerMath.FloorDiv</c>)は一度も回らない ──
+    /// 旧版の記録はそこへの変異を指しており、当てても緑のままになる(訂正)。<c>CapacityRuns</c>
+    /// の外側の除算 <c>IntegerMath.FloorDiv(effectiveLaborPermille, LaborPermille)</c> を
+    /// <c>IntegerMath.CeilDiv</c> に変える変異を当てたところ、<c>Assert.Equal(3, ...)</c> が
+    /// 実際値4(floor(1300/400)=3の代わりにceil(1300/400)=4)で失敗した(赤を確認)。
+    /// 変異を戻して緑に復帰させた。
+    /// <para>
+    /// この変異は <c>CapacityRunsFloorsBothDivisions</c>(別表 #1)も赤にするが、あちらが
+    /// 唯一の守りなのは内側の除算(<c>floor(労働力‰×設備係数‰÷1000)</c>)であって、外側は
+    /// このテストも押さえる。
+    /// </para>
     /// </remarks>
     [Fact]
     public void ProductionCapacityRoundsDown()
@@ -149,7 +159,7 @@ public sealed class ProductionSystemTests
     /// <c>ProductionSystem.RunOneHousehold</c> の設備係数の判定を
     /// <c>household.WorkshopInventory[Item.Tools] &gt;= 1 ? IntegerMath.PermilleScale : 0</c>
     /// (旧仕様。工具なしを常に0回にする)へ戻す変異を当てたところ、
-    /// <c>Assert.Equal(3, ...Output)</c>(172行目)が実際値0(生産能力0のまま実行回数0)で
+    /// 生産量の <c>Assert.Equal(3, ...Output)</c> が実際値0(生産能力0のまま実行回数0)で
     /// 失敗した(赤を確認)。変異を戻して緑に復帰させた。
     /// </para>
     /// </remarks>
@@ -483,7 +493,7 @@ public sealed class ProductionSystemTests
     /// <b>変異の実測・再測(2026-09-19、レビュー1巡目 象限III)。</b><c>ProductionSystem.WearTools</c>
     /// の <c>household.ToolWear += laborPermille * runs;</c> を <c>household.ToolWear += runs;</c>
     /// (回数を足す)に変える変異を当てたところ、<b>10日目の <c>Assert.Equal(12960,
-    /// ...ToolWear)</c>(506行目)が実際値120(12回/日 × 10日)で先に失敗した</b>(赤を確認)。
+    /// ...ToolWear)</c>が実際値120(12回/日 × 10日)で先に失敗した</b>(赤を確認)。
     /// 11日目の <c>Assert.Equal(4, ...Tools)</c> には xUnit が最初の失敗で止まるため到達しない
     /// (旧版の記録は11日目の assert が失敗すると書いていたが、実測はこの10日目の assert で
     /// 止まる。訂正)。変異を戻して緑に復帰させた。
@@ -522,7 +532,7 @@ public sealed class ProductionSystemTests
     /// <b>変異の実測・再測(2026-09-19、レビュー1巡目 象限III)。</b><c>ProductionSystem.WearTools</c>
     /// の <c>household.ToolWear -= consumed * _definition.ToolDurabilityPerUnit;</c> を
     /// <c>household.ToolWear -= _definition.ToolDurabilityPerUnit;</c>(掛け忘れ)に変える
-    /// 変異を当てたところ、<c>Assert.Equal(450, ...ToolWear)</c>(546行目)が実際値1450
+    /// 変異を当てたところ、<c>Assert.Equal(450, ...ToolWear)</c>が実際値1450
     /// (2450 − 1000 = 1450。「工具在庫がある間は 0 ≤ ToolWear &lt; N×1000」の後条件が破れる)
     /// で失敗した(赤を確認)。変異を戻して緑に復帰させた。
     /// </remarks>
@@ -736,7 +746,7 @@ public sealed class ProductionSystemTests
     /// <c>ProductionSystem.RunOneHousehold</c> の
     /// <c>household.ProductionRuns = runs;</c> を <c>household.ProductionRuns += runs;</c>
     /// (累積する変異)に変えたところ、2日目の <c>Assert.Equal(0, ...ProductionRuns)</c>
-    /// (762行目)が実際値6(前日の6に0を足しただけで残った)で失敗した(赤を確認)。
+    /// が実際値6(前日の6に0を足しただけで残った)で失敗した(赤を確認)。
     /// 変異を戻して緑に復帰させた。
     /// </remarks>
     [Fact]
