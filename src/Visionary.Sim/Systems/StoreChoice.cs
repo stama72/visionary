@@ -148,7 +148,7 @@ public sealed class StoreChoice
     /// <summary>
     /// 有効な記憶(GDD06 §3.1)。<b>4b で保持期間を見ない</b> ── 段3 <see cref="Observations.Expire"/>
     /// が保持期間を過ぎた観測を先に消しているので、ここに残っているものはすべて期間内である
-    /// (境界は <see cref="OfferPrice.TryMarketReference"/> と同じ理由で二重に書かない)。
+    /// (境界は <see cref="MarketReference"/> の有効性判定と同じ理由で二重に書かない)。
     /// </summary>
     /// <remarks>
     /// <b>「差 ≥ 1」は明示する。</b>段6(観測の生成)が段5(買い物)より後ろにある以上、当日の観測は

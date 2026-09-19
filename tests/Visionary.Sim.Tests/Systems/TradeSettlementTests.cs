@@ -133,18 +133,20 @@ public sealed class TradeSettlementTests
 
     /// <summary>
     /// 【核心】テスト表 #18。ProductionInput の約定 → PurchaseUnitCostAverage[薪] が動く。
-    /// Necessity の約定では動かない。
+    /// Necessity の約定では動かない。<b>本テストが見るのは ProductionInput / Necessity の対だけ</b>
+    /// ── 「更新するのは ProductionInput だけ」という主張はしない(§10 で Durable も加わった)。
+    /// Durable 側の検証は <see cref="DurablePurchaseUpdatesToolAcquisitionCost"/>(別表D D-1)が持つ。
     /// </summary>
     /// <remarks>
-    /// <b>変異の実測(2026-09-17)。</b><c>TradeSettlement.Execute</c> の末尾の
-    /// <c>if (purpose == DemandPurpose.ProductionInput)</c> を外し、常に
-    /// <c>PurchaseUnitCostAverage</c> を更新する変異を当てたところ、Necessity のケースの
+    /// <b>変異の実測(2026-09-17、条件がまだ ProductionInput だけだった時点)。</b>
+    /// <c>TradeSettlement.Execute</c> の末尾の <c>if (purpose == DemandPurpose.ProductionInput)</c> を
+    /// 外し、常に <c>PurchaseUnitCostAverage</c> を更新する変異を当てたところ、Necessity のケースの
     /// <c>Assert.Equal(previousAverage, buyer.PurchaseUnitCostAverage[Item.Firewood])</c>
     /// (更新されないはず)が実際値(更新後の値)で失敗した(赤を確認、暖房用に高値で買った薪が
     /// 焼成の原価に乗り提示価格が跳ねる経路)。変異を戻して緑に復帰させた。
     /// </remarks>
     [Fact]
-    public void ExecuteUpdatesTheAcquisitionCostOnlyForProductionInput()
+    public void ExecuteUpdatesTheAcquisitionCostForProductionInputButNotNecessity()
     {
         var world = BuildWorld();
         world.Households[SellerId].WorkshopInventory[Item.Firewood] = 100;
@@ -163,6 +165,40 @@ public sealed class TradeSettlementTests
         int expected = OfferPrice.UpdatedAcquisitionCost(previousAverage: 20, unitPrice: 100, smoothingPermille: 250);
         Assert.Equal(expected, world.Households[BuyerId].PurchaseUnitCostAverage[Item.Firewood]);
         Assert.NotEqual(20, world.Households[BuyerId].PurchaseUnitCostAverage[Item.Firewood]);
+    }
+
+    /// <summary>
+    /// 別表D D-1。Durableで工具を買った約定 → PurchaseUnitCostAverage[Item.Tools]が
+    /// UpdatedAcquisitionCostの式で動く。Necessity/Preferenceの約定では動かない
+    /// (別表Aの既存ケース<see cref="ExecuteUpdatesTheAcquisitionCostForProductionInputButNotNecessity"/>が
+    /// Necessity/ProductionInputの非更新・更新を持つので、本テストはPreference/Durableを補う)。
+    /// </summary>
+    /// <remarks>
+    /// GDD02a §5.1「更新するのは『生産の入力として買った』約定と、耐久として買った工具だけである」。
+    /// 現行の<c>ProductionInput</c>だけという条件は#85途中(13e274a)から現行(50cf648)へ反転した
+    /// 一世代前の規則の正確な実装であり、履歴を引かないと見えない(タスク仕様§10)。
+    /// </remarks>
+    [Fact]
+    public void DurablePurchaseUpdatesToolAcquisitionCost()
+    {
+        var world = BuildWorld();
+        world.Households[SellerId].WorkshopInventory[Item.Tools] = 100;
+        world.Households[BuyerId].PurchaseUnitCostAverage[Item.Tools] = 20;
+
+        // Preferenceでは動かない(用途で分岐する。品目がItem.Toolsであることだけで動いてはならない)。
+        TradeSettlement.Execute(
+            world, world.Households[BuyerId], world.Households[SellerId], DemandPurpose.Preference,
+            Item.Tools, quantity: 1, unitEffectivePrice: 999, acquisitionCostSmoothingPermille: 250);
+        Assert.Equal(20, world.Households[BuyerId].PurchaseUnitCostAverage[Item.Tools]);
+
+        // Durableでは動く。
+        TradeSettlement.Execute(
+            world, world.Households[BuyerId], world.Households[SellerId], DemandPurpose.Durable,
+            Item.Tools, quantity: 1, unitEffectivePrice: 100, acquisitionCostSmoothingPermille: 250);
+
+        int expected = OfferPrice.UpdatedAcquisitionCost(previousAverage: 20, unitPrice: 100, smoothingPermille: 250);
+        Assert.Equal(expected, world.Households[BuyerId].PurchaseUnitCostAverage[Item.Tools]);
+        Assert.NotEqual(20, world.Households[BuyerId].PurchaseUnitCostAverage[Item.Tools]);
     }
 
     /// <summary>テスト表 #19。数量0 / 負、単価0 / 負で ArgumentOutOfRangeException。</summary>

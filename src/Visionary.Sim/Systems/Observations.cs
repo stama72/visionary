@@ -7,7 +7,7 @@ public static class Observations
 {
     /// <summary>保持期間を過ぎた観測を全 NPC の Knowledge から取り除く(GDD06 §3.1)。</summary>
     /// <remarks>
-    /// <b>失効の境界は <see cref="OfferPrice.TryMarketReference"/> と揃える。</b>あちらは
+    /// <b>失効の境界は <see cref="MarketReference"/> の有効性判定と揃える。</b>あちらは
     /// 差 &gt; retentionDays を無効としているので、こちらも差 &gt; retentionDays を取り除く。
     /// <c>&gt;=</c> にすると、保持期間ちょうどの観測が読む前に消える。
     /// </remarks>

@@ -3,234 +3,278 @@ using Visionary.Sim.Numerics;
 namespace Visionary.Sim.Systems;
 
 /// <summary>
-/// 買い手の予算・購入量の式(GDD02 §8.2〜§8.2.7)。<b>純関数のみ。</b>
+/// 買い手の予算・購入量の式(GDD02c §2 / GDD02b §5)。<b>純関数のみ。</b>
 /// <see cref="World"/> も <see cref="WorldDefinition"/> も受け取らない ── <see cref="OfferPrice"/>
 /// と同じ切り出し方で、式を単体で試験できる形にする。<see cref="BuyerDemand"/> が世帯を
 /// 走査しながらこれを呼ぶ。
 /// </summary>
 public static class BuyerBudget
 {
-    /// <summary>買い手の在庫圧力‰(GDD02 §8.2.2)。上限倍率は2倍固定。</summary>
+    private const int MaxPressurePermille = 1500; // ‰。在庫0のときの上限(GDD02b §5.1)
+    private const int MinPressurePermille = 500;  // ‰。目標の2倍手前での下限(同)
+
+    /// <summary>
+    /// 買い手の在庫圧力‰(GDD02b §5.1)。
+    /// <c>在庫比‰ = CeilDiv(1000 × 予想在庫, 目標在庫)</c>、
+    /// <c>在庫圧力‰ = 在庫比‰ &gt; 2000 ? 0 : clamp(1500 − CeilDiv(在庫比‰, 2), 500, 1500)</c>。
+    /// </summary>
     /// <remarks>
-    /// <b>目標在庫まで 1000‰ で据え置くこと、上限が 1000‰ であることが要点である。</b>
-    /// 1000‰ を超えると赤字の原価で仕入れが発生する。
+    /// <b>目標在庫 ≤ 0 は 0 を返す(ゼロ除算しない)。</b>「1単位も持ちたくない」であり、
+    /// 予想在庫が0でも0である。旧実装はこの場合に1000‰を返していた ── 目標0の品目に
+    /// 相場どおりの予算が立っていた。
     /// <para>
-    /// <b>目標在庫0でゼロ除算しない形に書く。</b>予想在庫 ≤ 目標在庫 は最初の枝、
-    /// 予想在庫 &gt; 目標在庫×2 は最後の枝に落ち、中間の枝は目標在庫 ≥ 1 のときしか
-    /// 評価されない(目標在庫 ≤ 0 なら doubledTarget ≤ 0 なので、予想在庫 &gt; 目標在庫 の時点で
-    /// 必ず expectedStock &gt; doubledTarget が成り立ち、最後の枝に落ちる)。枝の順を入れ替えると壊れる。
+    /// <b>丸めの向きは売り手側(<see cref="OfferPrice.PriceCoefficientPermille"/>)と同じ。</b>
+    /// 在庫比‰ を切り上げてから引くので、式全体としては切り下げ方向になる。
     /// </para>
     /// </remarks>
     public static int StockPressurePermille(int expectedStock, int targetStock)
     {
-        if (expectedStock <= targetStock)
-        {
-            return IntegerMath.PermilleScale;
-        }
-
-        // 目標在庫×2はlongで持つ(CeilDivの分子と同じ理由)。
-        long doubledTarget = (long)targetStock * 2;
-
-        if (expectedStock <= doubledTarget)
-        {
-            // ここへ来る時点で expectedStock > targetStock。targetStock <= 0 なら
-            // doubledTarget <= 0 < expectedStock となり、この分岐へは来ない
-            // (targetStock >= 1 が保証されるのでゼロ除算にならない)。
-            long numerator = (long)IntegerMath.PermilleScale * (doubledTarget - expectedStock);
-
-            return checked((int)IntegerMath.CeilDiv(numerator, targetStock));
-        }
-
-        return 0;
-    }
-
-    /// <summary>予算 = ApplyPermille(基礎値, 在庫圧力‰)(GDD02 §8.2)。</summary>
-    public static int Budget(int baseValue, int stockPressurePermille) =>
-        IntegerMath.ApplyPermille(baseValue, stockPressurePermille);
-
-    /// <summary>購入量の線形解(GDD02 §8.2.3)。</summary>
-    /// <remarks>
-    /// <b>実質コスト &gt; 基礎値 を先に判定する。</b>基礎値0のときここで必ず返るので、除算に
-    /// 到達しない。順を入れ替えるとゼロ除算になる。
-    /// <para>
-    /// <b><see cref="IntegerMath.CeilDiv(long, long)"/> は引かれる側に掛かるので、式全体としては
-    /// 切り下げになる。</b>GDD02 §8.2.3 の検算「基礎値 × 1/2 → 目標在庫 × 1.5」は、目標3・基礎値100・
-    /// 実質コスト50 のとき 4(4.5 の切り下げ)である。<see cref="IntegerMath.FloorDiv(long, long)"/> に
-    /// すると 5 になる。<see cref="OfferPrice.PriceCoefficientPermille"/> と同じ向きの丸めである。
-    /// </para>
-    /// </remarks>
-    /// <exception cref="ArgumentOutOfRangeException">
-    /// <paramref name="unitRealCost"/> が0以下。0を通すと基礎値0のときの上の保証が崩れる。
-    /// 実質コスト = 提示価格 + 移動費であり、提示価格は原価下限以上なので1以上である(#37)。
-    /// </exception>
-    public static int PurchaseQuantity(int baseValue, int unitRealCost, int targetStock, int expectedStock)
-    {
-        if (unitRealCost <= 0)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(unitRealCost), unitRealCost, "実質コストは1以上(GDD02 §8.2.3)。");
-        }
-
-        if (unitRealCost > baseValue)
+        if (targetStock <= 0)
         {
             return 0;
         }
 
-        // 中間の積はlong。baseValue >= unitRealCost >= 1がこの時点で保証されるのでゼロ除算しない。
-        long reachedStock = ((long)targetStock * 2)
-            - IntegerMath.CeilDiv((long)targetStock * unitRealCost, baseValue);
+        // 1000 × 予想在庫はlongで持つ(OfferPrice.StockRatioPermilleと同じ理由)。
+        long numerator = (long)IntegerMath.PermilleScale * expectedStock;
+        long stockRatioPermille = IntegerMath.CeilDiv(numerator, targetStock);
 
-        return checked((int)Math.Max(0L, reachedStock - expectedStock));
+        if (stockRatioPermille > 2000)
+        {
+            return 0;
+        }
+
+        long lowered = MaxPressurePermille - IntegerMath.CeilDiv(stockRatioPermille, 2);
+
+        return checked((int)Math.Clamp(lowered, MinPressurePermille, MaxPressurePermille));
     }
 
-    /// <summary>余剰資金 = max(0, 流動資金 − 必要運転資金)(GDD02 §8.2.1)。</summary>
-    public static int SurplusFunds(int liquidFunds, long workingCapital) =>
-        checked((int)Math.Max(0L, liquidFunds - workingCapital));
+    /// <summary>現金上限 = FloorDiv( 用途に使える資金, max(1日分の数量, 1) )(GDD02c §2.1)。</summary>
+    /// <remarks><b><paramref name="dailyQuantity"/> が0でもゼロ除算しない</b>のは max(…, 1) による。
+    /// 耐久は1個で呼ぶ(1日分が1個未満なので、GDD02c §2.1 の表が1と定めている)。</remarks>
+    public static int CashCap(int availableFunds, int dailyQuantity) =>
+        IntegerMath.FloorDiv(availableFunds, Math.Max(dailyQuantity, 1));
 
     /// <summary>
-    /// 必需の基礎値(GDD02 §8.2.1 / §8.2.7)。母数は流動資金である ── 取り違えると、
-    /// 困窮した世帯が食料を買えなくなる。
+    /// 用途に使える資金(母数。GDD02c §2.1 / GDD02b §3.1)。<b>段階である</b> ──
+    /// 必需 = 流動資金 / 耐久・生産の入力 = 流動資金 − 必需の取り置き /
+    /// 嗜好 = 流動資金 − 必需の取り置き − 運転資金。<b>負なら0</b>。
     /// </summary>
-    public static int NecessityBaseValue(
-        bool hasReference, int marketReference, int liquidFunds,
-        int tolerancePermille, int fallbackRatioPermille) =>
-        hasReference
-            ? IntegerMath.ApplyPermille(marketReference, tolerancePermille)
-            : IntegerMath.ApplyPermille(liquidFunds, fallbackRatioPermille);
-
-    /// <summary>
-    /// 嗜好・奢侈の基礎値(GDD02 §8.2.1)。母数は余剰資金である(観測の有無に依らない)。
-    /// 母数に流動資金を使うと、GDD02 §8.2.1 が名指しした黒字倒産(余剰資金0の世帯が嗜好を買う)
-    /// が戻る。
-    /// </summary>
-    public static int PreferenceBaseValue(int surplusFunds, int ratioPermille) =>
-        IntegerMath.ApplyPermille(surplusFunds, ratioPermille);
-
-    /// <summary>
-    /// 耐久の基礎値(GDD02 §8.2.1 / §8.2.7)。母数は流動資金である。
-    /// </summary>
-    /// <remarks>
-    /// <b>min を取ることが要点である。</b><see cref="Math.Max(int, int)"/> にすると「資金がなくても
-    /// 買おうとする」と「相場より高く買う」が同時に起きる。
-    /// </remarks>
-    public static int DurableBaseValue(
-        bool hasReference, int marketReference, int liquidFunds, int ratioPermille)
+    public static int AvailableFunds(
+        DemandPurpose purpose, int liquidFunds, long necessityReserve, long workingCapital)
     {
-        int ratioBasedValue = IntegerMath.ApplyPermille(liquidFunds, ratioPermille);
+        long available = purpose switch
+        {
+            DemandPurpose.Necessity => liquidFunds,
+            DemandPurpose.Durable or DemandPurpose.ProductionInput => liquidFunds - necessityReserve,
+            DemandPurpose.Preference => liquidFunds - necessityReserve - workingCapital,
+            _ => throw new ArgumentOutOfRangeException(nameof(purpose), purpose, "未知の用途。"),
+        };
 
-        return hasReference ? Math.Min(marketReference, ratioBasedValue) : ratioBasedValue;
+        return checked((int)Math.Max(0L, available));
     }
 
-    /// <summary>派生需要(GDD02 §8.2.1「派生需要の算出」)。結果を <paramref name="baseValues"/> へ書く。</summary>
+    /// <summary>
+    /// 摩耗費[1回] = CeilDiv( 仕入れ移動平均単価[工具] × 所要労働‰, N × 1000 )(GDD02a §5)。
+    /// </summary>
+    public static int WearCostPerRun(int toolUnitCostAverage, int laborPermille, int toolLifeLaborDays)
+    {
+        // 中間の積はlong(単価×所要労働‰はintを超えうる)。
+        long numerator = (long)toolUnitCostAverage * laborPermille;
+        long denominator = (long)toolLifeLaborDays * IntegerMath.PermilleScale;
+
+        return checked((int)IntegerMath.CeilDiv(numerator, denominator));
+    }
+
+    /// <summary>
+    /// 利潤上限(GDD02c §2.3)。結果を <paramref name="profitCap"/> / <paramref name="hasProfitCap"/>
+    /// の<b>itemId 添字</b>の配列へ書く。<b>レシピの入力の品目だけを書き、他の添字に触れない。</b>
+    /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>すべての除算を <see cref="IntegerMath.FloorDiv(long, long)"/> にする。</b>GDD02 §8.2.1 が
-    /// 「floor(A × w_j ÷ W) を J 内で合計すると必ず A 以下になる」ことに立って最低利幅‰ の保証を
-    /// 成立させている。<b>途中で ‰ 表現の按分比を経由しない</b> ── <see cref="IntegerMath.ApplyPermille"/>
-    /// は切り上げなので、入力ごとに端数が切り上がって合計が許容原価合計を超える。実現利幅が
-    /// 最低利幅を下回る日が、観測が部分的に欠けた日にだけ生まれる。善意で「‰ は ApplyPermille を
-    /// 通す」規約に揃えられる形なので注意する(タスク仕様テスト #15)。
+    /// <c>見込み収益 = 提示価格_出力[前日] × 出力数量</c>、
+    /// <c>許容原価合計 = FloorDiv(見込み収益 × 1000, 1000 + 最低利幅‰) − 摩耗費[1回]</c>、
+    /// <c>相場での原価 = Σ_k(相場基準_k × 必要数量_k)</c>、
+    /// <c>利潤上限_j = FloorDiv(許容原価合計 × 相場基準_j, 相場での原価)</c>。
     /// </para>
     /// <para>
-    /// <b>フォールバック入力のぶんを先に差し引く。</b>差し引かないと、観測できた入力だけが
-    /// 「本来2入力で分けるはずだった上限」を丸ごと受け取る。<b>残余を max(0, …) で止める</b> ──
-    /// フォールバック仕入見込みが許容原価合計を超えうる(流動資金が大きい世帯)。
+    /// <b>次のいずれかなら全入力の <paramref name="hasProfitCap"/> を false にする</b>(一部だけ
+    /// 按分しない。GDD02c §2.3):前日の出力提示価格が無い / <b>いずれかの</b>入力の相場基準が無い /
+    /// 許容原価合計 ≤ 0 / 相場での原価 ≤ 0。
     /// </para>
     /// <para>
-    /// <b>W == 0 はゼロ除算そのものである。</b>GDD06 §3.1 の R=1 では観測できる入力が1つも
-    /// 無い日が初日に限らずいつでも通る経路である。
+    /// <b>すべての除算を <see cref="IntegerMath.FloorDiv(long, long)"/> にする。</b>
+    /// <see cref="IntegerMath.ApplyPermille"/> を経由すると入力ごとに切り上がって合計が許容原価合計を
+    /// 超え、最低利幅‰ の保証が崩れる。<b>‰ 表現の按分比を挟まず、相場基準に直接比例させる</b>
+    /// (GDD02c §2.3)。善意で「‰ は ApplyPermille を通す」規約に揃えられる形なので注意する。
     /// </para>
-    /// <para><paramref name="hasInputReference"/> / <paramref name="inputMarketReference"/> /
-    /// <paramref name="baseValues"/> は <b>itemId 添字</b>の配列である(<see cref="Item.Count"/>
-    /// 以上の長さを持つこと)。<see cref="Recipe.Inputs"/> のうち観測対象の品目だけを読み書きする。</para>
     /// </remarks>
-    /// <exception cref="NotSupportedException">
-    /// 出力2件以上(配分規則がGDD02に無い。<see cref="OfferPrice.UnitCost"/> と同じ)。
-    /// </exception>
-    public static void DerivedDemand(
+    public static void ProfitCaps(
         Recipe recipe,
-        bool hasPreviousOutputOfferPrice,
-        int previousOutputOfferPrice,
-        int minimumMarginPermille,
-        int liquidFunds,
-        int necessityFallbackRatioPermille,
-        bool[] hasInputReference,
-        int[] inputMarketReference,
-        int[] baseValues)
+        bool hasPreviousOutputOfferPrice, int previousOutputOfferPrice,
+        int minimumMarginPermille, int wearCostPerRun,
+        bool[] hasInputReference, int[] inputMarketReference,
+        bool[] hasProfitCap, int[] profitCap)
     {
         ArgumentNullException.ThrowIfNull(recipe);
         ArgumentNullException.ThrowIfNull(hasInputReference);
         ArgumentNullException.ThrowIfNull(inputMarketReference);
-        ArgumentNullException.ThrowIfNull(baseValues);
-
-        if (recipe.Outputs.Length != 1)
-        {
-            throw new NotSupportedException("複数出力への原価配分規則はGDD02に無い(OfferPrice.UnitCostと同じ)。");
-        }
-
-        if (recipe.Inputs.Length == 0)
-        {
-            return;
-        }
-
-        int fallbackBaseValue = IntegerMath.ApplyPermille(liquidFunds, necessityFallbackRatioPermille);
+        ArgumentNullException.ThrowIfNull(hasProfitCap);
+        ArgumentNullException.ThrowIfNull(profitCap);
 
         if (!hasPreviousOutputOfferPrice)
         {
-            // 前日価格を0として按分すると許容原価合計が0になり、初日に原材料を一切買わなくなる
-            // (タスク仕様テスト #19)。按分の式を評価せず、全入力をフォールバックへ落とす。
-            foreach (var input in recipe.Inputs)
-            {
-                baseValues[input.ItemId] = fallbackBaseValue;
-            }
-
+            ClearProfitCaps(recipe, hasProfitCap);
             return;
         }
 
         long expectedRevenue = (long)previousOutputOfferPrice * recipe.Outputs[0].Quantity;
         long allowedCostTotal = IntegerMath.FloorDiv(
-            expectedRevenue * IntegerMath.PermilleScale, IntegerMath.PermilleScale + minimumMarginPermille);
+            expectedRevenue * IntegerMath.PermilleScale, IntegerMath.PermilleScale + minimumMarginPermille)
+            - wearCostPerRun;
 
-        long remainder = allowedCostTotal;
-        long totalWeight = 0;
-
-        foreach (var input in recipe.Inputs)
+        if (allowedCostTotal <= 0)
         {
-            if (hasInputReference[input.ItemId])
-            {
-                totalWeight += (long)inputMarketReference[input.ItemId] * input.Quantity;
-            }
-            else
-            {
-                baseValues[input.ItemId] = fallbackBaseValue;
-                remainder -= (long)fallbackBaseValue * input.Quantity;
-            }
-        }
-
-        remainder = Math.Max(0L, remainder);
-
-        if (totalWeight == 0)
-        {
-            // 観測のある入力が無い。Σ_{k∈J} で割るとゼロ除算になる経路(タスク仕様テスト #18)。
-            foreach (var input in recipe.Inputs)
-            {
-                baseValues[input.ItemId] = fallbackBaseValue;
-            }
-
+            ClearProfitCaps(recipe, hasProfitCap);
             return;
         }
+
+        long marketCostTotal = 0;
 
         foreach (var input in recipe.Inputs)
         {
             if (!hasInputReference[input.ItemId])
             {
-                continue;
+                // 一部だけ按分しない ── 観測できた入力だけで按分すると、1入力が
+                // 「本来複数入力で分けるはずだった上限」を丸ごと受け取る。
+                ClearProfitCaps(recipe, hasProfitCap);
+                return;
             }
 
-            long weight = (long)inputMarketReference[input.ItemId] * input.Quantity;
-            long allocatedBudget = IntegerMath.FloorDiv(remainder * weight, totalWeight);
-
-            baseValues[input.ItemId] = checked((int)IntegerMath.FloorDiv(allocatedBudget, input.Quantity));
+            marketCostTotal += (long)inputMarketReference[input.ItemId] * input.Quantity;
         }
+
+        if (marketCostTotal <= 0)
+        {
+            ClearProfitCaps(recipe, hasProfitCap);
+            return;
+        }
+
+        foreach (var input in recipe.Inputs)
+        {
+            hasProfitCap[input.ItemId] = true;
+            profitCap[input.ItemId] = checked((int)IntegerMath.FloorDiv(
+                allowedCostTotal * inputMarketReference[input.ItemId], marketCostTotal));
+        }
+    }
+
+    private static void ClearProfitCaps(Recipe recipe, bool[] hasProfitCap)
+    {
+        foreach (var input in recipe.Inputs)
+        {
+            hasProfitCap[input.ItemId] = false;
+        }
+    }
+
+    /// <summary>予算 = min( ApplyPermille(相場項, 在庫圧力‰) , 現金上限 , 利潤上限 )(GDD02c §2.1)。</summary>
+    /// <remarks><b>在庫圧力‰ を掛けるのは相場項だけである。</b>現金上限・利潤上限に掛けると、
+    /// 「払えない金を緊急性で払う」ことになる(GDD02c §2.1)。無い項は min から落とす。</remarks>
+    public static int Budget(
+        bool hasMarketTerm, int marketTerm, int stockPressurePermille,
+        int cashCap, bool hasProfitCap, int profitCap)
+    {
+        int result = hasMarketTerm
+            ? Math.Min(IntegerMath.ApplyPermille(marketTerm, stockPressurePermille), cashCap)
+            : cashCap;
+
+        return hasProfitCap ? Math.Min(result, profitCap) : result;
+    }
+
+    /// <summary>線形解の基礎値 = 相場項。無ければ現金上限(GDD02b §5.2)。</summary>
+    /// <remarks><b>在庫圧力を掛けない。</b>在庫圧力は線形解の形そのものに入っており、
+    /// 基礎値にも掛けると二重に効く(GDD02c §2.1)。</remarks>
+    public static int BaseValue(bool hasMarketTerm, int marketTerm, int cashCap) =>
+        hasMarketTerm ? marketTerm : cashCap;
+
+    /// <summary>
+    /// 購入量の線形解(GDD02b §5.2)。
+    /// <c>到達在庫 = clamp( 3 × 目標在庫 − CeilDiv(2 × 目標在庫 × 実効価格, 基礎値) , 0 , 2 × 目標在庫 )</c>、
+    /// <c>購入量 = max(0, 到達在庫 − 予想在庫)</c>。
+    /// </summary>
+    /// <remarks>
+    /// <b>旧実装は上側の clamp を持たず、下側だけを <c>max(0, …)</c> で押さえていた。</b>
+    /// 上側が無いと、実効価格が基礎値の1/2を下回る日に目標在庫の2倍を超えて買い溜める
+    /// (GDD02b §5.1 の「溜め込みの縮退」)。
+    /// <para><b>基礎値0のときの除算を避けるため、呼ぶ前にゲートを通す。</b>
+    /// <see cref="Decide"/> が唯一の想定呼び出し側である。</para>
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="baseValue"/> が0以下。</exception>
+    public static int PurchaseQuantity(int baseValue, int effectivePrice, int targetStock, int expectedStock)
+    {
+        if (baseValue <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(baseValue), baseValue, "基礎値は1以上(GDD02b §5.2)。");
+        }
+
+        // 中間の積はlong。
+        long doubledTarget = (long)targetStock * 2;
+        long triple = (long)targetStock * 3;
+        long subtrahend = IntegerMath.CeilDiv((long)targetStock * 2 * effectivePrice, baseValue);
+        long reachedStock = Math.Clamp(triple - subtrahend, 0L, doubledTarget);
+
+        return checked((int)Math.Max(0L, reachedStock - expectedStock));
+    }
+
+    /// <summary>
+    /// ゲートと線形解(GDD02b §5.2)。<b>購入量が0になった理由を返す。</b>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>理由は <c>相場 → 利潤上限 → 現金上限</c> の固定順で、最初に当たったものを採る。</b>
+    /// min の argmin ではない ── 相場項と現金上限がともに実効価格を下回る日に argmin を採ると、
+    /// 「金が無限にあっても相場項で買わなかった」世帯が資金不足に数えられ、破産中フラグが
+    /// 価格ショックの検出器に化ける(GDD02b §5.2・§3.2)。<b>同点は相場が勝つ</b>(狭い側に倒す)。
+    /// </para>
+    /// <para>
+    /// ゲートを通っても購入量が0になることはある(到達在庫が予想在庫に届いた)。そのときの
+    /// 理由は <see cref="NoPurchaseReason.None"/> であり、資金不足ではない。
+    /// </para>
+    /// <para><b>基礎値が0の日はゲートが必ず閉じる</b>(実効価格 ≥ 1 &gt; 0 = 予算)ので、
+    /// <see cref="PurchaseQuantity"/> の除算に到達しない。<b>この保証は「実効価格が1以上」に
+    /// 立っている</b> ── 提示価格は床(外部買値、1以上)以上なので成り立つ。</para>
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="effectivePrice"/> が0以下。</exception>
+    public static PurchaseDecision Decide(in DemandLine line, int effectivePrice)
+    {
+        if (effectivePrice <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(effectivePrice), effectivePrice, "実効価格は1以上(GDD02b §5.2)。");
+        }
+
+        if (line.HasMarketTerm)
+        {
+            int adjustedMarketTerm =
+                IntegerMath.ApplyPermille(line.MarketTerm, line.StockPressurePermille);
+
+            if (effectivePrice > adjustedMarketTerm)
+            {
+                return new PurchaseDecision { Quantity = 0, Reason = NoPurchaseReason.MarketTerm };
+            }
+        }
+
+        if (line.HasProfitCap && effectivePrice > line.ProfitCap)
+        {
+            return new PurchaseDecision { Quantity = 0, Reason = NoPurchaseReason.ProfitCap };
+        }
+
+        if (effectivePrice > line.CashCap)
+        {
+            return new PurchaseDecision { Quantity = 0, Reason = NoPurchaseReason.CashCap };
+        }
+
+        int quantity = PurchaseQuantity(line.BaseValue, effectivePrice, line.TargetStock, line.ExpectedStock);
+
+        return new PurchaseDecision { Quantity = quantity, Reason = NoPurchaseReason.None };
     }
 }

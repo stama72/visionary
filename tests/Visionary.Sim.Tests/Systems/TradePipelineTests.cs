@@ -138,8 +138,9 @@ public sealed class TradePipelineTests
     /// <b>工具(耐久)の約定はここでは検証しない</b>(タスク仕様「耐久(工具)の約定は本タスクでは
     /// 検証しない(フェーズ1 の裁定)」)。W2では1次産品に売り手が居ないため生産が5日で止まり、
     /// 摩耗も5回で止まる。耐久の需要が立つには摩耗15回が要るので、耐久の約定はパイプラインでは
-    /// 構造的に成立しない。母数の取り違え(#36引き継ぎ表A)の検出は #29
-    /// (<see cref="BuyerDemandTests.DurableBaseValueIsMeasuredOnLiquidFundsNotSurplus"/>)が単体で担う。
+    /// 構造的に成立しない。母数(耐久 = 流動資金 − 必需の取り置き)の取り違えの検出は
+    /// <see cref="BuyerBudgetTests.AvailableFundsAreStagedByPurpose"/>(単体)が担う
+    /// (#97 で母数の段階が <c>BuyerBudget.AvailableFunds</c> へ統一された)。
     /// 「工具が実際に買われる」ことの検証は #38 の Exit Criteria へ移された。
     /// </remarks>
     [Fact]
@@ -263,14 +264,13 @@ public sealed class TradePipelineTests
     /// scarce/ample を分ける実際の分岐点になり、assert が資金の関数になる。
     /// </remarks>
     /// <remarks>
-    /// <b>それでも <c>Lines</c> 逆順変異は落ちない(レビュー1・2巡目の実測。全317件が緑のまま)。</b>
-    /// 判別力を持つ資金帯がW2には存在しない ── 必需の基礎値は流動資金に比率を掛け、嗜好の基礎値は
-    /// <c>SurplusFunds = max(0, 流動資金 − 必要運転資金)</c>に比率を掛けるため(GDD02 §8.2.1・
-    /// §8.2.7)、必要運転資金が大きいW2では嗜好が手順3を通過できる水準(約580)で必需の1日あたりの
-    /// 必要額(冬季でも約33)が無視できるほど小さく、両者が資金を奪い合う帯が見つからない
-    /// (探索範囲: 資金50〜1200・秋冬・1〜5日目・正順逆順、issue #37検出器はissueへ落とす)。
-    /// <b>走査順そのものは実装が守っている</b>(段5は<c>Lines</c>を並べ替えていない)。守られて
-    /// いないのは「テストで守られている」という保証のほうである。
+    /// <b>W2-08追随(2026-09-20)。</b>本節の旧い記述(「Lines逆順変異は落ちない」)は#85/#97の
+    /// 予算の統一形より前の実測である。母数が段階(流動資金 → 取り置きを引く → 運転資金も引く)に
+    /// なり相場項の形が全用途で同じになったことで、<see cref="TradeSystemTests.NecessityIsSettledBeforePreference"/>
+    /// (単体寄りの最小構成)が判別力を実測で示した。<b>本テストも同じ<c>Lines</c>逆順変異
+    /// (<c>TradeSystem.RunOneHouseholdsShopping</c>の<c>foreach (var line in demand.Lines)</c>を
+    /// <c>demand.Lines.Reverse()</c>に変える)で赤になることを2026-09-20に再実測した</b> ──
+    /// M0の校正でも必需と嗜好が資金を奪い合う帯が生まれている。変異を戻して緑に復帰させた。
     /// </remarks>
     /// <remarks>
     /// <b>世帯Id0(Brewer、区画4=中心)を使う。</b>中心区画は初日から <see cref="District.VisionRadius"/>
