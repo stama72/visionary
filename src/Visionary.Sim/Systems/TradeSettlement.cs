@@ -97,9 +97,10 @@ public static class TradeSettlement
             Direction = LedgerDirection.Sale,
         });
 
-        // 5. 仕入れ移動平均単価は「生産の入力として買った」約定だけが更新する(GDD02 §8.1.1)。
-        // 暖房用に買った薪が焼成の原価に乗らないようにする。
-        if (purpose == DemandPurpose.ProductionInput)
+        // 5. 仕入れ移動平均単価は「生産の入力として買った」約定と「耐久として買った工具」だけが
+        // 更新する(GDD02a §5.1)。暖房用に買った薪・嗜好で買った分が原価に乗らないようにする。
+        // 品目ではなく用途で分岐させる ── 耐久財が工具以外に増えても黙って外れない(W2-08 §10)。
+        if (purpose is DemandPurpose.ProductionInput or DemandPurpose.Durable)
         {
             buyer.PurchaseUnitCostAverage[itemId] = OfferPrice.UpdatedAcquisitionCost(
                 buyer.PurchaseUnitCostAverage[itemId], unitEffectivePrice, acquisitionCostSmoothingPermille);

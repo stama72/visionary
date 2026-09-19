@@ -1,3 +1,4 @@
+using Visionary.Sim.Systems;
 using Visionary.Sim.Tests.Systems;
 using Visionary.Sim.Time;
 
@@ -28,8 +29,7 @@ public sealed class WorldDefinitionTests
         int[]? preferenceTargetStockDays = null,
         int? toolTargetStockPermille = null,
         int[]? rankCoefficientPermille = null,
-        int? necessityTolerancePermille = null,
-        int[]? budgetRatioPermilleByPurpose = null,
+        int? tolerancePermille = null,
         int[]? opportunityCostBaseByOccupation = null,
         int? travelHoursPerDistrict = null,
         int? acquisitionCostSmoothingPermille = null,
@@ -61,9 +61,7 @@ public sealed class WorldDefinitionTests
             preferenceTargetStockDays: preferenceTargetStockDays ?? m0.PreferenceTargetStockDays,
             toolTargetStockPermille: toolTargetStockPermille ?? m0.ToolTargetStockPermille,
             rankCoefficientPermille: rankCoefficientPermille ?? m0.RankCoefficientPermille,
-            necessityTolerancePermille: necessityTolerancePermille ?? m0.NecessityTolerancePermille,
-            budgetRatioPermilleByPurpose:
-                budgetRatioPermilleByPurpose ?? m0.BudgetRatioPermilleByPurpose,
+            tolerancePermille: tolerancePermille ?? m0.TolerancePermille,
             opportunityCostBaseByOccupation:
                 opportunityCostBaseByOccupation ?? m0.OpportunityCostBaseByOccupation,
             travelHoursPerDistrict: travelHoursPerDistrict ?? m0.TravelHoursPerDistrict,
@@ -315,35 +313,13 @@ public sealed class WorldDefinitionTests
         Assert.Throws<ArgumentException>(
             () => BuildDefinition(necessityTargetStockDays: necessityWithTools));
 
-        // 予算比率の長さ ≠ 4
-        Assert.Throws<ArgumentException>(() => BuildDefinition(
-            budgetRatioPermilleByPurpose: new[] { 0, 50, 200 }));
-
-        // ProductionInputの比率が非0(母数を持たない派生需要に調整軸を作らない)
-        var productionInputRatioSet = (int[])m0.BudgetRatioPermilleByPurpose.Clone();
-        productionInputRatioSet[(int)DemandPurpose.ProductionInput] = 1;
-        Assert.Throws<ArgumentOutOfRangeException>(
-            () => BuildDefinition(budgetRatioPermilleByPurpose: productionInputRatioSet));
-
-        // Necessityの比率が0(詰みを作る)
-        var necessityRatioZero = (int[])m0.BudgetRatioPermilleByPurpose.Clone();
-        necessityRatioZero[(int)DemandPurpose.Necessity] = 0;
-        Assert.Throws<ArgumentOutOfRangeException>(
-            () => BuildDefinition(budgetRatioPermilleByPurpose: necessityRatioZero));
-
-        // Durableの比率が0(詰みを作る)
-        var durableRatioZero = (int[])m0.BudgetRatioPermilleByPurpose.Clone();
-        durableRatioZero[(int)DemandPurpose.Durable] = 0;
-        Assert.Throws<ArgumentOutOfRangeException>(
-            () => BuildDefinition(budgetRatioPermilleByPurpose: durableRatioZero));
-
         // 階層係数‰が0(その階層の世帯主の工具の目標在庫が0になる)
         Assert.Throws<ArgumentOutOfRangeException>(
             () => BuildDefinition(rankCoefficientPermille: new[] { 1000, 600, 0 }));
 
-        // 必需の許容乖離‰が0
+        // 許容乖離‰が0(全用途の相場項が常に0になる)
         Assert.Throws<ArgumentOutOfRangeException>(
-            () => BuildDefinition(necessityTolerancePermille: 0));
+            () => BuildDefinition(tolerancePermille: 0));
 
         // 保持期間が0(有効な観測が永久に0件になる)
         Assert.Throws<ArgumentOutOfRangeException>(
@@ -648,5 +624,77 @@ public sealed class WorldDefinitionTests
             () => EconomySystemTestFixtures.BuildDefinition(Recipe(), equipmentPermilleWithoutTools: -1));
         Assert.Throws<ArgumentOutOfRangeException>(
             () => EconomySystemTestFixtures.BuildDefinition(Recipe(), equipmentPermilleWithoutTools: 1001));
+    }
+
+    /// <summary>
+    /// テスト表 #31。<c>TolerancePermille</c> が1200で、全用途の相場項がこれを使う(必需と嗜好で
+    /// 同じ値になる)。<c>budgetRatioPermilleByPurpose</c> の引数が無いこと(コンパイルで担保)。
+    /// </summary>
+    [Fact]
+    public void WorldDefinitionHasNoBudgetRatios()
+    {
+        Assert.Equal(1200, WorldDefinition.M0.TolerancePermille);
+
+        // 必需だけに許容乖離‰を掛け、他の用途を素の相場基準にする実装ミスは、この呼び出しの
+        // シグネチャそのものが要求する引数(tolerancePermilleのみ、用途別の欄が無い)によって
+        // 構造的に防がれる。ここでは実際にBuyerDemand越しに、同じ相場基準を持つ必需と嗜好の
+        // MarketTermが一致することを確かめる。
+        var necessityDays = new int[Item.Count];
+        necessityDays[Item.Bread] = 1;
+        var preferenceDays = new int[Item.Count];
+        preferenceDays[Item.Beer] = 1;
+
+        var consumption = new int[Item.Count];
+        consumption[Item.Bread] = 1;
+        consumption[Item.Beer] = 1;
+        var consumptionTable = new[]
+        {
+            (int[])consumption.Clone(), (int[])consumption.Clone(), (int[])consumption.Clone(),
+        };
+
+        var recipe = new Recipe(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = Item.Flour, Quantity = 1 } },
+            inputs: new[] { new ItemQuantity { ItemId = Item.Grain, Quantity = 1 } },
+            laborPermille: 1000);
+
+        var definition = EconomySystemTestFixtures.BuildDefinition(
+            recipe,
+            dailyConsumptionPerNpcByRank: consumptionTable,
+            necessityTargetStockDays: necessityDays,
+            preferenceTargetStockDays: preferenceDays,
+            tolerancePermille: 1200);
+
+        var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(new[] { NpcRank.Master });
+        EconomySystemTestFixtures.AdvanceClockOnly(world, ticks: 10 * 24);
+
+        void AddObservation(int itemId)
+        {
+            world.Knowledge[world.Households[0].HeadNpcId].Add(new PriceObservation
+            {
+                ItemId = itemId,
+                LocationId = 0,
+                Price = 100,
+                SellerId = 999,
+                ObservedAt = world.Now.AddDays(-1),
+                Source = ObservationSource.Direct,
+            });
+        }
+
+        AddObservation(Item.Bread);
+        AddObservation(Item.Beer);
+
+        var demand = new BuyerDemand(definition).Build(
+            world, world.Households[0], hasPreviousOutputOfferPrice: false, previousOutputOfferPrice: 0);
+
+        var necessityLine = demand.Lines.Single(
+            line => line.Purpose == DemandPurpose.Necessity && line.ItemId == Item.Bread);
+        var preferenceLine = demand.Lines.Single(
+            line => line.Purpose == DemandPurpose.Preference && line.ItemId == Item.Beer);
+
+        Assert.True(necessityLine.HasMarketTerm);
+        Assert.True(preferenceLine.HasMarketTerm);
+        Assert.Equal(120, necessityLine.MarketTerm); // ApplyPermille(100, 1200) = 120
+        Assert.Equal(necessityLine.MarketTerm, preferenceLine.MarketTerm);
     }
 }

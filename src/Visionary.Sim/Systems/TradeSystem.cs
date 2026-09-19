@@ -18,17 +18,17 @@ namespace Visionary.Sim.Systems;
 /// 約定する)。6. <see cref="Observations.CollectAndShare"/>(段5 と別ループ)。
 /// </para>
 /// <para>
-/// <b><see cref="World.Market"/> を書くのは段2 だけである</b>(GDD02 §6.3「書き込みは1か所の
+/// <b><see cref="World.Market"/> を書くのは段2 だけである</b>(GDD02b §4.1「書き込みは1か所の
 /// ままである」)。約定は在庫・資金・帳簿を動かすが <c>Market</c> には触らない。
 /// <c>Market</c> のエントリがあることが「前日に売り注文を出していた」と同値になるのは、
-/// 毎日クリアして書き直すからである(GDD02 §8.1.1)。売り手ごとに読んでは書くと、先に
+/// 毎日クリアして書き直すからである(GDD02c §1)。売り手ごとに読んでは書くと、先に
 /// <c>Clear()</c> してしまった売り手が自分の前日価格を失うので、段1 と段2 は分かれている。
 /// </para>
 /// <para>
 /// <b>段6(観測の生成)は段5(買い物)の後であり、かつ別ループである。</b>段5 の世帯ループへ畳むと、
 /// 先に買った世帯の観測が後の世帯の買い物より前に生まれる(GDD06 §3.1「記憶は前日まで」は
 /// 当日生成の観測が誰にも読まれないことに立っている)。生まれた観測は
-/// <see cref="OfferPrice.TryMarketReference"/> / <see cref="StoreChoice"/> の鮮度判定
+/// <see cref="MarketReference"/> / <see cref="StoreChoice"/> の鮮度判定
 /// (差1日以上)により翌日から有効な記憶になる。
 /// </para>
 /// <para>
@@ -47,21 +47,16 @@ public sealed class TradeSystem : ISimSystem
     {
         ArgumentNullException.ThrowIfNull(definition);
 
-        // 原価の未定義経路(入力0件・複数出力)をコンストラクタで検査する。値付けの最中に
-        // 落とすと、販売在庫がたまたま0の日だけ生き延びるので、失敗が在庫に依存して再現しない。
+        // 出力2件以上を拒む検査は残す ── 利潤上限の「見込み収益 = 提示価格_出力[前日] ×
+        // 出力数量」が出力1件を前提にしており、販売在庫がたまたま0の日だけ生き延びる失敗を
+        // 避けるためコンストラクタで拒む(本タスク仕様)。「入力0件のレシピ」を拒む検査は
+        // 原価のためだったので消えた ── 床が外部買値になり、原価は値付けに入らない(GDD02c §1)。
         foreach (var recipe in definition.Recipes)
         {
-            if (recipe.Inputs.Length == 0)
-            {
-                throw new NotSupportedException(
-                    $"職業 {recipe.Occupation} のレシピが入力0件。機会費用ベースの原価は未実装"
-                        + "(GDD02 §8.1.1、#51まで)。");
-            }
-
             if (recipe.Outputs.Length != 1)
             {
                 throw new NotSupportedException(
-                    $"職業 {recipe.Occupation} のレシピが出力2件以上。原価の配分規則はGDD02に無い。");
+                    $"職業 {recipe.Occupation} のレシピが出力2件以上。利潤上限の配分規則がGDD02c §2.3に無い。");
             }
         }
 
@@ -98,37 +93,41 @@ public sealed class TradeSystem : ISimSystem
             var recipe = _definition.Recipes[(int)household.Occupation];
             int outputItemId = recipe.Outputs[0].ItemId; // 出力1件はコンストラクタが保証
 
-            // 販売在庫は工房在庫の出力品目だけ(世帯在庫は見ない。GDD02 §8.1.1「販売在庫は
+            // 販売在庫は工房在庫の出力品目だけ(世帯在庫は見ない。GDD02c §1.3「販売在庫は
             // 工房在庫の部分集合であり、生産の入力として抱えている分は売りに出ていない」)。
             int sellableStock = household.WorkshopInventory[outputItemId];
 
-            bool hasOwn = world.Market.TryGetValue(
-                new MarketKey(outputItemId, household.Id), out int ownPreviousPrice);
+            // hasOwnPreviousOffer/ownPreviousOfferPriceは段4(利潤上限)が読む「前日の出力提示価格」
+            // である。販売在庫0の世帯についても控える ── その世帯も買い手として利潤上限を持つ。
+            bool hasOwnOffer = world.Market.TryGetValue(
+                new MarketKey(outputItemId, household.Id), out int ownOfferPrice);
 
-            hasOwnPreviousOffer[household.Id] = hasOwn;
-            ownPreviousOfferPrice[household.Id] = ownPreviousPrice;
+            hasOwnPreviousOffer[household.Id] = hasOwnOffer;
+            ownPreviousOfferPrice[household.Id] = ownOfferPrice;
 
             if (sellableStock <= 0)
             {
                 // 販売在庫0の日は売り注文を出さない。出品すると店選択に在庫のない店が
-                // 候補として載る(GDD02 §8.1.1)。
+                // 候補として載る(GDD02c §1.3)。
                 continue;
             }
 
-            int unitCost = OfferPrice.UnitCost(recipe, household.PurchaseUnitCostAverage);
-            int costFloor = OfferPrice.CostFloor(
-                unitCost, _definition.MinimumMarginPermille, household.IsBankrupt);
+            int floorPrice = _definition.ExternalBuyPrice(outputItemId);
 
-            // 誰の観測かは世帯主(親方)である(GDD02 §8.1.1)。買い物に行くのが徒弟でも
+            // 売り手の自分の錨は前日の提示価格ではなく前日の約定単価(帳簿、輸出を含む)。
+            bool hasSettled = MarketReference.TryPreviousDaySettledPrice(
+                world.Ledgers[household.Id], outputItemId, world.Now, out int settledPrice);
+
+            // 誰の観測かは世帯主(親方)である(GDD02c §1.2)。買い物に行くのが徒弟でも
             // 値付けに使うのは世帯主の観測。Knowledgeの添字はNpcIdなのでHeadNpcIdで引く。
-            bool hasReference = OfferPrice.TryMarketReference(
+            bool hasReference = MarketReference.TrySeller(
                 world.Knowledge[household.HeadNpcId],
                 outputItemId,
                 household.Id,
                 world.Now,
                 _definition.ObservationRetentionDays,
-                hasOwn,
-                ownPreviousPrice,
+                hasSettled,
+                settledPrice,
                 out int marketReference);
 
             // 職業は世帯の現在の値を読む(#39の付け替えで変わる)。出荷目標在庫も現在の職業から導く。
@@ -136,8 +135,9 @@ public sealed class TradeSystem : ISimSystem
                 _definition.ShipmentTargetStock(household.Occupation, outputItemId);
 
             int price = hasReference
-                ? OfferPrice.Calculate(costFloor, marketReference, sellableStock, shipmentTargetStock)
-                : costFloor; // 相場基準が立たない(GDD02 §8.2.7)
+                ? OfferPrice.Calculate(
+                    floorPrice, marketReference, sellableStock, shipmentTargetStock, household.IsBankrupt)
+                : floorPrice; // 相場基準が立たない(GDD02c §1)
 
             newOffers.Add((new MarketKey(outputItemId, household.Id), price));
         }
@@ -196,7 +196,7 @@ public sealed class TradeSystem : ISimSystem
             : targetStock;
 
     /// <summary>
-    /// 購入量(用途の単位)を個数へ直す(段5 手順5。GDD02 §8.2.1)。耐久だけ耐久値で持つので
+    /// 購入量(用途の単位)を個数へ直す(段5 手順5。GDD02b §5.2)。耐久だけ耐久値で持つので
     /// 変換が要る。<b>用途による分岐をここに持つ</b>(理由は <see cref="TargetStockInUnits"/> と同じ)。
     /// </summary>
     public static int PurchaseQuantityInUnits(DemandPurpose purpose, int quantity, int durabilityPerTool) =>
@@ -213,8 +213,9 @@ public sealed class TradeSystem : ISimSystem
 
         int errandOpportunityCost = OpportunityCost.ForErrand(_definition, world, household);
 
-        // demand.Linesの並び順そのままに走査する ── GDD02 §6.2.1の走査順(必需→生産の入力→
-        // 耐久→嗜好、同一用途は品目Id昇順)そのものである(#36引き継ぎ「並べ直さないこと」)。
+        // demand.Linesの並び順そのままに走査する ── GDD02b §3.2の走査順(必需→耐久→生産の入力→
+        // 嗜好、同一用途は品目Id昇順)そのものである。資金は世帯内の共有資源なので、並べ替えると
+        // 決済順が変わり結果が変わる(#36引き継ぎ「並べ直さないこと」)。
         foreach (var line in demand.Lines)
         {
             // 1. 目標在庫を個数へ直す(移動費の分母。GDD06 §2)。
@@ -230,15 +231,24 @@ public sealed class TradeSystem : ISimSystem
                 continue;
             }
 
-            // 3. 実質コストが予算を超えるなら買わない(GDD06 §3の条件②)。
-            if (store.UnitRealCost > line.Budget)
+            // 3・4. ゲートと線形解(GDD02b §5.2)。渡すのは実効価格であって実質コストではない
+            // (GDD02b §7「便益と費用の分離」── 予算は移動費を一切含まない)。
+            var decision = BuyerBudget.Decide(line, store.UnitEffectivePrice);
+
+            if (decision.Quantity <= 0)
             {
-                continue;
+                // 経路(1): 現金上限のゲートで0(GDD02b §3.2)。「高すぎて買わなかった」
+                // (MarketTerm / ProfitCap)は資金不足に数えない。
+                if (line.Purpose == DemandPurpose.Necessity
+                    && decision.Reason == NoPurchaseReason.CashCap)
+                {
+                    household.UnaffordableNecessityCount++;
+                }
+
+                continue; // 訪問には数えない。
             }
 
-            // 4. 購入量(用途の単位)。実質コストを渡す ── 実効価格ではない(GDD02 §8.2.3)。
-            int purchaseQuantity = BuyerBudget.PurchaseQuantity(
-                line.BaseValue, store.UnitRealCost, line.TargetStock, line.ExpectedStock);
+            int purchaseQuantity = decision.Quantity;
 
             // 5. 個数へ直す。
             int purchaseQuantityInUnits = PurchaseQuantityInUnits(
@@ -263,8 +273,9 @@ public sealed class TradeSystem : ISimSystem
             int affordableQuantity = Math.Min(purchaseQuantityInUnits, fundsCap);
             int actualQuantity = Math.Min(affordableQuantity, seller.WorkshopInventory[line.ItemId]);
 
-            // 9. 「資金不足で買えなかった」は資金の項だけを見る ── 売り手の在庫が尽きて
-            // 0個になったのは資金不足ではない(GDD02 §6.2.1)。
+            // 9. 経路(2): 資金上限の切り詰めで0(GDD02b §3.2)。売り手の在庫が尽きて
+            // 0個になったのは資金不足ではない。経路(1)は上で既にcontinueしているので、
+            // 同じlineが両方の経路で二重に数えられることは無い。
             if (line.Purpose == DemandPurpose.Necessity && fundsCap == 0)
             {
                 household.UnaffordableNecessityCount++;

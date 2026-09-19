@@ -2,51 +2,61 @@ using Visionary.Sim.Numerics;
 
 namespace Visionary.Sim.Systems;
 
-/// <summary>1つの (用途, 品目) の組についての需要(GDD02 §8.2)。</summary>
+/// <summary>1つの (用途, 品目) の組についての需要(GDD02c §2 / GDD02b §5)。</summary>
 public readonly record struct DemandLine
 {
     public DemandPurpose Purpose { get; init; }
 
     public int ItemId { get; init; }
 
-    /// <summary>基礎値。単位: 貨幣/1単位(耐久は1個あたり)。</summary>
-    public int BaseValue { get; init; }
+    /// <summary>相場項 = ApplyPermille(相場基準, 許容乖離‰)。<b>在庫圧力を掛ける前</b>(GDD02c §2.1)。</summary>
+    public int MarketTerm { get; init; }
 
-    /// <summary>目標在庫。単位: 個。<b>耐久だけ耐久値</b>(GDD02 §8.2.1)。</summary>
+    /// <summary>相場基準が立ったか。false なら <see cref="MarketTerm"/> は0で、min から落ちる。</summary>
+    public bool HasMarketTerm { get; init; }
+
+    /// <summary>現金上限 = FloorDiv(用途に使える資金, max(1日分の数量, 1))。<b>常にある</b>(GDD02c §2.1)。</summary>
+    public int CashCap { get; init; }
+
+    /// <summary>利潤上限(GDD02c §2.3)。生産の入力にだけある。</summary>
+    public int ProfitCap { get; init; }
+
+    public bool HasProfitCap { get; init; }
+
+    /// <summary>目標在庫。単位: 個。<b>耐久だけ耐久値</b>(GDD02b §2)。</summary>
     public int TargetStock { get; init; }
 
-    /// <summary>予想在庫。単位は <see cref="TargetStock"/> と揃う(GDD02 §8.2.2)。</summary>
+    /// <summary>予想在庫。単位は <see cref="TargetStock"/> と揃う(GDD02b §5.1)。</summary>
     public int ExpectedStock { get; init; }
 
+    /// <summary>在庫圧力‰(GDD02b §5.1)。500〜1500、目標在庫の2倍超で0。</summary>
     public int StockPressurePermille { get; init; }
 
-    /// <summary>予算 = ApplyPermille(基礎値, 在庫圧力‰)(GDD02 §8.2)。</summary>
+    /// <summary>線形解の基礎値。相場項、無ければ現金上限(GDD02b §5.2)。<b>在庫圧力を掛けない</b>。</summary>
+    public int BaseValue { get; init; }
+
+    /// <summary>予算 = min( ApplyPermille(相場項, 在庫圧力‰) , 現金上限 , 利潤上限 )(GDD02c §2.1)。</summary>
     public int Budget { get; init; }
 }
 
-/// <summary>世帯1戸ぶんの需要(GDD02 §8.2)。</summary>
+/// <summary>世帯1戸ぶんの需要(GDD02c §2 / GDD02b §3・§5)。</summary>
 public readonly record struct HouseholdDemand
 {
-    /// <summary>GDD02 §6.2.1 の走査順に並んだ組。</summary>
+    /// <summary>GDD02b §3.2 の走査順(必需 → 耐久 → 生産の入力 → 嗜好、同一用途は品目Id昇順)に並んだ組。</summary>
     public IReadOnlyList<DemandLine> Lines { get; init; }
 
-    /// <summary>必要運転資金(GDD02 §8.2.1)。単位: 貨幣。</summary>
-    public long WorkingCapital { get; init; }
+    /// <summary>必需の取り置き = Σ_(必需, 品目)(目標在庫 × 相場基準)(GDD02b §3.1)。単位: 貨幣。</summary>
+    public long NecessityReserve { get; init; }
 
-    /// <summary>余剰資金。単位: 貨幣。</summary>
-    public int SurplusFunds { get; init; }
+    /// <summary>運転資金 = Σ_(生産の入力, 品目)(目標在庫 × 相場基準)(同上)。単位: 貨幣。</summary>
+    public long WorkingCapital { get; init; }
 }
 
 /// <summary>
-/// 世帯の (用途, 品目) の組をすべて作る(GDD02 §8.2〜§8.2.7)。<see cref="World"/> と
+/// 世帯の (用途, 品目) の組をすべて作る(GDD02c §2 / GDD02b §3・§5)。<see cref="World"/> と
 /// <see cref="WorldDefinition"/> を読んで <see cref="BuyerBudget"/> を呼ぶ。<b>書き込みは
 /// 一切しない。</b>
 /// </summary>
-/// <remarks>
-/// <b>本タスクでは誰も呼ばない。</b>買うには店の選択(#37)が要り、それを本タスクへ引き込むと
-/// 1タスクで順5 を丸ごと作ることになる(タスク仕様「スコープ」)。#37 が値付けの段の後、
-/// 買い物の前に1世帯1回呼ぶ想定である。
-/// </remarks>
 public sealed class BuyerDemand
 {
     private readonly WorldDefinition _definition;
@@ -61,7 +71,7 @@ public sealed class BuyerDemand
     /// <summary>世帯の (用途, 品目) の組をすべて作る。</summary>
     /// <param name="hasPreviousOutputOfferPrice">
     /// <b>前日の</b>自世帯の出力品目の提示価格があるか。<b>呼び出し側が <see cref="World.Market"/> を
-    /// <c>Clear()</c> する前に控えた値を渡すこと</b>(GDD02 §8.2.1。当日の値を渡すと同一tick内で
+    /// <c>Clear()</c> する前に控えた値を渡すこと</b>(GDD08 §6.3。当日の値を渡すと同一tick内で
     /// 循環する)。
     /// </param>
     public HouseholdDemand Build(
@@ -75,12 +85,14 @@ public sealed class BuyerDemand
 
         var definition = _definition;
         var recipe = definition.Recipes[(int)household.Occupation];
+
+        // 誰の観測かは世帯主(親方)である。selfHouseholdIdにはhousehold.Idを渡す ──
+        // HeadNpcIdではない(TDD01 §3.2「取り違えを型で防げない」経路)。
         var headObservations = world.Knowledge[household.HeadNpcId];
         int itemCount = definition.ItemCount;
 
-        // 0. 相場基準を品目ごとに1回だけ引く(薪は必需と生産の入力の両方に現れる)。引くのは
-        // { 生産の入力の品目 } ∪ { 必需の品目 } ∪ { Item.Tools } だけでよい(嗜好の基礎値は
-        // 相場基準を使わない。必要運転資金も嗜好・耐久を走査しない)。
+        // 0. 相場基準を品目ごとに1回だけ引く(買い手側、遅い。GDD02c §1.2)。薪は必需と生産の
+        // 入力の両方に現れるが、相場基準そのものは品目に対して1つでよい。
         var isReferenceRelevant = new bool[itemCount];
 
         foreach (var input in recipe.Inputs)
@@ -90,7 +102,8 @@ public sealed class BuyerDemand
 
         for (int itemId = 0; itemId < itemCount; itemId++)
         {
-            if (definition.NecessityTargetStockDays[itemId] > 0)
+            if (definition.NecessityTargetStockDays[itemId] > 0
+                || definition.PreferenceTargetStockDays[itemId] > 0)
             {
                 isReferenceRelevant[itemId] = true;
             }
@@ -108,21 +121,19 @@ public sealed class BuyerDemand
                 continue;
             }
 
-            // 相場基準は世帯主(親方)の観測から作り、自分の前日の提示価格は混ぜない
-            // (GDD02 §8.2・GDD06 §3.1)。selfHouseholdIdにはhousehold.Idを渡す ── HeadNpcIdでは
-            // ない(TDD01 §3.2「取り違えを型で防げない」経路)。
-            hasReference[itemId] = OfferPrice.TryMarketReference(
+            // TryBuyer(遅い側)を呼ぶ。TrySeller は呼んではならない ── 買い手が速くなると
+            // GDD02c §1.2 の天井が消える。
+            hasReference[itemId] = MarketReference.TryBuyer(
                 headObservations, itemId, household.Id, world.Now,
                 definition.ObservationRetentionDays,
-                hasOwnPreviousPrice: false, ownPreviousPrice: 0,
                 out reference[itemId]);
         }
 
         var lines = new List<DemandLine>();
+        long necessityReserve = 0L;
         long workingCapital = 0L;
 
-        // 1・2・5・6(必需)。走査順は品目Id昇順(GDD02 §6.2.1)。必要運転資金は
-        // (生産の入力, 品目)と(必需, 品目)だけを走査する(下の生産の入力ループと合わせて完結する)。
+        // 1. 必需(品目Id昇順)。取り置きは相場基準が立った品目だけを足す(GDD02b §3.1)。
         for (int itemId = 0; itemId < itemCount; itemId++)
         {
             if (definition.NecessityTargetStockDays[itemId] <= 0)
@@ -133,34 +144,59 @@ public sealed class BuyerDemand
             int target = DailyConsumption.Lookahead(
                 definition, world, household, itemId, world.Now, definition.NecessityTargetStockDays[itemId]);
             int expected = household.HouseholdInventory[itemId];
+            int dailyQuantity = DailyConsumption.Lookahead(definition, world, household, itemId, world.Now, days: 1);
 
             if (hasReference[itemId])
             {
-                workingCapital += (long)target * reference[itemId];
+                necessityReserve += (long)target * reference[itemId];
             }
 
-            int baseValue = BuyerBudget.NecessityBaseValue(
-                hasReference[itemId], reference[itemId], household.LiquidFunds,
-                definition.NecessityTolerancePermille,
-                definition.BudgetRatioPermilleByPurpose[(int)DemandPurpose.Necessity]);
+            // Necessityの母数は常に流動資金そのものなので、necessityReserve/workingCapitalは
+            // AvailableFundsの中では読まれない(呼び出しの形を他の用途と揃えるために渡す)。
+            int availableFunds = BuyerBudget.AvailableFunds(
+                DemandPurpose.Necessity, household.LiquidFunds, necessityReserve, workingCapital);
 
-            lines.Add(BuildLine(DemandPurpose.Necessity, itemId, baseValue, target, expected));
+            lines.Add(BuildLine(
+                DemandPurpose.Necessity, itemId, hasReference[itemId], reference[itemId],
+                definition.TolerancePermille, target, expected, dailyQuantity, availableFunds,
+                hasProfitCap: false, profitCap: 0));
         }
 
-        // 3(派生需要)。生産の入力の行を組み立てる前に基礎値をまとめて求める。
-        var derivedBaseValues = new int[itemCount];
+        // 2. 耐久(全世帯に常に1行。Item.Toolsは鍛冶自身の入力ではない)。必需の取り置きは
+        // ここまでに確定している(必需のループが先に終わっているため)。
+        {
+            int headRank = (int)world.Npcs[household.HeadNpcId].Rank;
+            int target = IntegerMath.ApplyPermille(
+                IntegerMath.ApplyPermille(definition.ToolDurabilityPerUnit, definition.ToolTargetStockPermille),
+                definition.RankCoefficientPermille[headRank]);
+            int expected = (household.WorkshopInventory[Item.Tools] * definition.ToolDurabilityPerUnit)
+                - household.ToolWear;
+            int availableFunds = BuyerBudget.AvailableFunds(
+                DemandPurpose.Durable, household.LiquidFunds, necessityReserve, workingCapital: 0);
 
-        BuyerBudget.DerivedDemand(
+            lines.Add(BuildLine(
+                DemandPurpose.Durable, Item.Tools, hasReference[Item.Tools], reference[Item.Tools],
+                definition.TolerancePermille, target, expected, dailyQuantity: 1, availableFunds,
+                hasProfitCap: false, profitCap: 0));
+        }
+
+        // 3. 生産の入力の利潤上限をまとめて求める(入力の行を組み立てる前に)。
+        var hasProfitCap = new bool[itemCount];
+        var profitCap = new int[itemCount];
+        int wearCostPerRun = BuyerBudget.WearCostPerRun(
+            household.PurchaseUnitCostAverage[Item.Tools], recipe.LaborPermille, definition.ToolLifeLaborDays);
+
+        BuyerBudget.ProfitCaps(
             recipe, hasPreviousOutputOfferPrice, previousOutputOfferPrice,
-            definition.MinimumMarginPermille, household.LiquidFunds,
-            definition.BudgetRatioPermilleByPurpose[(int)DemandPurpose.Necessity],
-            hasReference, reference, derivedBaseValues);
+            definition.MinimumMarginPermille, wearCostPerRun,
+            hasReference, reference, hasProfitCap, profitCap);
 
-        // 1・2・5・6(生産の入力)。品目Id昇順に並べる ── recipe.Inputsの並びに依存しない
-        // (Recipeは入力が昇順であることを保証していない)。
+        // 生産の入力(品目Id昇順)。recipe.Inputsの並びに依存しない(Recipeは入力が昇順であることを
+        // 保証していない)。運転資金は相場基準が立った品目だけを足す(GDD02b §3.1)。
         for (int itemId = 0; itemId < itemCount; itemId++)
         {
             bool isInputItem = false;
+
             foreach (var input in recipe.Inputs)
             {
                 if (input.ItemId == itemId)
@@ -177,33 +213,23 @@ public sealed class BuyerDemand
 
             int target = definition.InputTargetStock(household.Occupation, itemId);
             int expected = household.WorkshopInventory[itemId];
+            int dailyQuantity = definition.DailyInputQuantity(household.Occupation, itemId);
 
             if (hasReference[itemId])
             {
                 workingCapital += (long)target * reference[itemId];
             }
 
-            lines.Add(BuildLine(DemandPurpose.ProductionInput, itemId, derivedBaseValues[itemId], target, expected));
+            int availableFunds = BuyerBudget.AvailableFunds(
+                DemandPurpose.ProductionInput, household.LiquidFunds, necessityReserve, workingCapital: 0);
+
+            lines.Add(BuildLine(
+                DemandPurpose.ProductionInput, itemId, hasReference[itemId], reference[itemId],
+                definition.TolerancePermille, target, expected, dailyQuantity, availableFunds,
+                hasProfitCap[itemId], profitCap[itemId]));
         }
 
-        int surplus = BuyerBudget.SurplusFunds(household.LiquidFunds, workingCapital);
-
-        // 1・5・6(耐久)。全世帯に常に1行(鍛冶を含む。Item.Toolsは鍛冶自身の入力ではない)。
-        {
-            int headRank = (int)world.Npcs[household.HeadNpcId].Rank;
-            int target = IntegerMath.ApplyPermille(
-                IntegerMath.ApplyPermille(definition.ToolDurabilityPerUnit, definition.ToolTargetStockPermille),
-                definition.RankCoefficientPermille[headRank]);
-            int expected = (household.WorkshopInventory[Item.Tools] * definition.ToolDurabilityPerUnit)
-                - household.ToolWear;
-            int baseValue = BuyerBudget.DurableBaseValue(
-                hasReference[Item.Tools], reference[Item.Tools], household.LiquidFunds,
-                definition.BudgetRatioPermilleByPurpose[(int)DemandPurpose.Durable]);
-
-            lines.Add(BuildLine(DemandPurpose.Durable, Item.Tools, baseValue, target, expected));
-        }
-
-        // 1・5・6(嗜好)。品目Id昇順。余剰資金が確定した後でないと基礎値が求まらない。
+        // 4. 嗜好(品目Id昇順)。運転資金が確定した後でないと母数が求まらない。
         for (int itemId = 0; itemId < itemCount; itemId++)
         {
             if (definition.PreferenceTargetStockDays[itemId] <= 0)
@@ -214,34 +240,48 @@ public sealed class BuyerDemand
             int target = DailyConsumption.Lookahead(
                 definition, world, household, itemId, world.Now, definition.PreferenceTargetStockDays[itemId]);
             int expected = household.HouseholdInventory[itemId];
-            int baseValue = BuyerBudget.PreferenceBaseValue(
-                surplus, definition.BudgetRatioPermilleByPurpose[(int)DemandPurpose.Preference]);
+            int dailyQuantity = DailyConsumption.Lookahead(definition, world, household, itemId, world.Now, days: 1);
+            int availableFunds = BuyerBudget.AvailableFunds(
+                DemandPurpose.Preference, household.LiquidFunds, necessityReserve, workingCapital);
 
-            lines.Add(BuildLine(DemandPurpose.Preference, itemId, baseValue, target, expected));
+            lines.Add(BuildLine(
+                DemandPurpose.Preference, itemId, hasReference[itemId], reference[itemId],
+                definition.TolerancePermille, target, expected, dailyQuantity, availableFunds,
+                hasProfitCap: false, profitCap: 0));
         }
 
         return new HouseholdDemand
         {
             Lines = lines,
+            NecessityReserve = necessityReserve,
             WorkingCapital = workingCapital,
-            SurplusFunds = surplus,
         };
     }
 
     private static DemandLine BuildLine(
-        DemandPurpose purpose, int itemId, int baseValue, int targetStock, int expectedStock)
+        DemandPurpose purpose, int itemId, bool hasReference, int reference, int tolerancePermille,
+        int targetStock, int expectedStock, int dailyQuantity, int availableFunds,
+        bool hasProfitCap, int profitCap)
     {
-        int pressure = BuyerBudget.StockPressurePermille(expectedStock, targetStock);
-        int budget = BuyerBudget.Budget(baseValue, pressure);
+        int stockPressure = BuyerBudget.StockPressurePermille(expectedStock, targetStock);
+        int cashCap = BuyerBudget.CashCap(availableFunds, dailyQuantity);
+        int marketTerm = hasReference ? IntegerMath.ApplyPermille(reference, tolerancePermille) : 0;
+        int baseValue = BuyerBudget.BaseValue(hasReference, marketTerm, cashCap);
+        int budget = BuyerBudget.Budget(hasReference, marketTerm, stockPressure, cashCap, hasProfitCap, profitCap);
 
         return new DemandLine
         {
             Purpose = purpose,
             ItemId = itemId,
-            BaseValue = baseValue,
+            MarketTerm = marketTerm,
+            HasMarketTerm = hasReference,
+            CashCap = cashCap,
+            ProfitCap = profitCap,
+            HasProfitCap = hasProfitCap,
             TargetStock = targetStock,
             ExpectedStock = expectedStock,
-            StockPressurePermille = pressure,
+            StockPressurePermille = stockPressure,
+            BaseValue = baseValue,
             Budget = budget,
         };
     }
