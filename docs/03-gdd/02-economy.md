@@ -344,7 +344,7 @@
 - **1回の移動で運べる数量の上限。** [GDD11 §5.1](11-external-trade.md) が持つ。**運送労働者とプレイヤーの荷運びに優位性を与える前提**であり、運び手と同時にしか入れられない。**採るときは [GDD02d §10.2](02d-external-market-and-money.md) の輸出規則を運搬として書き直す必要がある**(現行は移動も費用も持たない)
 - 職業の粒度を [idea/008](../idea/008-NPCと職業.md) に近づける。**レシピを持たない職業は段数を増やさないので安い**
 - 腐敗。パンと肉は本来腐る。M0 では [GDD02b §8.2.2](02b-consumption-and-household.md) の在庫上限倍率で代用している
-- 設備係数の連続化([GDD02a §5.3](02a-production.md))。あわせて [GDD02a §5.2](02a-production.md) の `ApplyPermille` を切り下げへ直す
+- 設備係数の連続化([GDD02a §3](02a-production.md))
 - 複数都市。[GDD02d §10.3](02d-external-market-and-money.md) の分業の利益は、都市ごとの性格づけに繋がる
 
 ### 9.2 値として残っているもの
