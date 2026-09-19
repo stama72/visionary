@@ -326,16 +326,27 @@ public sealed class BuyerBudgetTests
 
     /// <summary>
     /// 【核心】テスト表 #19。目標10・予想0・基礎値100 で 実効価格150 → 0、100 → 10、
-    /// 50 → 20(上限)、40 → 20(2倍で頭打ち)。
+    /// 50 → 20(上限)、40 → 20(2倍で頭打ち)。あわせて、上側のclampに触れない帯(目標7・
+    /// 実効価格97)で割り切れない組を検算し、<c>CeilDiv</c> を <c>FloorDiv</c> に変える変異を
+    /// 判別する。
     /// </summary>
     /// <remarks>
-    /// <b>変異の実測(2026-09-19)。</b>上側のclampを落とす変異(<c>Math.Clamp</c> を
-    /// <c>Math.Max(0L, …)</c> だけに変える)を当てたところ、実効価格40のケースの
-    /// <c>Assert.Equal(20, ...)</c> が実際値22(溜め込みが縮退する)で失敗した(赤を確認)。
-    /// <c>CeilDiv</c> を <c>FloorDiv</c> に変える変異では、実効価格100のケースの
-    /// <c>Assert.Equal(10, ...)</c> は変わらないが実効価格150のケースの
-    /// <c>Assert.Equal(0, ...)</c> の手前で符号が変わり、80のような中間値でずれが出るため
-    /// 別途 実効価格50の検算(20)で相違を確認した。変異を戻して緑に復帰させた。
+    /// <para>
+    /// <b>レビュー指摘(R1)。</b>目標10・基礎値100の4ケースは、実効価格150/100/50/40に対する
+    /// 被除数(2×目標×実効価格)が3000/2000/1000/800でいずれも100で割り切れるため、
+    /// <c>CeilDiv</c> を <c>FloorDiv</c> に変える変異(タスク仕様表#19が「この実装ミスで落ちる」と
+    /// 名指しした変異)が全ケース同じ値で緑のまま通っていた。加えて、旧remarkが「実効価格50の
+    /// 検算(20)で相違を確認した」と書いていたが、1000÷100=20で両者一致するため、この確認は
+    /// 起こり得なかった(赤を確認せずに「確認した」と書いた誤り)。
+    /// </para>
+    /// <para>
+    /// <b>変異の実測(2026-09-21)。</b>目標7・基礎値100・実効価格97(被除数 = 2×7×97 = 1358、
+    /// 100で割り切れない)を追加し、<c>IntegerMath.CeilDiv</c> を <c>IntegerMath.FloorDiv</c> に
+    /// 変える変異を当てたところ、<c>Assert.Equal(7, ...)</c> が実際値8
+    /// (<c>CeilDiv(1358,100)=14</c> → 到達在庫21−14=7 に対し、<c>FloorDiv(1358,100)=13</c> →
+    /// 21−13=8。目標7の2倍(14)には届かないためclampの影響を受けない)で失敗した(赤を確認)。
+    /// 変異を戻して緑に復帰させた。
+    /// </para>
     /// </remarks>
     [Fact]
     public void PurchaseQuantitySolvesTheLinearDemand()
@@ -344,6 +355,9 @@ public sealed class BuyerBudgetTests
         Assert.Equal(10, BuyerBudget.PurchaseQuantity(baseValue: 100, effectivePrice: 100, targetStock: 10, expectedStock: 0));
         Assert.Equal(20, BuyerBudget.PurchaseQuantity(baseValue: 100, effectivePrice: 50, targetStock: 10, expectedStock: 0));
         Assert.Equal(20, BuyerBudget.PurchaseQuantity(baseValue: 100, effectivePrice: 40, targetStock: 10, expectedStock: 0));
+
+        // 割り切れない組(clampの上限14には届かない)。CeilDiv(1358,100)=14 → 到達在庫21-14=7。
+        Assert.Equal(7, BuyerBudget.PurchaseQuantity(baseValue: 100, effectivePrice: 97, targetStock: 7, expectedStock: 0));
     }
 
     /// <summary>基礎値0以下でArgumentOutOfRangeException。</summary>

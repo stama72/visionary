@@ -12,14 +12,19 @@ public sealed class BuyerDemandTests
     /// パン屋を模したレシピ。小麦粉+薪 → パン。<c>Occupation.Miller</c>(添字0)として登録される
     /// (<see cref="EconomySystemTestFixtures.BuildDefinition"/> の仕様)。
     /// </summary>
+    /// <remarks>
+    /// <b>レビュー指摘R4。</b>入力を品目Id<b>降順</b>(薪5 → 小麦粉4)で並べる。昇順(旧)だと、
+    /// 品目Id昇順ループをやめて <c>recipe.Inputs</c> をそのまま回す変異が同じ並びを出して
+    /// 通ってしまう(タスク仕様テスト#23「recipe.Inputsの並びをそのまま使う」変異が判別できない)。
+    /// </remarks>
     private static Recipe BakerLikeRecipe(int outputQuantity = 2) =>
         new(
             Occupation.Miller,
             outputs: new[] { new ItemQuantity { ItemId = Item.Bread, Quantity = outputQuantity } },
             inputs: new[]
             {
-                new ItemQuantity { ItemId = Item.Flour, Quantity = 1 },
                 new ItemQuantity { ItemId = Item.Firewood, Quantity = 1 },
+                new ItemQuantity { ItemId = Item.Flour, Quantity = 1 },
             },
             laborPermille: 1000);
 
@@ -150,6 +155,101 @@ public sealed class BuyerDemandTests
         Assert.Equal(8, inputLine.ExpectedStock);
     }
 
+    /// <summary>
+    /// 【核心】レビュー指摘R2。耐久(工具)行の目標在庫・予想在庫が耐久値(‰人日)で計算される。
+    /// 工具1個・N=30(耐久値30000‰人日)・摩耗5000‰人日・目標在庫比500‰・世帯主の階層係数1000‰
+    /// → 予想在庫25000、目標在庫15000。
+    /// </summary>
+    /// <remarks>
+    /// <b>単位が‰人日になった(#96)。</b>旧(回数)の期待値25/15を、耐久値N×1000=30000で
+    /// 揃えて1000倍(25000/15000)にした ── 式自体は変えていない。
+    /// <para>
+    /// <b>変異の実測(2026-09-21)。</b>予想在庫の計算を
+    /// <c>household.WorkshopInventory[Item.Tools]</c>(個数のまま、耐久値へ変換しない変異)に
+    /// 変えたところ、<c>Assert.Equal(25000, durableLine.ExpectedStock)</c> が実際値1で失敗した
+    /// (赤を確認)。<c>- household.ToolWear</c> を外す変異では
+    /// <c>Assert.Equal(25000, ...)</c> が実際値30000で失敗した(赤を確認)。変異はいずれも戻して
+    /// 緑に復帰させた。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void DurableLineIsMeasuredInDurabilityNotUnits()
+    {
+        var definition = BuildDefinition(
+            toolTargetStockPermille: 500,
+            rankCoefficientPermille: new[] { 1000, 600, 200 },
+            toolLifeLaborDays: 30);
+        var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(new[] { NpcRank.Master });
+        world.Households[0].WorkshopInventory[Item.Tools] = 1;
+        world.Households[0].ToolWear = 5000;
+
+        var demand = new BuyerDemand(definition).Build(
+            world, world.Households[0], hasPreviousOutputOfferPrice: false, previousOutputOfferPrice: 0);
+        var durableLine = FindLine(demand, DemandPurpose.Durable, Item.Tools);
+
+        Assert.Equal(25000, durableLine.ExpectedStock);
+        Assert.Equal(15000, durableLine.TargetStock);
+    }
+
+    /// <summary>
+    /// 【核心】レビュー指摘R2。耐久の目標在庫は世帯主の階層係数を使う(構成員の階層ではない)。
+    /// 世帯主 Master(1000‰)+ 徒弟 Apprentice(200‰)の混成世帯で、目標在庫が世帯主の係数(15000)
+    /// で出る(徒弟の係数(3000)にはならない)。
+    /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21)。</b><c>world.Npcs[household.HeadNpcId].Rank</c> を
+    /// <c>world.Npcs[household.MemberNpcIds[^1]].Rank</c>(末尾の構成員=徒弟の階層)に変える変異を
+    /// 当てたところ、<c>Assert.Equal(15000, durableLine.TargetStock)</c> が実際値3000で失敗した
+    /// (赤を確認)。変異を戻して緑に復帰させた。
+    /// </remarks>
+    [Fact]
+    public void DurableTargetUsesTheHeadRankNotAMemberRank()
+    {
+        var definition = BuildDefinition(
+            toolTargetStockPermille: 500,
+            rankCoefficientPermille: new[] { 1000, 600, 200 },
+            toolLifeLaborDays: 30);
+        var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(
+            new[] { NpcRank.Master, NpcRank.Apprentice }); // 先頭(世帯主)がMaster
+
+        var demand = new BuyerDemand(definition).Build(
+            world, world.Households[0], hasPreviousOutputOfferPrice: false, previousOutputOfferPrice: 0);
+        var durableLine = FindLine(demand, DemandPurpose.Durable, Item.Tools);
+
+        // 世帯主(Master,1000‰)の係数で15000。徒弟(200‰)の係数を採ると3000になる。
+        Assert.Equal(15000, durableLine.TargetStock);
+    }
+
+    /// <summary>
+    /// 【核心】レビュー指摘R2。世帯主の階層係数‰が実際に目標在庫へ乗る(恒等元の1000‰では
+    /// 「係数‰を掛け忘れる」変異が判別できないため、世帯主をApprentice(200‰)にする)。
+    /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21)。</b><c>DurableLineIsMeasuredInDurabilityNotUnits</c> /
+    /// <c>DurableTargetUsesTheHeadRankNotAMemberRank</c> はどちらも世帯主がMaster(係数1000‰)
+    /// であり、<c>ApplyPermille(x,1000) == x</c> のため「階層係数‰を掛けない」変異
+    /// (<c>RankCoefficientPermille[headRank]</c> への<c>ApplyPermille</c>呼び出しを丸ごと外す)が
+    /// 両テストとも緑のまま通っていた(赤を確認せずに見つけた)。世帯主をApprentice(200‰)に
+    /// した本テストでその変異を当てたところ、<c>Assert.Equal(3000, durableLine.TargetStock)</c> が
+    /// 実際値15000(係数を掛けなかった値)で失敗した(赤を確認)。変異を戻して緑に復帰させた。
+    /// </remarks>
+    [Fact]
+    public void DurableTargetActuallyAppliesTheRankCoefficient()
+    {
+        var definition = BuildDefinition(
+            toolTargetStockPermille: 500,
+            rankCoefficientPermille: new[] { 1000, 600, 200 },
+            toolLifeLaborDays: 30);
+        var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(new[] { NpcRank.Apprentice });
+
+        var demand = new BuyerDemand(definition).Build(
+            world, world.Households[0], hasPreviousOutputOfferPrice: false, previousOutputOfferPrice: 0);
+        var durableLine = FindLine(demand, DemandPurpose.Durable, Item.Tools);
+
+        // ApplyPermille(ApplyPermille(30000,500),200) = ApplyPermille(15000,200) = 3000。
+        Assert.Equal(3000, durableLine.TargetStock);
+    }
+
     /// <summary>世帯主の <c>Knowledge</c> に、過去日(他の売り手999)の観測を1件仕込む。</summary>
     private static void SetReference(World world, int headNpcId, int itemId, int price)
     {
@@ -271,5 +371,106 @@ public sealed class BuyerDemandTests
         Assert.True(line.HasMarketTerm);
         Assert.Equal(25, line.MarketTerm);
         Assert.NotEqual(35, line.MarketTerm); // 売り手側の畳み込み値ではない。
+    }
+
+    /// <summary>
+    /// 【核心】レビュー指摘R3。<c>MarketReference.TryBuyer</c> へ渡す自己除外のIdは
+    /// <c>household.Id</c> であって <c>household.HeadNpcId</c> ではない
+    /// (TDD01 §3.2「取り違えを型で防げない」経路)。世帯主のNpcIdを世帯Idとわざと違える。
+    /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21)。</b><c>BuyerDemand.Build</c> の
+    /// <c>MarketReference.TryBuyer</c> 呼び出しの第3引数(<c>selfHouseholdId</c>)を
+    /// <c>household.Id</c> から <c>household.HeadNpcId</c> に変える変異を当てたところ、
+    /// <c>Assert.Equal(120, line.MarketTerm)</c> が実際値1199(<c>ApplyPermille(999,1200)</c>。
+    /// 自己観測999が誤って生き残り、他の売り手の観測100が誤って除外された)で失敗した
+    /// (赤を確認)。変異を戻して緑に復帰させた。
+    /// </remarks>
+    [Fact]
+    public void DemandExcludesTheHouseholdIdNotTheHeadNpcId()
+    {
+        const int HeadNpcId = 2; // household.Id(0)とわざと違える。
+
+        var definition = BuildDefinition(tolerancePermille: 1200);
+        var world = new World(npcCount: 3, householdCount: 1, itemCount: Item.Count);
+        world.Npcs[HeadNpcId].Rank = NpcRank.Master;
+        world.Households[0] = new HouseholdState(
+            id: 0, districtId: 0, headNpcId: HeadNpcId, memberNpcIds: new[] { HeadNpcId }, itemCount: Item.Count);
+        world.Households[0].Occupation = Occupation.Miller;
+
+        EconomySystemTestFixtures.AdvanceClockOnly(world, ticks: 10 * 24);
+
+        // 自世帯(SellerId=household.Id=0)の観測 → 除外されるべき。
+        world.Knowledge[HeadNpcId].Add(new PriceObservation
+        {
+            ItemId = Item.Firewood,
+            LocationId = 0,
+            Price = 999,
+            SellerId = 0,
+            ObservedAt = world.Now.AddDays(-1),
+            Source = ObservationSource.Direct,
+        });
+        // 世帯主のNpcId(2)をSellerIdとする観測 → この世界に household.Id=2 は存在しないので
+        // 「他の売り手」であり、含まれるべき。
+        world.Knowledge[HeadNpcId].Add(new PriceObservation
+        {
+            ItemId = Item.Firewood,
+            LocationId = 0,
+            Price = 100,
+            SellerId = HeadNpcId,
+            ObservedAt = world.Now.AddDays(-1),
+            Source = ObservationSource.Direct,
+        });
+
+        var demand = new BuyerDemand(definition).Build(
+            world, world.Households[0], hasPreviousOutputOfferPrice: false, previousOutputOfferPrice: 0);
+        var line = FindLine(demand, DemandPurpose.Necessity, Item.Firewood);
+
+        // 相場基準 = 100(SellerId=0の自己観測999は除外)。MarketTerm = ApplyPermille(100,1200) = 120。
+        Assert.True(line.HasMarketTerm);
+        Assert.Equal(120, line.MarketTerm);
+    }
+
+    /// <summary>
+    /// 【核心】レビュー指摘R6。取り置き・運転資金がともに正になる世帯で、
+    /// <c>DemandLine.CashCap</c> が用途ごとの母数の段階(必需=流動資金 / 耐久・入力=流動資金-取り置き
+    /// / 嗜好=流動資金-取り置き-運転資金)を反映していること。
+    /// </summary>
+    /// <remarks>
+    /// <b>まず「嗜好の母数から運転資金を引かない」変異(<c>BuyerDemand.Build</c> の嗜好の行の
+    /// <c>BuyerBudget.AvailableFunds</c> 呼び出しを <c>workingCapital: 0</c> に変える)を当てて
+    /// <c>dotnet test</c> を回したところ、既存の324件はすべて緑のままだった(赤にならないことを
+    /// 確認、2026-09-21)。<c>DemandLine.CashCap</c> を見るアサートが1件も無かったため。</b>
+    /// そこで本テストを追加し、同じ変異を当て直したところ、
+    /// <c>Assert.Equal(905, preferenceLine.CashCap)</c> が実際値940
+    /// (運転資金35が引かれず、耐久・入力の母数(940)と同じ値になった)で失敗した(赤を確認)。
+    /// 変異を戻して緑に復帰させた。
+    /// </remarks>
+    [Fact]
+    public void CashCapReflectsTheStagedAvailableFundsPerPurpose()
+    {
+        var definition = BuildDefinition(beerConsumptionQty: 1);
+        var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(new[] { NpcRank.Master });
+        world.Households[0].LiquidFunds = 1000;
+
+        // 必需(パン)・生産の入力(小麦粉)にだけ観測を置き、取り置きと運転資金をともに正にする。
+        SetReference(world, world.Households[0].HeadNpcId, Item.Bread, price: 20);
+        SetReference(world, world.Households[0].HeadNpcId, Item.Flour, price: 7);
+
+        var demand = new BuyerDemand(definition).Build(
+            world, world.Households[0], hasPreviousOutputOfferPrice: false, previousOutputOfferPrice: 0);
+
+        Assert.Equal(60, demand.NecessityReserve);  // パンの目標3 × 観測20
+        Assert.Equal(35, demand.WorkingCapital);     // 小麦粉の目標5 × 観測7
+
+        var durableLine = FindLine(demand, DemandPurpose.Durable, Item.Tools);
+        var inputLine = FindLine(demand, DemandPurpose.ProductionInput, Item.Flour);
+        var preferenceLine = FindLine(demand, DemandPurpose.Preference, Item.Beer);
+
+        // 耐久・入力: FloorDiv(1000 − 60, 1) = 940(運転資金は引かれない)。
+        Assert.Equal(940, durableLine.CashCap);
+        Assert.Equal(940, inputLine.CashCap);
+        // 嗜好: FloorDiv(1000 − 60 − 35, 1) = 905(取り置きと運転資金の両方を引く)。
+        Assert.Equal(905, preferenceLine.CashCap);
     }
 }

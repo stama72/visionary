@@ -104,6 +104,35 @@ public sealed class MarketReferenceTests
     }
 
     /// <summary>
+    /// 【核心】レビュー指摘R5。売り手側の畳み込みのタイブレーク(同一tick・同一売り手は後勝ち)。
+    /// 同一売り手の観測を同一tickに2件(100→200の順で追加)置くと200になる。
+    /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21)。</b><c>MarketReference.TrySeller</c> の
+    /// <c>observation.ObservedAt &gt;= existing.ObservedAt</c> を <c>&gt;</c> に変える変異を
+    /// 当てたところ、<c>Assert.Equal(200, reference)</c> が実際値100(同一tickでは更新されず、
+    /// 先に追加されたほうが残る)で失敗した(赤を確認)。変異を戻して緑に復帰させた。
+    /// </remarks>
+    [Fact]
+    public void SellerFoldKeepsTheLaterEntryOnATie()
+    {
+        var now = Tick.FromDays(10);
+        var sameTick = Tick.FromDays(9);
+        var observations = new List<PriceObservation>
+        {
+            Observation(ItemA, SellerA, 100, sameTick),
+            Observation(ItemA, SellerA, 200, sameTick),
+        };
+
+        bool found = MarketReference.TrySeller(
+            observations, ItemA, SelfHouseholdId, now, retentionDays: 7,
+            hasOwnSettledPrice: false, ownSettledPrice: 0, out int reference);
+
+        Assert.True(found);
+        Assert.Equal(200, reference);
+    }
+
+    /// <summary>
     /// テスト表 #3。他の売り手の観測0件 + 自分の前日の約定単価あり → false(約定単価も使わない)。
     /// 他の売り手1件を足すと true になり、約定単価が平均に入る。
     /// </summary>
