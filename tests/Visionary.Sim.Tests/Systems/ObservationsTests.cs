@@ -148,7 +148,7 @@ public sealed class ObservationsTests
     /// <b>変異の実測(2026-09-16)。</b>失効の境界条件を <c>&gt;=</c>(<c>world.Now.DayIndex -
     /// observation.ObservedAt.DayIndex &gt;= retentionDays</c>)に変える変異を当てたところ、
     /// D3(差7、保持期間ちょうど)が消えて <c>Assert.Equal(new long[] { 3, 10 }, ...)</c> が
-    /// 実際値 <c>[10]</c> で失敗した(赤を確認、<see cref="OfferPrice.TryMarketReference"/> の
+    /// 実際値 <c>[10]</c> で失敗した(赤を確認、<see cref="MarketReference"/> の有効性判定の
     /// 境界と1日ずれる経路)。変異を戻して緑に復帰させた。
     /// </remarks>
     [Fact]
@@ -199,18 +199,18 @@ public sealed class ObservationsTests
 
     /// <summary>
     /// 【核心】テスト表 #37。パイプラインを1日進めて観測が生まれても当日の相場基準は立たない
-    /// (原価下限のまま)。2日目に進めると立つ。
+    /// (床のまま)。2日目に進めると立つ。
     /// </summary>
     /// <remarks>
     /// <b>変異の実測(2026-09-16)。</b><c>TradeSystem.Step</c> の観測の段(<c>Observations.Expire</c>
     /// / <c>Observations.CollectAndShare</c> の呼び出し)を値付けの段(<c>Step</c> の冒頭、
     /// <c>world.Market</c> を読む前)へ移す変異を当てたところ、2日目の <c>Assert.NotEqual(
-    /// costFloorOfHousehold0, world.Market[key0])</c> が「Values are equal」(実際値も2のまま)で
+    /// floorPrice, world.Market[key0])</c> が「Values are equal」(実際値も床のまま)で
     /// 失敗した(赤を確認)。観測が値付けの前に走ると、1日目の観測は <c>world.Market</c> がまだ
     /// 空のうちに空振りし、2日目の観測は「まだ書き換えていない1日目の価格」を<b>2日目の日付で</b>
-    /// 記録するため、2日目のTryMarketReferenceが読む時点で dayDifference=0 となり除外される
-    /// (観測が実質1日遅延し、GDD06 §3.1「観測するのは当日の提示価格」が崩れる経路)。
-    /// 変異を戻して緑に復帰させた。
+    /// 記録するため、2日目の<see cref="MarketReference.TrySeller"/>が読む時点で dayDifference=0
+    /// となり除外される(観測が実質1日遅延し、GDD06 §3.1「観測するのは当日の提示価格」が崩れる
+    /// 経路)。変異を戻して緑に復帰させた。
     /// </remarks>
     [Fact]
     public void ObservationBecomesUsableOnTheNextDayNotToday()
@@ -225,26 +225,27 @@ public sealed class ObservationsTests
         world.Households[0] = new HouseholdState(
             id: 0, districtId: 4, headNpcId: 0, memberNpcIds: new[] { 0 }, itemCount: Item.Count);
         world.Households[0].Occupation = Occupation.Miller;
-        world.Households[0].WorkshopInventory[Item.Flour] = SellableStock;
-        world.Households[0].PurchaseUnitCostAverage[Item.Grain] = 1; // 原価2
+        // 出荷目標在庫(5)より少なく持たせる ── 相場基準が立ったとき、在庫比‰ が1000からずれて
+        // 提示価格が床と異なる値になるようにする(床は原価に依らない定数になったため。GDD02c §1)。
+        world.Households[0].WorkshopInventory[Item.Flour] = 1;
 
         world.Households[1] = new HouseholdState(
             id: 1, districtId: 1, headNpcId: 1, memberNpcIds: new[] { 1 }, itemCount: Item.Count); // 距離1(観測範囲内)
         world.Households[1].Occupation = Occupation.Miller;
         world.Households[1].WorkshopInventory[Item.Flour] = SellableStock;
-        world.Households[1].PurchaseUnitCostAverage[Item.Grain] = 50; // 原価100(household0と差を付ける)
 
         var system = new TradeSystem(definition);
         var key0 = new MarketKey(Item.Flour, 0);
 
         EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目
 
-        int costFloorOfHousehold0 = OfferPrice.CostFloor(unitCost: 2, minimumMarginPermille: 0, isBankrupt: 0);
-        Assert.Equal(costFloorOfHousehold0, world.Market[key0]); // 相場基準が立たない(原価下限のまま)
+        int floorPrice = definition.ExternalBuyPrice(Item.Flour);
+        Assert.Equal(floorPrice, world.Market[key0]); // 相場基準が立たない(床のまま)
 
         EconomySystemTestFixtures.RunDays(world, system, days: 1); // 2日目
 
-        // 1日目に生まれた観測(household1の原価100の売り注文)が前日の記憶として使える。
-        Assert.NotEqual(costFloorOfHousehold0, world.Market[key0]);
+        // 1日目に生まれた観測(household1の売り注文)が前日の記憶として使える。household0は
+        // 在庫比‰ が1000からずれているので、相場基準が立てば床とは異なる値になる。
+        Assert.NotEqual(floorPrice, world.Market[key0]);
     }
 }

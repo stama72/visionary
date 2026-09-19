@@ -6,428 +6,248 @@ using Visionary.Sim.Time;
 namespace Visionary.Sim.Tests.Systems;
 
 /// <summary>
-/// <see cref="TradeSystem"/>(GDD02 §8.1・§8.1.1・§6.3、#35 タスク仕様のテスト表)の検査。
+/// <see cref="TradeSystem"/>(GDD02c §1・§1.4 / GDD02b §3.2、W2-08 タスク仕様のテスト表)の検査。
 /// </summary>
 public sealed class TradeSystemTests
 {
-    private static Recipe MillerRecipe() =>
+    // Millerのレシピはパン(必需)を出力し木材(1次産品)を消費する。木材以外(小麦粉4)には触れない
+    // ── UnusedRecipe(Baker〜Smith)が品目0(穀物)を出力・品目1(木材)を消費するので、木材を
+    // 共有しても整合する。穀物は必需/嗜好のもう一方の品目として使う。
+    private static Recipe MillerBreadRecipe() =>
         new(
             Occupation.Miller,
-            outputs: new[] { new ItemQuantity { ItemId = Item.Flour, Quantity = 1 } },
-            inputs: new[] { new ItemQuantity { ItemId = Item.Grain, Quantity = 2 } },
+            outputs: new[] { new ItemQuantity { ItemId = Item.Bread, Quantity = 1 } },
+            inputs: new[] { new ItemQuantity { ItemId = Item.Timber, Quantity = 1 } },
             laborPermille: 1000);
 
-    /// <summary>
-    /// 出荷目標在庫(小麦粉)を <paramref name="shipmentTarget"/> にする。生産能力1
-    /// (<see cref="WorldDefinition.NominalLaborPermille"/> 1300‰・レシピの所要労働‰ 1000 →
-    /// 1実行/日) × 出力数量1 × <c>shipmentDays</c> = <paramref name="shipmentTarget"/> となるよう
-    /// <c>shipmentDays</c> をそのまま渡す(定義が導出する。旧の定数表に代わる)。
-    /// </summary>
-    private static WorldDefinition BuildDefinition(
-        int shipmentTarget, int minimumMarginPermille = 0) =>
-        EconomySystemTestFixtures.BuildDefinition(
-            MillerRecipe(),
-            minimumMarginPermille: minimumMarginPermille,
-            shipmentDays: shipmentTarget);
-
-    private static PriceObservation Observation(int itemId, int sellerId, int price, Tick observedAt) =>
-        new()
-        {
-            ItemId = itemId,
-            LocationId = 0,
-            Price = price,
-            SellerId = sellerId,
-            ObservedAt = observedAt,
-            Source = ObservationSource.Direct,
-        };
-
-    /// <summary>
-    /// 【核心】テスト表 #21。M0 の定義でパイプライン(順1・順2・順5)を1日進める →
-    /// 全売り手の <c>Market</c> の値が <c>CostFloor(UnitCost(...))</c> と一致。期待値は定義から計算する。
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>変異の実測1(2026-09-16)。</b><c>TradeSystem.Step</c> の
-    /// <c>household.PurchaseUnitCostAverage</c> を渡す箇所を <c>new int[Item.Count]</c>(取得原価を
-    /// 読まない、初日の原価が0に固定される経路)に変える変異を当てたところ、
-    /// <c>Assert.Equal(expected, actual)</c> が全売り手で失敗した(期待値は非0の原価下限、
-    /// 実際値は0。赤を確認)。変異を戻して緑に復帰させた。
-    /// </para>
-    /// <para>
-    /// <b>変異の実測2(2026-09-16、レビュー1巡目指摘2)。</b><c>TradeSystem.Step</c> の
-    /// <c>if (sellableStock &lt;= 0)</c> を <c>if (sellableStock &lt;= 0 || true)</c>
-    /// (全世帯が空振りする経路)に変えたところ、<c>Assert.NotEmpty(world.Market)</c> が
-    /// 「Collection was empty」で失敗した(赤を確認)。この行を足す前は、下のループが
-    /// 「エントリが無い」だけを確認して素通りするため緑のままだった。変異を戻して緑に復帰させた。
-    /// </para>
-    /// <para>
-    /// <b>#37での訂正。</b>#37 が段4・5(買い物)を Step の中へ配線した結果、M0 の実世界では
-    /// 距離0〜1の売り手が最初から見えるため(GDD06 §3.1「今日の知覚」は前日の観測を要らない)、
-    /// <b>1日目のうちに実際の約定が起こりうる。</b>そのため <c>world.Households</c>(1日進めた
-    /// <b>後</b>の状態)から <c>sellableStock</c> / <c>PurchaseUnitCostAverage</c> を読み直すと、
-    /// 段1(値付け)が実際に見た値ではなく、段5(買い物)が動かした後の値を拾ってしまう。
-    /// 段1・段2(値付け・Marketへの一括書き込み)は <see cref="ProductionSystem"/> /
-    /// <see cref="ConsumptionSystem"/> の結果だけに依存し、その後の段4〜6には一切依存しない
-    /// (<see cref="TradeSystem"/> のdocコメント「<c>Market</c> を書くのは段2 だけ」)。
-    /// 同じシードで <see cref="ProductionSystem"/> / <see cref="ConsumptionSystem"/> だけを
-    /// 別世界に走らせれば、それが段1 の直前(=段1 が実際に読んだ)の状態と一致する
-    /// (両システムとも乱数を引かない決定的な状態遷移)。
-    /// </para>
-    /// </remarks>
-    [Fact]
-    public void FirstDayOffersAreExactlyTheCostFloor()
+    private static int[][] ConsumptionTable()
     {
-        var definition = WorldDefinition.M0;
+        var row = new int[Item.Count];
+        row[Item.Bread] = 1;
+        row[Item.Grain] = 1;
 
-        // 段1(値付け)が実際に読んだ、生産・消費だけを終えた状態のスナップショット。
-        // Trade(買い物)を含めた本番のworldとは別のインスタンスで、同じシードで走らせる。
-        var preTradeWorld = WorldGenerator.Generate(definition, new RandomSource(1));
-        var preTradeScheduler = new SimScheduler(
-            new ISimSystem[] { new ProductionSystem(definition), new ConsumptionSystem(definition) },
-            new RandomSource(1));
-        preTradeScheduler.Advance(preTradeWorld, ticks: 24);
+        return new[] { (int[])row.Clone(), (int[])row.Clone(), (int[])row.Clone() };
+    }
 
-        var world = WorldGenerator.Generate(definition, new RandomSource(1));
-
-        var scheduler = new SimScheduler(
-            new ISimSystem[]
-            {
-                new ProductionSystem(definition),
-                new ConsumptionSystem(definition),
-                new TradeSystem(definition),
-            },
-            new RandomSource(1));
-        scheduler.Advance(world, ticks: 24);
-
-        // レビュー1巡目指摘2: 空振り(全売り手が販売在庫0)で緑になるのを防ぐ。M0のinitialWorkshopInputDays
-        // (現在5、#28が動かす前提)が0になると下のループが値付けを一度も検証せず素通りする。
-        Assert.NotEmpty(world.Market);
-
-        foreach (var household in preTradeWorld.Households)
+    private static int[] TargetStockDaysFor(params int[] itemIds)
+    {
+        var row = new int[Item.Count];
+        foreach (int itemId in itemIds)
         {
-            var recipe = definition.Recipes[(int)household.Occupation];
-            int outputItemId = recipe.Outputs[0].ItemId;
-            int sellableStock = household.WorkshopInventory[outputItemId];
-            var key = new MarketKey(outputItemId, household.Id);
+            row[itemId] = 1;
+        }
+
+        return row;
+    }
+
+    /// <summary>
+    /// パン(必需の候補)・穀物(必需/嗜好のもう一方の候補、UnusedRecipeが生産する)の2品目に
+    /// 床を持たせた定義。既定は両方とも床10(価格1だとFundsCapがCashCapを下回れず段5の
+    /// 経路(2)を再現できないため)。
+    /// </summary>
+    private static WorldDefinition BuildShoppingDefinition(
+        int breadFloor = 10,
+        int grainFloor = 10,
+        int[]? necessityTargetStockDays = null,
+        int[]? preferenceTargetStockDays = null,
+        int tolerancePermille = 1200,
+        int minimumMarginPermille = 0)
+    {
+        var externalBuyPrice = new int[Item.Count];
+        externalBuyPrice[Item.Bread] = breadFloor;
+        externalBuyPrice[Item.Grain] = grainFloor;
+
+        return EconomySystemTestFixtures.BuildDefinition(
+            MillerBreadRecipe(),
+            dailyConsumptionPerNpcByRank: ConsumptionTable(),
+            necessityTargetStockDays: necessityTargetStockDays ?? new int[Item.Count],
+            preferenceTargetStockDays: preferenceTargetStockDays ?? new int[Item.Count],
+            tolerancePermille: tolerancePermille,
+            minimumMarginPermille: minimumMarginPermille,
+            opportunityCostBaseByOccupation: new[] { 1, 1, 1, 1, 1 },
+            rankCoefficientPermille: new[] { 1000, 1000, 1000 },
+            travelHoursPerDistrict: 1,
+            shipmentDays: 1,
+            inputBufferDays: 1,
+            externalBuyPriceOverride: externalBuyPrice);
+    }
+
+    /// <summary>世帯を1戸、指定の区画・職業で作る(単独NPC世帯)。</summary>
+    private static void AddHousehold(
+        World world, int id, int districtId, Occupation occupation, int liquidFunds = 0)
+    {
+        world.Npcs[id].Rank = NpcRank.Master;
+        world.Households[id] = new HouseholdState(
+            id: id, districtId: districtId, headNpcId: id, memberNpcIds: new[] { id }, itemCount: Item.Count);
+        world.Households[id].Occupation = occupation;
+        world.Households[id].LiquidFunds = liquidFunds;
+    }
+
+    /// <summary>
+    /// テスト表 #7。相場基準が立たない日の提示価格が床ちょうど。販売在庫をどう動かしても床のまま
+    /// (<c>OfferPrice.Calculate</c> を呼ばない ── 呼び出し側が床をそのまま使う。GDD02c §1)。
+    /// </summary>
+    [Fact]
+    public void OfferPriceIsFloorWithoutReference()
+    {
+        var definition = BuildShoppingDefinition(breadFloor: 80);
+        int floor = 80;
+
+        foreach (int sellableStock in new[] { 0, 1, 100, 1000 })
+        {
+            var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+            AddHousehold(world, id: 0, districtId: 4, Occupation.Miller);
+            world.Households[0].WorkshopInventory[Item.Bread] = sellableStock;
+
+            EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
 
             if (sellableStock <= 0)
             {
-                Assert.False(world.Market.ContainsKey(key));
+                Assert.False(world.Market.ContainsKey(new MarketKey(Item.Bread, 0)));
                 continue;
             }
 
-            int unitCost = OfferPrice.UnitCost(recipe, household.PurchaseUnitCostAverage);
-            int expected = OfferPrice.CostFloor(unitCost, definition.MinimumMarginPermille, household.IsBankrupt);
-
-            Assert.True(world.Market.TryGetValue(key, out int actual));
-            Assert.Equal(expected, actual);
+            Assert.Equal(floor, world.Market[new MarketKey(Item.Bread, 0)]);
         }
     }
 
-    /// <summary>
-    /// 【核心】テスト表 #22。1日目で価格が付いた後、世帯主の <c>Knowledge</c> に他の売り手の観測を
-    /// 1件仕込んで2日目を進める → 相場基準が CeilDiv(観測 + 自分の前日価格, 2) になっている。
-    /// </summary>
-    /// <remarks>
-    /// <b>在庫比を出荷目標にちょうど揃え(係数1000‰)、原価下限を低く抑えることで、最終提示価格が
-    /// 相場基準そのものになるように仕立てる</b>(そうしないと <c>max</c> の第1項に隠れて判別できない)。
-    /// <para>
-    /// <b>変異の実測(2026-09-16)。</b><c>TradeSystem.Step</c> の手順を「<c>world.Market.Clear()</c>を
-    /// 先に呼んでから1件ずつ計算して書く」形(TDD01 §3.2が要求する一括書き込みの崩れ)に変える変異を
-    /// 当てたところ、2日目の <c>Assert.Equal(101, ...)</c> が実際値200(自分の前日価格2を失い、
-    /// 観測200のみの平均になった)で失敗した(赤を確認)。変異を戻して緑に復帰させた。
-    /// </para>
-    /// </remarks>
-    [Fact]
-    public void OfferReadsYesterdaysOwnPriceNotAClearedMarket()
-    {
-        const int ShipmentTarget = 5;
-        const int SellableStock = 5; // 在庫比 = 1000‰(目標どおり) → 価格係数1000‰
-
-        var definition = BuildDefinition(ShipmentTarget, minimumMarginPermille: 0);
-        var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(
-            new[] { NpcRank.Master, NpcRank.Apprentice });
-        world.Households[0].WorkshopInventory[Item.Flour] = SellableStock;
-        world.Households[0].PurchaseUnitCostAverage[Item.Grain] = 1; // 原価 = CeilDiv(1×2,1) = 2
-
-        var system = new TradeSystem(definition);
-
-        // 1日目: 観測が無いので原価下限(2)がそのまま提示価格になり、Marketに書かれる。
-        EconomySystemTestFixtures.RunDays(world, system, days: 1);
-        var key = new MarketKey(Item.Flour, world.Households[0].Id);
-        Assert.Equal(2, world.Market[key]);
-
-        // 2日目の前に、世帯主(HeadNpcId)のKnowledgeへ他の売り手の観測(価格200・1日目)を仕込む。
-        const int OtherSellerId = 999;
-        world.Knowledge[world.Households[0].HeadNpcId].Add(
-            Observation(Item.Flour, OtherSellerId, price: 200, observedAt: Tick.Zero));
-
-        EconomySystemTestFixtures.RunDays(world, system, days: 1);
-
-        // 相場基準 = CeilDiv(200 + 2, 2) = 101。係数1000‰なのでApplyPermille後もそのまま101。
-        // 原価下限2 < 101 なのでmaxは相場基準側を採る。
-        Assert.Equal(101, world.Market[key]);
-    }
-
-    /// <summary>
-    /// 【核心】テスト表 #23。同じ品目を世帯在庫に積んでも提示価格が変わらない。
-    /// パン屋(ここではMiller)の工房在庫にある入力(穀物)に売り注文が立たない。
-    /// </summary>
-    /// <remarks>
-    /// <b>相場基準が立つ(<c>hasReference == true</c>)場面で比較する。</b>観測が無いと
-    /// <c>TradeSystem.Step</c> は常に <c>costFloor</c> をそのまま使い、<c>OfferPrice.Calculate</c>
-    /// (在庫比‰の計算経路)を一度も通らないため、<c>sellableStock</c> に世帯在庫を足す変異を
-    /// 混入しても判別できない。#22 と同じ2日パターンで相場基準を立てて比較する。
-    /// <para>
-    /// <b>変異の実測1(2026-09-16)。</b><c>TradeSystem.Step</c> の <c>sellableStock</c> の取得を
-    /// <c>household.WorkshopInventory[outputItemId] + household.HouseholdInventory[outputItemId]</c>
-    /// (世帯在庫を足す)に変える変異を当てたところ、世帯在庫100を積んだケースの2日目の提示価格が
-    /// 51(在庫比105/5=21000‰→係数clamp下限500‰→ApplyPermille(101,500)=51)になり、
-    /// 積まない場合の101と食い違って <c>Assert.Equal</c> が失敗した(赤を確認)。
-    /// 変異を戻して緑に復帰させた。
-    /// </para>
-    /// <para>
-    /// <b>絶対値の固定について(レビュー2巡目指摘)。</b>2回の実行の相等だけで判定すると、
-    /// 相場基準が立たなくなる変異(両者とも <c>costFloor</c> に落ちて一致してしまう)を見逃す
-    /// ため、<c>Assert.Equal(101, ...)</c> を足した。
-    /// </para>
-    /// <para>
-    /// <b>変異の実測2(2026-09-16)。</b><c>OfferPrice.TryMarketReference</c> の冒頭で常に
-    /// <c>marketReference = 0; return false;</c>(相場基準が常に立たない変異)を当てたところ、
-    /// <c>Assert.Equal(101, priceWithoutHouseholdStock)</c> が実際値2(<c>costFloor</c>)で
-    /// 失敗した(赤を確認)。絶対値の固定を足す前は、両ケースとも2で一致し
-    /// <c>Assert.Equal(priceWithoutHouseholdStock, priceWithHouseholdStock)</c> だけでは
-    /// この変異を判別できなかった。変異を戻して緑に復帰させた。
-    /// </para>
-    /// </remarks>
-    [Fact]
-    public void SellableStockIsOnlyTheWorkshopOutputInventory()
-    {
-        const int ShipmentTarget = 5;
-        const int OtherSellerId = 999;
-        var definition = BuildDefinition(ShipmentTarget, minimumMarginPermille: 0);
-
-        int RunAndGetPrice(int householdInventoryFlour)
-        {
-            var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(new[] { NpcRank.Master });
-            world.Households[0].WorkshopInventory[Item.Flour] = 5;
-            world.Households[0].HouseholdInventory[Item.Flour] = householdInventoryFlour;
-            world.Households[0].WorkshopInventory[Item.Grain] = 50; // 入力(穀物)を工房在庫に積む
-            world.Households[0].PurchaseUnitCostAverage[Item.Grain] = 1; // 原価2
-
-            var system = new TradeSystem(definition);
-            EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目: 原価下限2で出品
-
-            // 入力(穀物)には売り注文が立たない。
-            Assert.False(world.Market.ContainsKey(new MarketKey(Item.Grain, world.Households[0].Id)));
-
-            world.Knowledge[world.Households[0].HeadNpcId].Add(
-                Observation(Item.Flour, OtherSellerId, price: 200, observedAt: Tick.Zero));
-
-            EconomySystemTestFixtures.RunDays(world, system, days: 1); // 2日目: 相場基準が立つ
-
-            return world.Market[new MarketKey(Item.Flour, world.Households[0].Id)];
-        }
-
-        int priceWithoutHouseholdStock = RunAndGetPrice(householdInventoryFlour: 0);
-        int priceWithHouseholdStock = RunAndGetPrice(householdInventoryFlour: 100);
-
-        // 絶対値も固定する(相場基準101、#22と同じ設定・同じ計算)。2回の実行の相等だけで
-        // 判定すると、相場基準が立たなくなる変異(両者ともcostFloor=2に落ちて一致する)を
-        // 見逃す(レビュー2巡目指摘)。
-        Assert.Equal(101, priceWithoutHouseholdStock);
-        Assert.Equal(priceWithoutHouseholdStock, priceWithHouseholdStock);
-    }
-
-    /// <summary>テスト表 #24。出力在庫0(入力切れで生産停止)の売り手の MarketKey が Market に無い。</summary>
+    /// <summary>テスト表 #24(旧番)。出力在庫0(入力切れで生産停止)の売り手のMarketKeyがMarketに無い。</summary>
     [Fact]
     public void NoOfferIsPostedWhenSellableStockIsZero()
     {
-        var definition = BuildDefinition(shipmentTarget: 5);
-        var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(new[] { NpcRank.Master });
-        world.Households[0].WorkshopInventory[Item.Flour] = 0;
+        var definition = BuildShoppingDefinition();
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+        AddHousehold(world, id: 0, districtId: 4, Occupation.Miller);
+        world.Households[0].WorkshopInventory[Item.Bread] = 0;
 
         EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
 
-        Assert.False(world.Market.ContainsKey(new MarketKey(Item.Flour, world.Households[0].Id)));
+        Assert.False(world.Market.ContainsKey(new MarketKey(Item.Bread, 0)));
     }
 
-    /// <summary>テスト表 #25。前日出品した売り手の在庫を0にして1日進めると、エントリが消える。</summary>
+    /// <summary>テスト表 #25(旧番)。前日出品した売り手の在庫を0にして1日進めると、エントリが消える。</summary>
     [Fact]
     public void StaleOfferIsRemovedWhenStockRunsOut()
     {
-        var definition = BuildDefinition(shipmentTarget: 5);
-        var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(new[] { NpcRank.Master });
-        world.Households[0].WorkshopInventory[Item.Flour] = 5;
-        world.Households[0].PurchaseUnitCostAverage[Item.Grain] = 1;
+        var definition = BuildShoppingDefinition();
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+        AddHousehold(world, id: 0, districtId: 4, Occupation.Miller);
+        world.Households[0].WorkshopInventory[Item.Bread] = 5;
 
         var system = new TradeSystem(definition);
-        var key = new MarketKey(Item.Flour, world.Households[0].Id);
+        var key = new MarketKey(Item.Bread, 0);
 
         EconomySystemTestFixtures.RunDays(world, system, days: 1);
         Assert.True(world.Market.ContainsKey(key));
 
-        world.Households[0].WorkshopInventory[Item.Flour] = 0;
+        world.Households[0].WorkshopInventory[Item.Bread] = 0;
         EconomySystemTestFixtures.RunDays(world, system, days: 1);
 
         Assert.False(world.Market.ContainsKey(key));
     }
 
     /// <summary>
-    /// <see cref="MarketReferenceComesFromTheHeadNpcOnly"/> 専用の世帯1戸の世界。
-    /// <b>世帯主の NpcId(2) を世帯 Id(0) とわざと違える。</b>
-    /// <see cref="EconomySystemTestFixtures.BuildWorldWithOneHousehold"/> は <c>headNpcId == 0 ==
-    /// household.Id</c> に固定されており、それだと「<c>HeadNpcId</c> ではなく世帯 Id で
-    /// <c>Knowledge</c> を引く」実装ミス(TDD01 §3.2「取り違えを型で防げない」経路)が
-    /// 偶然一致して判別できない。
+    /// 売り手の自分の錨は前日の約定単価(帳簿)であって前日の提示価格ではないことをパイプラインで
+    /// 確かめる(TDD01 §3.2・§3.3)。1日目に売れ残った売り手は、2日目もhasSettled=falseのまま。
     /// </summary>
-    private static World BuildWorldWithHeadNpcIdDifferentFromHouseholdId()
-    {
-        const int HeadNpcId = 2;
-        const int ApprenticeNpcId = 3;
-
-        var world = new World(npcCount: 4, householdCount: 1, itemCount: Item.Count);
-        world.Npcs[HeadNpcId].Rank = NpcRank.Master;
-        world.Npcs[ApprenticeNpcId].Rank = NpcRank.Apprentice;
-
-        world.Households[0] = new HouseholdState(
-            id: 0, districtId: 0, headNpcId: HeadNpcId,
-            memberNpcIds: new[] { HeadNpcId, ApprenticeNpcId }, itemCount: Item.Count);
-        world.Households[0].Occupation = Occupation.Miller;
-
-        return world;
-    }
-
-    /// <summary>
-    /// 【核心】テスト表 #26。徒弟の <c>Knowledge</c> にだけ観測を置く → 相場基準が立たない
-    /// (原価下限のまま)。同じ観測を世帯主に置くと立つ。
-    /// </summary>
-    /// <remarks>
-    /// <b>変異の実測(2026-09-16)。</b><c>TradeSystem.Step</c> の
-    /// <c>world.Knowledge[household.HeadNpcId]</c> を <c>world.Knowledge[household.Id]</c>
-    /// (世帯Idで誤って引く)に変える変異を当てたところ、世帯主(NpcId=2)に観測を置いたケースの
-    /// <c>Assert.Equal(101, ...)</c> が実際値2(誤って<c>Knowledge[0]</c>=空を読み、相場基準が
-    /// 立たず原価下限のまま)で失敗した(赤を確認)。変異を戻して緑に復帰させた。
-    /// </remarks>
     [Fact]
-    public void MarketReferenceComesFromTheHeadNpcOnly()
+    public void SellerAnchorsOnSettledPriceNotOnItsOwnPreviousOffer()
     {
-        const int ShipmentTarget = 5;
-        const int SellableStock = 5;
         const int OtherSellerId = 999;
-        const int HeadNpcId = 2;
-        const int ApprenticeNpcId = 3;
 
-        int RunSecondDayPrice(int observerNpcId)
-        {
-            var definition = BuildDefinition(ShipmentTarget, minimumMarginPermille: 0);
-            var world = BuildWorldWithHeadNpcIdDifferentFromHouseholdId();
-            world.Households[0].WorkshopInventory[Item.Flour] = SellableStock;
-            world.Households[0].PurchaseUnitCostAverage[Item.Grain] = 1; // 原価2
-
-            var system = new TradeSystem(definition);
-            EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目: 原価下限2で出品
-
-            world.Knowledge[observerNpcId].Add(
-                Observation(Item.Flour, OtherSellerId, price: 200, observedAt: Tick.Zero));
-
-            EconomySystemTestFixtures.RunDays(world, system, days: 1);
-
-            return world.Market[new MarketKey(Item.Flour, world.Households[0].Id)];
-        }
-
-        const int CostFloor = 2;
-
-        // 徒弟のKnowledgeにだけ観測 → 相場基準が立たず、原価下限のまま。
-        Assert.Equal(CostFloor, RunSecondDayPrice(ApprenticeNpcId));
-
-        // 同じ観測を世帯主のKnowledgeに置くと相場基準が立つ(101、#22と同じ計算)。
-        Assert.Equal(101, RunSecondDayPrice(HeadNpcId));
-    }
-
-    /// <summary>
-    /// 【核心】レビュー1巡目指摘1。<c>TradeSystem.Step</c> が <c>OfferPrice.TryMarketReference</c> の
-    /// <c>selfHouseholdId</c> に渡すのは <c>household.Id</c> であって <c>household.HeadNpcId</c> ではない
-    /// ことを、パイプライン側で押さえる。
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>世帯主のNpcId(2)と世帯Id(0)を意図的に違えた世界</b>
-    /// (<see cref="BuildWorldWithHeadNpcIdDifferentFromHouseholdId"/>)を使い、世帯主の
-    /// <c>Knowledge</c> へ「<c>SellerId</c> = 自世帯Id(0)」の観測だけを置く。他の #21〜#29 は
-    /// 観測の <c>SellerId</c> が999固定・自世帯Idが0固定のため、<c>selfHouseholdId</c> に
-    /// <c>household.HeadNpcId</c>(2)を渡す変異が混入しても
-    /// <c>SellerId(999) != HeadNpcId(2)</c> で偶然除外が効いてしまい、どのテストも判別できない
-    /// (TDD01 §3.2「NpcId と世帯 Id の取り違えは型で防げない」経路)。
-    /// </para>
-    /// <para>
-    /// <b>変異の実測(2026-09-16)。</b><c>TradeSystem.Step</c> の
-    /// <c>OfferPrice.TryMarketReference</c> 呼び出しの3引数目(<c>selfHouseholdId</c>)を
-    /// <c>household.Id</c> から <c>household.HeadNpcId</c> に変える変異を当てたところ、
-    /// <c>Assert.Equal(2, ...)</c> が実際値151(<c>SellerId=0</c> の自己観測300が
-    /// <c>selfHouseholdId=2</c> と一致せず除外されず、相場基準 = CeilDiv(300+2,2)=151 が
-    /// 立ってしまった)で失敗した(赤を確認)。変異を戻して緑に復帰させた。
-    /// </para>
-    /// </remarks>
-    [Fact]
-    public void MarketReferenceExcludesTheHouseholdsOwnObservationEvenWhenHeadNpcIdDiffers()
-    {
-        const int ShipmentTarget = 5;
-        const int SellableStock = 5;
-        const int SelfHouseholdId = 0; // BuildWorldWithHeadNpcIdDifferentFromHouseholdIdの世帯Id
-        const int HeadNpcId = 2;
-
-        var definition = BuildDefinition(ShipmentTarget, minimumMarginPermille: 0);
-        var world = BuildWorldWithHeadNpcIdDifferentFromHouseholdId();
-        world.Households[0].WorkshopInventory[Item.Flour] = SellableStock;
-        world.Households[0].PurchaseUnitCostAverage[Item.Grain] = 1; // 原価2
+        var definition = BuildShoppingDefinition(breadFloor: 10);
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+        AddHousehold(world, id: 0, districtId: 4, Occupation.Miller);
+        // 出荷目標在庫ちょうど(生産能力1×出力数量1×出荷日数1 = 1)に合わせる ── 在庫比を
+        // 1000‰(価格係数1000‰)に保ち、相場基準がそのまま提示価格に出るようにする。
+        world.Households[0].WorkshopInventory[Item.Bread] = 1;
 
         var system = new TradeSystem(definition);
-        EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目: 原価下限2で出品
+        var key = new MarketKey(Item.Bread, 0);
 
-        // 自世帯(Id=0)の観測だけを世帯主のKnowledgeへ置く。SellerId(0)はhousehold.Idと一致し、
-        // household.HeadNpcId(2)とは一致しない。
-        world.Knowledge[HeadNpcId].Add(
-            Observation(Item.Flour, sellerId: SelfHouseholdId, price: 300, observedAt: Tick.Zero));
+        EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目: 買い手不在で売れ残る
+        Assert.Equal(10, world.Market[key]); // 床のまま
 
-        EconomySystemTestFixtures.RunDays(world, system, days: 1);
+        // 他の売り手の観測を1件仕込む(前日=1日目の日付)。
+        world.Knowledge[0].Add(new PriceObservation
+        {
+            ItemId = Item.Bread,
+            LocationId = 0,
+            Price = 200,
+            SellerId = OtherSellerId,
+            ObservedAt = Tick.Zero,
+            Source = ObservationSource.Direct,
+        });
 
-        var key = new MarketKey(Item.Flour, world.Households[0].Id);
+        EconomySystemTestFixtures.RunDays(world, system, days: 1); // 2日目
 
-        // 自世帯の観測しかないので相場基準が立たず、原価下限(2)のまま。
-        Assert.Equal(2, world.Market[key]);
+        // household0は1日目に1件も売れていない(hasSettled=false)ので、自分の約定単価は
+        // 平均に混ざらない。相場基準 = 200(他の売り手の観測のみ)。在庫比1000‰(目標どおり)。
+        Assert.Equal(200, world.Market[key]);
     }
 
-    /// <summary>テスト表 #27。IsBankrupt = 1 を直接立てて1日進める → 提示価格の下限が500‰になっている。</summary>
+    /// <summary>
+    /// 段1の値付けが <c>MarketReference.TrySeller</c> へ渡す2つの異なるId(観測を読む
+    /// <c>household.HeadNpcId</c> と、自分を除外する <c>household.Id</c>)を取り違えないこと
+    /// (TDD01 §3.2「取り違えを型で防げない」経路)。世帯主のNpcIdを世帯Idとわざと違える。
+    /// </summary>
     [Fact]
-    public void BankruptSellerPostsTheHalvedFloorInThePipeline()
+    public void SellerReferenceReadsHeadNpcKnowledgeAndExcludesTheHouseholdIdNotTheNpcId()
     {
-        var definition = BuildDefinition(shipmentTarget: 5, minimumMarginPermille: 200);
-        var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(new[] { NpcRank.Master });
-        world.Households[0].WorkshopInventory[Item.Flour] = 5;
-        world.Households[0].PurchaseUnitCostAverage[Item.Grain] = 1; // 原価2
-        world.Households[0].IsBankrupt = 1;
+        const int HeadNpcId = 2; // household.Id(0)とわざと違える。
 
-        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+        var definition = BuildShoppingDefinition(breadFloor: 10);
+        var world = new World(npcCount: 3, householdCount: 1, itemCount: Item.Count);
+        world.Npcs[HeadNpcId].Rank = NpcRank.Master;
+        world.Households[0] = new HouseholdState(
+            id: 0, districtId: 4, headNpcId: HeadNpcId, memberNpcIds: new[] { HeadNpcId }, itemCount: Item.Count);
+        world.Households[0].Occupation = Occupation.Miller;
+        world.Households[0].WorkshopInventory[Item.Bread] = 1; // 出荷目標在庫ちょうど(係数1000‰)。
 
-        // 通常時: ApplyPermille(2, 1200) = 3。破産時: ApplyPermille(2, 500) = 1。
-        int price = world.Market[new MarketKey(Item.Flour, world.Households[0].Id)];
-        Assert.Equal(OfferPrice.CostFloor(unitCost: 2, minimumMarginPermille: 200, isBankrupt: 1), price);
-        Assert.NotEqual(OfferPrice.CostFloor(unitCost: 2, minimumMarginPermille: 200, isBankrupt: 0), price);
+        // 世帯主(NpcId=2)のKnowledgeへ2件仕込む。自分の売り注文(SellerId=household.Id=0)は
+        // 除外され、他の売り手(SellerId=headNpcId=2。この世界には存在しない世帯Idだが、
+        // 取り違えを検出するための値)は含まれるべき。
+        world.Knowledge[HeadNpcId].Add(new PriceObservation
+        {
+            ItemId = Item.Bread,
+            LocationId = 0,
+            Price = 999,
+            SellerId = 0,
+            ObservedAt = Tick.Zero,
+            Source = ObservationSource.Direct,
+        });
+        world.Knowledge[HeadNpcId].Add(new PriceObservation
+        {
+            ItemId = Item.Bread,
+            LocationId = 0,
+            Price = 200,
+            SellerId = HeadNpcId,
+            ObservedAt = Tick.Zero,
+            Source = ObservationSource.Direct,
+        });
+
+        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1); // 1日目
+        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1); // 2日目
+
+        // 相場基準 = 200(SellerId=0の自己観測999は除外される)。household.Idで
+        // Knowledgeを引く変異では観測そのものが見つからず床(10)のまま、selfHouseholdIdに
+        // headNpcIdを渡す変異では999のほうが残って999になる。
+        Assert.Equal(200, world.Market[new MarketKey(Item.Bread, 0)]);
     }
 
-    /// <summary>テスト表 #28。入力0件 / 出力2件を含む定義でコンストラクタが NotSupportedException。</summary>
+    /// <summary>テスト表 #28(旧番)。入力0件は許容される(原価が値付けに入らないため)。出力2件以上でNotSupportedException。</summary>
     [Fact]
-    public void TradeSystemRejectsUnsupportedRecipesAtConstruction()
+    public void TradeSystemRejectsMultiOutputRecipesAtConstruction()
     {
         var noInputRecipe = new Recipe(
             Occupation.Miller,
-            outputs: new[] { new ItemQuantity { ItemId = Item.Flour, Quantity = 1 } },
+            outputs: new[] { new ItemQuantity { ItemId = Item.Bread, Quantity = 1 } },
             inputs: Array.Empty<ItemQuantity>(),
             laborPermille: 1000);
 
         var noInputDefinition = EconomySystemTestFixtures.BuildDefinition(noInputRecipe);
-        Assert.Throws<NotSupportedException>(() => new TradeSystem(noInputDefinition));
+        // 入力0件は許容される(#97で「入力0件のレシピを拒む検査」は消えた)。
+        _ = new TradeSystem(noInputDefinition);
 
         var manyOutputsRecipe = new Recipe(
             Occupation.Miller,
@@ -443,23 +263,19 @@ public sealed class TradeSystemTests
         Assert.Throws<NotSupportedException>(() => new TradeSystem(manyOutputsDefinition));
     }
 
-    /// <summary>
-    /// テスト表 #29。マスターシードだけを変えた2つの <c>RandomSource</c> で同じ世界を1日進め、
-    /// 状態ハッシュが一致する。
-    /// </summary>
+    /// <summary>テスト表 #32。同じシードで2回走らせると状態ハッシュが一致する。乱数を引かない。</summary>
     [Fact]
-    public void TradeDrawsNoRandomNumbers()
+    public void TradePipelineStillRunsDeterministically()
     {
-        var definition = BuildDefinition(shipmentTarget: 5, minimumMarginPermille: 200);
+        var definition = BuildShoppingDefinition();
 
         ulong RunWithSeed(long seed)
         {
-            var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(
-                new[] { NpcRank.Master, NpcRank.Apprentice });
-            world.Households[0].WorkshopInventory[Item.Flour] = 5;
-            world.Households[0].PurchaseUnitCostAverage[Item.Grain] = 1;
-            world.Knowledge[world.Households[0].HeadNpcId].Add(
-                Observation(Item.Flour, sellerId: 999, price: 200, observedAt: Tick.Zero));
+            var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
+            AddHousehold(world, id: 0, districtId: 4, Occupation.Miller, liquidFunds: 1000);
+            AddHousehold(world, id: 1, districtId: 1, Occupation.Baker); // Grainの売り手(UnusedRecipe)
+            world.Households[0].WorkshopInventory[Item.Bread] = 5;
+            world.Households[1].WorkshopInventory[Item.Grain] = 5;
 
             var scheduler = new SimScheduler(
                 new ISimSystem[] { new TradeSystem(definition) }, new RandomSource(seed));
@@ -469,5 +285,187 @@ public sealed class TradeSystemTests
         }
 
         Assert.Equal(RunWithSeed(1), RunWithSeed(999999));
+    }
+
+    /// <summary>
+    /// 【核心】テスト表 #27。必需1品目で (1) 現金上限が実効価格を下回ってゲートで0 →
+    /// UnaffordableNecessityCount == 1、(2) ゲートは開くがFundsCapが0に切り詰める → 同じく1。
+    /// 同じlineで2にならない。
+    /// </summary>
+    [Fact]
+    public void NecessityShortfallIsCountedOnBothPaths()
+    {
+        // 経路(1): 現金上限のゲートで0。
+        {
+            var definition = BuildShoppingDefinition(
+                necessityTargetStockDays: TargetStockDaysFor(Item.Bread));
+            var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
+            AddHousehold(world, id: 0, districtId: 4, Occupation.Woodworker, liquidFunds: 0);
+            AddHousehold(world, id: 1, districtId: 4, Occupation.Miller);
+            world.Households[1].WorkshopInventory[Item.Bread] = 100;
+
+            EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+
+            Assert.Equal(1, world.Households[0].UnaffordableNecessityCount);
+        }
+
+        // 経路(2): 資金上限の切り詰めで0(2品目が同じ流動資金を奪い合う)。
+        {
+            var definition = BuildShoppingDefinition(
+                necessityTargetStockDays: TargetStockDaysFor(Item.Bread, Item.Grain));
+            var world = new World(npcCount: 3, householdCount: 3, itemCount: Item.Count);
+            AddHousehold(world, id: 0, districtId: 4, Occupation.Woodworker, liquidFunds: 10);
+            AddHousehold(world, id: 1, districtId: 4, Occupation.Miller); // Breadの売り手
+            AddHousehold(world, id: 2, districtId: 4, Occupation.Baker); // Grainの売り手
+            world.Households[1].WorkshopInventory[Item.Bread] = 100;
+            world.Households[2].WorkshopInventory[Item.Grain] = 100;
+
+            EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+
+            // 品目Id昇順(穀物0 → パン6)で穀物を先に買い切り、流動資金が尽きてパンがFundsCapで
+            // 切り詰められる。同じlineで二重に数えられないので、結果は1のままである。
+            Assert.Equal(1, world.Households[0].UnaffordableNecessityCount);
+        }
+    }
+
+    /// <summary>
+    /// テスト表 #28。必需で相場項が実効価格を下回ってゲートが閉じた日 →
+    /// UnaffordableNecessityCount == 0。売り手の在庫が0で約定できなかった日・店を1つも
+    /// 知らない日も0。
+    /// </summary>
+    [Fact]
+    public void TooExpensiveIsNotCountedAsShortfall()
+    {
+        const int PhantomSellerId = 999;
+
+        // ケース1: 相場項が実効価格を下回る(高すぎて買わなかった)。
+        {
+            var definition = BuildShoppingDefinition(
+                breadFloor: 10, necessityTargetStockDays: TargetStockDaysFor(Item.Bread));
+            var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
+            AddHousehold(world, id: 0, districtId: 4, Occupation.Woodworker, liquidFunds: 1000);
+            AddHousehold(world, id: 1, districtId: 4, Occupation.Miller);
+            world.Households[1].WorkshopInventory[Item.Bread] = 100;
+
+            var system = new TradeSystem(definition);
+            EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目: 観測なし
+
+            // 安い観測(価格1)を仕込む。1日目の日付(Tick.Zero)で、2日目に前日として有効になる。
+            world.Knowledge[0].Add(new PriceObservation
+            {
+                ItemId = Item.Bread,
+                LocationId = 0,
+                Price = 1,
+                SellerId = PhantomSellerId,
+                ObservedAt = Tick.Zero,
+                Source = ObservationSource.Direct,
+            });
+
+            EconomySystemTestFixtures.RunDays(world, system, days: 1); // 2日目
+
+            // 相場項(許容乖離1200‰を掛けても最大3程度)が実効価格(床10、売り手には他の売り手の
+            // 観測が無いので相場基準が立たず常に床)を下回る。資金は潤沢(1000)なので資金不足ではない。
+            Assert.Equal(0, world.Households[0].UnaffordableNecessityCount);
+        }
+
+        // ケース2: 売り手の在庫が尽きている(売り注文そのものが無い)。
+        {
+            var definition = BuildShoppingDefinition(
+                necessityTargetStockDays: TargetStockDaysFor(Item.Bread));
+            var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
+            AddHousehold(world, id: 0, districtId: 4, Occupation.Woodworker, liquidFunds: 1000);
+            AddHousehold(world, id: 1, districtId: 4, Occupation.Miller);
+            world.Households[1].WorkshopInventory[Item.Bread] = 0;
+
+            EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+
+            Assert.Equal(0, world.Households[0].UnaffordableNecessityCount);
+        }
+
+        // ケース3: 店を1つも知らない(売り手が存在しない)。
+        {
+            var definition = BuildShoppingDefinition(
+                necessityTargetStockDays: TargetStockDaysFor(Item.Bread));
+            var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+            AddHousehold(world, id: 0, districtId: 4, Occupation.Woodworker, liquidFunds: 1000);
+
+            EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+
+            Assert.Equal(0, world.Households[0].UnaffordableNecessityCount);
+        }
+    }
+
+    /// <summary>
+    /// 【核心】テスト表 #29([#81](https://github.com/stama72/visionary/issues/81))。流動資金が
+    /// 「必需1日分」と「嗜好1日分」の片方しか払えない帯に置いた世帯で、必需が約定し
+    /// UnaffordableNecessityCount == 0、嗜好の約定が0個であること。
+    /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-20)。</b>テスト側で <c>demand.Lines</c> を仮に <c>Reverse()</c> して
+    /// 段5相当を走らせる形(<c>TradeSystem.Step</c> のLines走査を品目Id順・用途を無視した順に
+    /// 変える製品コードの変異に相当する検証)を当てたところ、嗜好(穀物)が先に約定して流動資金15が
+    /// 5へ減り、必需(パン)がFundsCapで0に切り詰められて <c>UnaffordableNecessityCount == 1</c>
+    /// になった(期待0、赤を確認)。この帯(流動資金15、パン・穀物とも単価10)は必需と嗜好の
+    /// どちらが先に決済されるかで結果が変わる判別力を持つ。変異を戻して(製品コードの走査順を
+    /// 必需→耐久→入力→嗜好のまま)緑に復帰させた。
+    /// </remarks>
+    [Fact]
+    public void NecessityIsSettledBeforePreference()
+    {
+        var definition = BuildShoppingDefinition(
+            breadFloor: 10,
+            grainFloor: 10,
+            necessityTargetStockDays: TargetStockDaysFor(Item.Bread),
+            preferenceTargetStockDays: TargetStockDaysFor(Item.Grain));
+
+        var world = new World(npcCount: 3, householdCount: 3, itemCount: Item.Count);
+        // 必需1日分(10)は払えるが、必需+嗜好1日分(20)は払えない帯。
+        AddHousehold(world, id: 0, districtId: 4, Occupation.Woodworker, liquidFunds: 15);
+        AddHousehold(world, id: 1, districtId: 4, Occupation.Miller); // パン(必需)の売り手
+        AddHousehold(world, id: 2, districtId: 4, Occupation.Baker); // 穀物(嗜好)の売り手
+        world.Households[1].WorkshopInventory[Item.Bread] = 100;
+        world.Households[2].WorkshopInventory[Item.Grain] = 100;
+
+        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+
+        var buyer = world.Households[0];
+
+        Assert.Equal(0, buyer.UnaffordableNecessityCount);
+        Assert.Equal(1, buyer.HouseholdInventory[Item.Bread]); // 必需は約定する
+        Assert.Equal(0, buyer.HouseholdInventory[Item.Grain]); // 嗜好はFundsCapで0個
+        Assert.Equal(5, buyer.LiquidFunds); // 15 − 10(パンの代金)
+    }
+
+    /// <summary>
+    /// 【核心】テスト表 #30。移動費が乗る区画の店で、UnitRealCost &gt; 予算 ≥ UnitEffectivePrice に
+    /// なる配置 → 約定する(数量は実効価格で解いた値)。
+    /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-20)。</b><c>TradeSystem</c> の段5手順3で
+    /// <c>BuyerBudget.Decide(line, store.UnitRealCost)</c>(実質コストを渡す変異)に変えたところ、
+    /// 実効価格10・実質コスト12・現金上限10の配置で <c>Assert.Equal(1,
+    /// buyer.HouseholdInventory[Item.Bread])</c> が実際値0(12&gt;10でCashCapゲートが閉じ、
+    /// 約定しない)で失敗した(赤を確認)。変異を戻して緑に復帰させた。
+    /// </remarks>
+    [Fact]
+    public void BudgetGateUsesEffectivePriceNotRealCost()
+    {
+        var definition = BuildShoppingDefinition(
+            breadFloor: 10, necessityTargetStockDays: TargetStockDaysFor(Item.Bread));
+
+        var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
+        AddHousehold(world, id: 0, districtId: 4, Occupation.Woodworker, liquidFunds: 10);
+        // 距離1(移動費が乗る)。実効価格10・現金上限10(予算=10)・実質コスト = 10 + 移動費。
+        AddHousehold(world, id: 1, districtId: 1, Occupation.Miller);
+        world.Households[1].WorkshopInventory[Item.Bread] = 100;
+
+        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+
+        var buyer = world.Households[0];
+
+        // 実効価格(10)で解いた数量が約定し、実質コスト(10+移動費)は予算を超えているが
+        // ゲートには使われない。
+        Assert.Equal(1, buyer.HouseholdInventory[Item.Bread]);
+        Assert.Equal(0, buyer.LiquidFunds); // 10 − 1×10(実効価格で決済)
     }
 }
