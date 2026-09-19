@@ -2,10 +2,10 @@
 
 | 項目       | 内容 |
 | ---------- | ---- |
-| 版         | **v2.0 草稿(ミクロ経済学を指針にした洗い直し)** |
+| 版         | **v2.0(ミクロ経済学を指針にした洗い直し)** |
 | 日付       | 2026-09-19 |
 | 起案者     | stama |
-| ステータス | **改稿中**([issue #85](https://github.com/stama72/visionary/issues/85) / [#90](https://github.com/stama72/visionary/issues/90)) |
+| ステータス | **W2 着手可**(v2.0。改稿は [issue #85](https://github.com/stama72/visionary/issues/85)) |
 | 関連文書   | [GDD02 総論](02-economy.md) / [GDD02a 生産](02a-production.md) / [GDD02c 価格と予算](02c-price-and-budget.md) / [GDD02d 都市外市場と貨幣](02d-external-market-and-money.md) / [GDD06 取引・交渉](06-trade-and-negotiation.md) / [GDD08 NPCの生活と意思決定](08-household-and-decision.md) |
 
 > **本書が持つのは「食べる・持つ側」の規則である。** 日次消費、目標在庫、家計(取り置き・運転資金・余剰資金、資金上限と走査順、破産中フラグ)、困窮と破産、買い手の在庫圧力と個別需要関数、不当価格、Need への接続。単価の上限(予算)は [02c](02c-price-and-budget.md)、生産の入力の目標在庫は [02a §4](02a-production.md) が持つ。

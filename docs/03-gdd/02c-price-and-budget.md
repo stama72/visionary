@@ -2,10 +2,10 @@
 
 | 項目       | 内容 |
 | ---------- | ---- |
-| 版         | **v2.0 草稿(ミクロ経済学を指針にした洗い直し)** |
+| 版         | **v2.0(ミクロ経済学を指針にした洗い直し)** |
 | 日付       | 2026-09-19 |
 | 起案者     | stama |
-| ステータス | **改稿中**([issue #85](https://github.com/stama72/visionary/issues/85) / [#88](https://github.com/stama72/visionary/issues/88)) |
+| ステータス | **W2 着手可**(v2.0。改稿は [issue #85](https://github.com/stama72/visionary/issues/85)) |
 | 関連文書   | [GDD02 総論](02-economy.md) / [GDD02a 生産](02a-production.md) / [GDD02b 消費と家計](02b-consumption-and-household.md) / [GDD02d 都市外市場と貨幣](02d-external-market-and-money.md) / [GDD06 取引・交渉](06-trade-and-negotiation.md) / [GDD08 NPCの生活と意思決定](08-household-and-decision.md) |
 
 > **本書が持つのは、売り手が並べる単価(提示価格)と、買い手が払える単価の上限(予算)である。** どちらも**1単位あたりの貨幣額**であり、相手が誰かに依らず決まる。いくつ買うか(数量)は予算と在庫から [02b](02b-consumption-and-household.md) の個別需要関数が決め、どこへ行きどの店で買うか(外出と実効価格)と妥結は [GDD06](06-trade-and-negotiation.md) が決める。原価と利潤の計測は [02a](02a-production.md)、外部価格と床の定義は [02d](02d-external-market-and-money.md) が持つ。
@@ -161,7 +161,7 @@
 
 ### 2.4 M0 の機会費用
 
-**機会費用は職業 × 階層の固定値とする**(算出方式は [GDD08 §5](08-household-and-decision.md)、M0 スコープと階層係数は [GDD08 §9](08-household-and-decision.md))。外出の費用([GDD06 §2](06-trade-and-negotiation.md))がこれを使う。**基準値は 5 職業とも 10(貨幣/1時間)** — [GDD08 §5.1](08-household-and-decision.md) の定義「親方の1日粗利 ÷ 可処分時間 12」を [02d §4.4](02d-external-market-and-money.md) の校正表に当てると、校正 (c) が各職業の粗利を生活費と同じ約 130 に揃えるので、5 職業とも 10 前後になる。徒弟は階層係数 200‰ で 2。旧値 {5, 6, 6, 4, 8} は初期の粗利が小さい前提で置いた暫定値だった
+**機会費用は職業 × 階層の固定値とする**(算出方式は [GDD08 §5](08-household-and-decision.md)、M0 スコープと階層係数は [GDD08 §9](08-household-and-decision.md))。外出の費用([GDD06 §2](06-trade-and-negotiation.md))がこれを使う。**基準値は 5 職業とも 20(貨幣/1時間)** — [GDD08 §5.1](08-household-and-decision.md) の定義「親方の1日粗利 ÷ 可処分時間 12」を [02d §4.4](02d-external-market-and-money.md) の校正表に当てると、校正 (c) が各職業の粗利を生活費 + 摩耗と同じ約 255 に揃えるので、5 職業とも 21 前後になる。徒弟は階層係数 200‰ で 4。旧値 {5, 6, 6, 4, 8} は初期の粗利が小さい前提で置いた暫定値だった
 
 構造(予算と費用の分離、統一形の min、在庫圧力の線形解)は M0 から入れる。**構造を先に固定し、値の由来を後から差し替える**のは季節係数([02d §5](02d-external-market-and-money.md))と同じやり方である。
 
@@ -172,6 +172,6 @@
 | §1.3 | **出荷日数**(3。出荷目標在庫 = 日産 × 出荷日数) |
 | §2.1 | **許容乖離‰**(1200) |
 | §2.3 | **最低利幅‰**(200) |
-| §2.4 | **機会費用の職業別の基準値**(10。単位: 貨幣/1時間)。階層係数‰ は [GDD08 §9](08-household-and-decision.md) |
+| §2.4 | **機会費用の職業別の基準値**(20。単位: 貨幣/1時間)。階層係数‰ は [GDD08 §9](08-household-and-decision.md) |
 
 > **値の所在の一覧は [GDD02 §9.2](02-economy.md) が持つ。** 本節はそのうち本書の式が参照するものだけを再掲している。
