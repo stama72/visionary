@@ -133,18 +133,20 @@ public sealed class TradeSettlementTests
 
     /// <summary>
     /// 【核心】テスト表 #18。ProductionInput の約定 → PurchaseUnitCostAverage[薪] が動く。
-    /// Necessity の約定では動かない。
+    /// Necessity の約定では動かない。<b>本テストが見るのは ProductionInput / Necessity の対だけ</b>
+    /// ── 「更新するのは ProductionInput だけ」という主張はしない(§10 で Durable も加わった)。
+    /// Durable 側の検証は <see cref="DurablePurchaseUpdatesToolAcquisitionCost"/>(別表D D-1)が持つ。
     /// </summary>
     /// <remarks>
-    /// <b>変異の実測(2026-09-17)。</b><c>TradeSettlement.Execute</c> の末尾の
-    /// <c>if (purpose == DemandPurpose.ProductionInput)</c> を外し、常に
-    /// <c>PurchaseUnitCostAverage</c> を更新する変異を当てたところ、Necessity のケースの
+    /// <b>変異の実測(2026-09-17、条件がまだ ProductionInput だけだった時点)。</b>
+    /// <c>TradeSettlement.Execute</c> の末尾の <c>if (purpose == DemandPurpose.ProductionInput)</c> を
+    /// 外し、常に <c>PurchaseUnitCostAverage</c> を更新する変異を当てたところ、Necessity のケースの
     /// <c>Assert.Equal(previousAverage, buyer.PurchaseUnitCostAverage[Item.Firewood])</c>
     /// (更新されないはず)が実際値(更新後の値)で失敗した(赤を確認、暖房用に高値で買った薪が
     /// 焼成の原価に乗り提示価格が跳ねる経路)。変異を戻して緑に復帰させた。
     /// </remarks>
     [Fact]
-    public void ExecuteUpdatesTheAcquisitionCostOnlyForProductionInput()
+    public void ExecuteUpdatesTheAcquisitionCostForProductionInputButNotNecessity()
     {
         var world = BuildWorld();
         world.Households[SellerId].WorkshopInventory[Item.Firewood] = 100;
@@ -168,7 +170,7 @@ public sealed class TradeSettlementTests
     /// <summary>
     /// 別表D D-1。Durableで工具を買った約定 → PurchaseUnitCostAverage[Item.Tools]が
     /// UpdatedAcquisitionCostの式で動く。Necessity/Preferenceの約定では動かない
-    /// (別表Aの既存ケース<see cref="ExecuteUpdatesTheAcquisitionCostOnlyForProductionInput"/>が
+    /// (別表Aの既存ケース<see cref="ExecuteUpdatesTheAcquisitionCostForProductionInputButNotNecessity"/>が
     /// Necessity/ProductionInputの非更新・更新を持つので、本テストはPreference/Durableを補う)。
     /// </summary>
     /// <remarks>
