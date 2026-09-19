@@ -20,12 +20,14 @@ public sealed class RecipeCapacityRunsTests
     /// 内側の除算 <c>IntegerMath.FloorDiv((long)laborPermille * equipmentPermille,
     /// IntegerMath.PermilleScale)</c> を <c>IntegerMath.ApplyPermille(laborPermille,
     /// equipmentPermille)</c>(切り上げ)に変える変異を当てたところ、
-    /// <c>Assert.Equal(1, recipeA.CapacityRuns(1275, 500))</c>(32行目)が実際値2で失敗した
+    /// <c>Assert.Equal(1, recipeA.CapacityRuns(1275, 500))</c>が実際値2で失敗した
     /// (赤を確認)。変異を戻し、続けて外側の除算を <c>IntegerMath.CeilDiv</c> に変える変異を
     /// 単独で当てたところ、この変異は <c>CapacityRuns</c> 内の1か所を通る共通コードなので
-    /// recipeA の呼び出しにも同じ式が適用され、<c>Assert.Equal(1, recipeA.CapacityRuns(1275,
-    /// 500))</c>(32行目、recipeB の35行目ではない)が実際値2(<c>CeilDiv(637, 319) = 2</c>)で
-    /// 先に失敗した(赤を確認 ── xUnit は最初の失敗で止まるので35行目には到達しない)。
+    /// recipeA の呼び出しにも同じ式が適用され、recipeA の
+    /// <c>Assert.Equal(1, recipeA.CapacityRuns(1275, 500))</c>(recipeB の assert ではない)が
+    /// 実際値2(<c>CeilDiv(637, 319) = 2</c>)で先に失敗した(赤を確認 ── xUnit は最初の失敗で
+    /// 止まるので recipeB の <c>Assert.Equal(5, recipeB.CapacityRuns(1300, 1000))</c> には
+    /// 到達しない)。
     /// いずれも変異を戻して緑に復帰させた。
     /// </remarks>
     [Fact]
