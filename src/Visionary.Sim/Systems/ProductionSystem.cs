@@ -80,12 +80,9 @@ public sealed class ProductionSystem : ISimSystem
         // 0の日も必ず書く(#39の④のゲート・#40のNeedが読む。タスク仕様)。
         household.ProductionRuns = runs;
 
-        if (runs <= 0)
-        {
-            // 工具切れ(半減のみ)・入力切れ・労働力不足のいずれでも、在庫も摩耗も一切動かさない。
-            return;
-        }
-
+        // ここで早期returnしない(#96 3巡目 象限Iの訂正)。runs==0なら在庫の増減は0の掛け算に
+        // なるだけで実害は無いが、摩耗の破棄(WearTools末尾の無条件の手順)は実行回数0の日も
+        // 必ず走らせる必要がある ── 早期returnがあると、それだけが道連れで飛んでしまう。
         foreach (var input in recipe.Inputs)
         {
             household.WorkshopInventory[input.ItemId] -= input.Quantity * runs;

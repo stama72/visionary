@@ -592,15 +592,21 @@ public sealed class ProductionSystemTests
     /// <summary>
     /// 【核心】別表 #29(#96)。表 #9 の続き。工具が尽きた翌日以降も、工具0個で生産が続く
     /// あいだ日末の <c>ToolWear</c> が0のままであること(耐久値1000に届かないので
-    /// <c>worn == 0</c> の経路を通る)。さらにその翌日に工具を1個与えて1日進め、新品が
-    /// 前日までの摩耗を引き継がないこと。
+    /// <c>worn == 0</c> の経路を通る)。
     /// </summary>
     /// <remarks>
     /// <b>#9 と同じ工具・労働量の設定を使い、日数だけ伸ばす</b>(タスク仕様の別表)。別の
     /// フィクスチャを立てると、#9 が押さえる「尽きた日の破棄」と #29 が押さえる
     /// 「尽きた翌日以降の破棄」が別の前提の上に乗り、片方を壊してももう片方が緑のまま残る。
     /// <para>
-    /// <b>変異の実測(2026-09-19)。</b><c>ProductionSystem.WearTools</c> の
+    /// <b>3日目(工具を1個与えて新品が前日までの摩耗を引き継がないことを確かめる部分)は
+    /// 削ってある(#96 3巡目 象限Iの訂正)。</b>2日目が <c>ToolWear</c> を0に落とした後では
+    /// 3日目の開始状態(工具1個・<c>ToolWear</c> 0)が1日目の開始状態と同一になり、判別力が
+    /// 無かった。その性質(摩耗を直接置いた状態からの引き継ぎ)は別表 #30 が押さえる。
+    /// </para>
+    /// <para>
+    /// <b>変異の実測・再測(2026-09-19、#96 3巡目の訂正を受けて再確認)。</b>
+    /// <c>ProductionSystem.WearTools</c> の
     /// 破棄(<c>if (household.WorkshopInventory[Item.Tools] == 0) household.ToolWear = 0;</c>)を
     /// <c>if (worn &gt; 0)</c> の内側へ入れ子にする変異(1巡目 象限I-b の指摘そのもの)を
     /// 当てたところ、2日目(工具0個のまま1回実行・<c>worn == 0</c>)終了時点の
@@ -646,20 +652,68 @@ public sealed class ProductionSystemTests
         Assert.True(
             durableLineAfterDay2.ExpectedStock >= 0,
             $"耐久の予想在庫が負({durableLineAfterDay2.ExpectedStock})。ToolWearの破棄漏れの実害。");
+    }
 
-        // 3日目。工具を1個与えて1日進める ── 新品が前日までの摩耗を引き継がないこと。
-        world.Households[0].WorkshopInventory[Item.Tools] = 1;
+    /// <summary>
+    /// 【核心】別表 #30(#96)。実行回数0の日も破棄が走ること。N=2(耐久値2000)・所要労働400‰・
+    /// 労働力1300‰(親方1000+徒弟300)・工具なし係数0‰ の定義で、工具在庫0と
+    /// <c>ToolWear</c>=1500を直接置いて1日進めると <c>ProductionRuns == 0</c> かつ日末の
+    /// <c>ToolWear == 0</c>、予想在庫 <c>0×2000−0</c> が非負。続けて工具を1個与えて1日進めると
+    /// 3回実行(floor(1300/400)=3)して <c>ToolWear == 1200</c>(&lt; 2000)で工具在庫は1のまま。
+    /// </summary>
+    /// <remarks>
+    /// <b>工具なし係数を0‰にして実行回数0を作る</b>(タスク仕様)。入力切れで0回にすると、
+    /// 破棄が走らない実装でも入力の枯渇が先に目立ち、何が壊れているのか読めなくなる。
+    /// <c>ToolWear</c> は表#16・#17と同じ手(状態を直接置いて読み手を確かめる)で1500を置く ──
+    /// 「工具を売り切った翌日、実行回数0で古い<c>ToolWear</c>が残る」実害の経路そのもの。
+    /// <para>
+    /// <b>変異の実測(2026-09-19)。</b>破棄を <c>if (runs &lt;= 0) { ...; return; }</c> の
+    /// 早期return内側に戻す変異(3巡目 象限Iの指摘そのもの)を当てたところ、1日目
+    /// (<c>ProductionRuns == 0</c>)の末尾で破棄が一度も走らず、
+    /// <c>Assert.Equal(0, world.Households[0].ToolWear)</c> が実際値1500で失敗した(赤を確認)。
+    /// 仕様の予想(1日目に1500が残り、2日目が1500+1200=2700≥2000で買ったばかりの工具が
+    /// 買ったその日に消費される)には届かず、1日目のassertで先に止まる。変異を戻して
+    /// 緑に復帰させた。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void ToolWearIsDroppedOnDaysWithZeroProduction()
+    {
+        var recipe = new Recipe(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = Output, Quantity = 1 } },
+            inputs: Array.Empty<ItemQuantity>(),
+            laborPermille: 400);
+
+        var definition = EconomySystemTestFixtures.BuildDefinition(
+            recipe, laborPermilleByRank: new[] { 1000, 0, 300 }, toolLifeLaborDays: 2,
+            equipmentPermilleWithoutTools: 0);
+        var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(
+            new[] { NpcRank.Master, NpcRank.Apprentice });
+        world.Households[0].WorkshopInventory[Item.Tools] = 0;
+        world.Households[0].ToolWear = 1500;
+
+        var system = new ProductionSystem(definition);
+
+        // 1日目。工具在庫0・工具なし係数0‰なので実行回数0。破棄は実行回数0の日も走る。
         EconomySystemTestFixtures.RunDays(world, system, days: 1);
-        Assert.Equal(0, world.Households[0].WorkshopInventory[Item.Tools]);
+        Assert.Equal(0, world.Households[0].ProductionRuns);
         Assert.Equal(0, world.Households[0].ToolWear);
 
-        var demandAfterDay3 = new BuyerDemand(definition).Build(
+        var demandAfterDay1 = new BuyerDemand(definition).Build(
             world, world.Households[0], hasPreviousOutputOfferPrice: false, previousOutputOfferPrice: 0);
-        var durableLineAfterDay3 = demandAfterDay3.Lines.Single(
+        var durableLineAfterDay1 = demandAfterDay1.Lines.Single(
             line => line.Purpose == DemandPurpose.Durable && line.ItemId == Item.Tools);
         Assert.True(
-            durableLineAfterDay3.ExpectedStock >= 0,
-            $"耐久の予想在庫が負({durableLineAfterDay3.ExpectedStock})。ToolWearの破棄漏れの実害。");
+            durableLineAfterDay1.ExpectedStock >= 0,
+            $"耐久の予想在庫が負({durableLineAfterDay1.ExpectedStock})。ToolWearの破棄漏れの実害。");
+
+        // 2日目。工具を1個与える ── 買ったその日に壊れてはいけない。
+        world.Households[0].WorkshopInventory[Item.Tools] = 1;
+        EconomySystemTestFixtures.RunDays(world, system, days: 1);
+        Assert.Equal(3, world.Households[0].ProductionRuns);
+        Assert.Equal(1, world.Households[0].WorkshopInventory[Item.Tools]);
+        Assert.Equal(1200, world.Households[0].ToolWear);
     }
 
     /// <summary>
