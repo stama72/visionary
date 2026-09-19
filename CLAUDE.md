@@ -75,6 +75,7 @@ dotnet format Visionary.sln               # CIのフォーマット検証を通�
 - 個人開発だが、チーム開発の意思決定プロセスを模して文書を運用する
 - 大きな技術的決定は **ADR** に「背景・選択肢・決定・理由」を記録する
 - GDD/TDD は「育てる文書」。実装が仕様と乖離したら、コードだけでなく**文書側も直す**
+- **GDD/TDD の規則を書き換えた設計 issue は、閉じる条件に追随表(変えた規則 → 実装している既存コード → 引き取る impl issue)を含める。** 実装タスクの仕様が既存コードを「変えない」と書くときは、従う現行の節を規則ごとに添える。書き換え前のコードは「一世代前の仕様の正確な実装」として残り、現行版だけを読むと正しく見える([docs/process/04-issue-driven.md](docs/process/04-issue-driven.md) / [02-task-spec](docs/process/02-task-spec.md) 規則8)
 - 文書は**寿命**で四層。ADR(永続) / GDD・TDD・[process/](docs/process/)(育てる) / **issue(閉じるまで)** / タスク仕様と引き継ぎメモ [docs/tasks/](docs/tasks/)(PRとともに終わる)
 - **ADRとGDDの境界**:
   - **ADRは「選択肢と理由」を記録する。** 何を検討し、なぜそれを選んだか。凍る
