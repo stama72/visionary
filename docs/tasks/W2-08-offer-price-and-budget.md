@@ -605,7 +605,7 @@ worktree をまたいだ所有権の宣言。**ここに挙がっていない文
 ## 完了条件
 
 - [ ] 「落ちるべき条件」のテストが全て緑
-- [ ] **上の 6 件に変異を当てて落ちることを確認し、当てた変異と結果を doc コメントかコミット本文に残した**
+- [ ] **上の 7 件に変異を当てて落ちることを確認し、当てた変異と結果を doc コメントかコミット本文に残した**
 - [ ] **旧の規則が消えている**: `OfferPrice.UnitCost` / `OfferPrice.CostFloor` / `BuyerBudget.DerivedDemand` / `NecessityBaseValue` / `PreferenceBaseValue` / `DurableBaseValue` / `SurplusFunds` / `WorldDefinition.BudgetRatioPermilleByPurpose`
 - [ ] `dotnet build Visionary.sln -c Release` が警告0
 - [ ] `dotnet test Visionary.sln -c Release` が緑
