@@ -526,4 +526,79 @@ public sealed class BuyerDemandTests
         Assert.Equal(0, decision.Quantity);
         Assert.Equal(NoPurchaseReason.ProfitCap, decision.Reason);
     }
+
+    /// <summary>
+    /// 別表D D-2。工具を初期取得原価と違う単価で買った翌日、<c>BuyerDemand</c> が作る生産の入力の行の
+    /// <c>ProfitCap</c> が前日と変わる(摩耗費が動いたぶんだけ許容原価合計がずれる)。工具を買わなかった
+    /// 日は変わらない。
+    /// </summary>
+    /// <remarks>
+    /// 書き手(<see cref="TradeSettlement"/> の耐久の分岐、§10)と読み手
+    /// (<see cref="BuyerBudget.WearCostPerRun"/> → <see cref="BuyerBudget.ProfitCaps"/> →
+    /// <see cref="DemandLine.ProfitCap"/>)が実際に繋がっていることを見る。<c>D-1</c> は
+    /// <see cref="TradeSettlement"/> の中で閉じており、この経路までは踏まない(タスク仕様「D-2は
+    /// 書き手と読み手が繋がっていることを見る」)。
+    /// <para>
+    /// 期待値(実測)。工具の初期取得原価100・所要労働1000‰・N=30 →
+    /// 摩耗費 = CeilDiv(100,30) = 4。見込み収益 = 前日提示価格20×出力数量2 = 40、
+    /// 許容原価合計(前) = FloorDiv(40000,1000) − 4 = 36、相場での原価 = 薪10×1 + 小麦粉20×1 = 30、
+    /// 利潤上限(小麦粉、前) = FloorDiv(36×20,30) = 24。
+    /// 工具を単価400で買うと平均単価 = CeilDiv(100×750 + 400×250, 1000) = 175、
+    /// 摩耗費(後) = CeilDiv(175,30) = 6、許容原価合計(後) = 40 − 6 = 34、
+    /// 利潤上限(小麦粉、後) = FloorDiv(34×20,30) = 22。24 ≠ 22。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void WearCostFollowsSettledToolPrice()
+    {
+        const int BuyerId = 0;
+        const int SellerId = 1;
+        const int InitialToolCost = 100;
+
+        var definition = BuildDefinition(
+            outputQuantity: 2, minimumMarginPermille: 0, toolLifeLaborDays: 30, tolerancePermille: 1200);
+
+        var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
+        world.Npcs[0].Rank = NpcRank.Master;
+        world.Households[0] = new HouseholdState(
+            id: BuyerId, districtId: 0, headNpcId: 0, memberNpcIds: new[] { 0 }, itemCount: Item.Count);
+        world.Households[0].Occupation = Occupation.Miller;
+        world.Households[0].PurchaseUnitCostAverage[Item.Tools] = InitialToolCost;
+
+        world.Npcs[1].Rank = NpcRank.Master;
+        world.Households[1] = new HouseholdState(
+            id: SellerId, districtId: 0, headNpcId: 1, memberNpcIds: new[] { 1 }, itemCount: Item.Count);
+        world.Households[1].Occupation = Occupation.Miller;
+        world.Households[1].WorkshopInventory[Item.Tools] = 10;
+
+        SetReference(world, world.Households[0].HeadNpcId, Item.Firewood, price: 10);
+        SetReference(world, world.Households[0].HeadNpcId, Item.Flour, price: 20);
+
+        var buyerDemand = new BuyerDemand(definition);
+
+        var before = buyerDemand.Build(
+            world, world.Households[0], hasPreviousOutputOfferPrice: true, previousOutputOfferPrice: 20);
+        var flourLineBefore = FindLine(before, DemandPurpose.ProductionInput, Item.Flour);
+        Assert.True(flourLineBefore.HasProfitCap);
+        Assert.Equal(24, flourLineBefore.ProfitCap);
+
+        // 工具を初期取得原価(100)と違う単価(400)で買う(耐久)。
+        TradeSettlement.Execute(
+            world, world.Households[0], world.Households[1], DemandPurpose.Durable,
+            Item.Tools, quantity: 1, unitEffectivePrice: 400,
+            acquisitionCostSmoothingPermille: definition.AcquisitionCostSmoothingPermille);
+
+        var after = buyerDemand.Build(
+            world, world.Households[0], hasPreviousOutputOfferPrice: true, previousOutputOfferPrice: 20);
+        var flourLineAfter = FindLine(after, DemandPurpose.ProductionInput, Item.Flour);
+        Assert.True(flourLineAfter.HasProfitCap);
+        Assert.Equal(22, flourLineAfter.ProfitCap);
+        Assert.NotEqual(flourLineBefore.ProfitCap, flourLineAfter.ProfitCap);
+
+        // 工具を買わなかった日は変わらない(対照)。
+        var control = buyerDemand.Build(
+            world, world.Households[0], hasPreviousOutputOfferPrice: true, previousOutputOfferPrice: 20);
+        var flourLineControl = FindLine(control, DemandPurpose.ProductionInput, Item.Flour);
+        Assert.Equal(flourLineAfter.ProfitCap, flourLineControl.ProfitCap);
+    }
 }
