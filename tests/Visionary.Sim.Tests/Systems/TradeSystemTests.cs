@@ -147,8 +147,10 @@ public sealed class TradeSystemTests
     }
 
     /// <summary>
-    /// 売り手の自分の錨は前日の約定単価(帳簿)であって前日の提示価格ではないことをパイプラインで
-    /// 確かめる(TDD01 §3.2・§3.3)。1日目に売れ残った売り手は、2日目もhasSettled=falseのまま。
+    /// 1日目に売れ残った売り手(hasSettled=false)は、2日目も自分の錨を使わない ──
+    /// 前日の提示価格ではなく約定単価だけが候補である半分だけをここで確かめる(TDD01 §3.2・§3.3)。
+    /// <b>hasSettled=true の日、すなわち錨が実際に効く経路は
+    /// <see cref="SellerAnchorUsesYesterdaysSettledPriceWhenASaleOccurred"/>(別表B-1)が持つ。</b>
     /// </summary>
     [Fact]
     public void SellerAnchorsOnSettledPriceNotOnItsOwnPreviousOffer()
@@ -184,6 +186,65 @@ public sealed class TradeSystemTests
         // household0は1日目に1件も売れていない(hasSettled=false)ので、自分の約定単価は
         // 平均に混ざらない。相場基準 = 200(他の売り手の観測のみ)。在庫比1000‰(目標どおり)。
         Assert.Equal(200, world.Market[key]);
+    }
+
+    /// <summary>
+    /// 【核心】別表B-1。1日目に実際に約定した売り手は、2日目の相場基準に自分の前日の約定単価が
+    /// 混ざり、「他の売り手の観測だけ」から作った値とは異なる価格になる(TDD01 §3.2・§3.3、
+    /// GDD02c §1.2「売り手2世帯の交互振動モードを消す」仕掛け)。
+    /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21)。</b><c>TradeSystem.Step</c> が段1 で
+    /// <c>MarketReference.TrySeller</c> へ渡す <c>hasSettled, settledPrice</c> を
+    /// 常に <c>false, 0</c> に置換する変異(タスク仕様 別表B-1 が名指し)を当てたところ、
+    /// <c>Assert.Equal(105, world.Market[sellerKey])</c> が実際値200(他の売り手の観測200だけの
+    /// 平均になり、自分の約定単価10が混ざらない)で失敗した(赤を確認)。変異を戻して緑に復帰させた。
+    /// </remarks>
+    [Fact]
+    public void SellerAnchorUsesYesterdaysSettledPriceWhenASaleOccurred()
+    {
+        const int OtherSellerId = 999;
+
+        var definition = BuildShoppingDefinition(
+            breadFloor: 10, necessityTargetStockDays: TargetStockDaysFor(Item.Bread));
+        var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
+
+        // household0: 売り手(パン)。1日目に床(10)で1個売れるだけの在庫を持つ。
+        AddHousehold(world, id: 0, districtId: 4, Occupation.Miller, liquidFunds: 0);
+        world.Households[0].WorkshopInventory[Item.Bread] = 2;
+
+        // household1: 買い手。1日目に床(10)で1単位だけ買える資金を持つ。
+        AddHousehold(world, id: 1, districtId: 4, Occupation.Woodworker, liquidFunds: 10);
+
+        var system = new TradeSystem(definition);
+        var sellerKey = new MarketKey(Item.Bread, 0);
+
+        EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目
+
+        // 1日目に実際に1個約定したことを帳簿で確かめる(hasSettled=trueの前提)。
+        Assert.Contains(
+            world.Ledgers[0],
+            entry => entry.Direction == LedgerDirection.Sale && entry.ItemId == Item.Bread
+                && entry.Quantity == 1 && entry.UnitPrice == 10);
+        // 売れた1個ぶん在庫が減り、出荷目標在庫(1)ちょうどに戻る(在庫比1000‰を2日目も保つ)。
+        Assert.Equal(1, world.Households[0].WorkshopInventory[Item.Bread]);
+
+        // 他の売り手の観測を1件仕込む(前日=1日目の日付)。
+        world.Knowledge[0].Add(new PriceObservation
+        {
+            ItemId = Item.Bread,
+            LocationId = 0,
+            Price = 200,
+            SellerId = OtherSellerId,
+            ObservedAt = Tick.Zero,
+            Source = ObservationSource.Direct,
+        });
+
+        EconomySystemTestFixtures.RunDays(world, system, days: 1); // 2日目
+
+        // 相場基準 = CeilDiv(200 + 10, 2) = 105(他の売り手の観測200 + 自分の前日の約定単価10)。
+        // 「他の売り手の値だけ」(200)とは異なる。
+        Assert.Equal(105, world.Market[sellerKey]);
     }
 
     /// <summary>
@@ -467,5 +528,77 @@ public sealed class TradeSystemTests
         // ゲートには使われない。
         Assert.Equal(1, buyer.HouseholdInventory[Item.Bread]);
         Assert.Equal(0, buyer.LiquidFunds); // 10 − 1×10(実効価格で決済)
+    }
+
+    /// <summary>
+    /// 【核心】別表B-2(c)。段1が段4へ渡す「前日の出力提示価格」が実際に効いていること。
+    /// 2日目、生産の入力(穀物)の利潤上限が実効価格を下回るゲートで、入力の約定が0個になる。
+    /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21)。</b><c>TradeSystem.Step</c> が段4(<c>BuyerDemand.Build</c>)へ
+    /// 渡す <c>hasOwnPreviousOffer[household.Id], ownPreviousOfferPrice[household.Id]</c> を
+    /// 常に <c>false, 0</c> に置換する変異(タスク仕様 別表B-2(c) が名指し)を当てたところ、
+    /// <c>Assert.DoesNotContain(...Direction == Purchase &amp;&amp; ItemId == Item.Grain...)</c> が
+    /// 実際に1個の穀物購入(帳簿にPurchaseの行が現れる)で失敗した(赤を確認 ──
+    /// 利潤上限が常に無い扱いになり、相場では儲からない値でも入力を買い続ける経路)。
+    /// 変異を戻して緑に復帰させた。
+    /// </remarks>
+    [Fact]
+    public void ProfitCapGateUsesYesterdaysOutputOfferPrice()
+    {
+        const int BreadFloor = 30;
+        const int GrainFloor = 100;
+
+        var recipe = new Recipe(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = Item.Bread, Quantity = 2 } },
+            inputs: new[] { new ItemQuantity { ItemId = Item.Grain, Quantity = 1 } },
+            laborPermille: 1000);
+
+        var externalBuyPrice = new int[Item.Count];
+        externalBuyPrice[Item.Bread] = BreadFloor;
+        externalBuyPrice[Item.Grain] = GrainFloor;
+
+        var definition = EconomySystemTestFixtures.BuildDefinition(
+            recipe,
+            tolerancePermille: 1200,
+            minimumMarginPermille: 0,
+            opportunityCostBaseByOccupation: new[] { 1, 1, 1, 1, 1 },
+            rankCoefficientPermille: new[] { 1000, 1000, 1000 },
+            travelHoursPerDistrict: 1,
+            shipmentDays: 1,
+            inputBufferDays: 1,
+            externalBuyPriceOverride: externalBuyPrice);
+
+        var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
+
+        // household0: パン屋(穀物→パン)。1日目は資金0で何も買わず、パンの提示価格(床30)だけを
+        // Marketへ残す。2日目の直前に資金を積み、利潤上限だけがゲートを判定する帯を作る。
+        AddHousehold(world, id: 0, districtId: 4, Occupation.Miller, liquidFunds: 0);
+        world.Households[0].WorkshopInventory[Item.Bread] = 1;
+
+        // household1: 穀物の売り手(UnusedRecipeがBaker〜Smithで品目0=穀物を生産する)。
+        AddHousehold(world, id: 1, districtId: 4, Occupation.Baker, liquidFunds: 0);
+        world.Households[1].WorkshopInventory[Item.Grain] = 100;
+
+        var system = new TradeSystem(definition);
+
+        EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目: 資金0で何も買わない
+
+        Assert.Equal(0, world.Households[0].WorkshopInventory[Item.Grain]);
+        Assert.Equal(30, world.Market[new MarketKey(Item.Bread, 0)]); // 前日の出力提示価格(段4が読む)
+
+        // 2日目の直前に資金を積む。見込み収益 = 前日価格30×出力数量2 = 60、
+        // 許容原価合計 = FloorDiv(60×1000,1000) − 摩耗費0 = 60、単一入力なので利潤上限 = 60。
+        // 穀物の実効価格は床100のまま(他の穀物売り手が居ないため相場基準が立たない)。
+        // 60 < 100 なので利潤上限がゲートを閉じる。
+        world.Households[0].LiquidFunds = 10_000;
+
+        EconomySystemTestFixtures.RunDays(world, system, days: 1); // 2日目
+
+        Assert.DoesNotContain(
+            world.Ledgers[0],
+            entry => entry.Direction == LedgerDirection.Purchase && entry.ItemId == Item.Grain);
+        Assert.Equal(0, world.Households[0].WorkshopInventory[Item.Grain]);
     }
 }

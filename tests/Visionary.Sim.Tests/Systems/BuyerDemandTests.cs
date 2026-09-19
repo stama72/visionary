@@ -473,4 +473,57 @@ public sealed class BuyerDemandTests
         // 嗜好: FloorDiv(1000 − 60 − 35, 1) = 905(取り置きと運転資金の両方を引く)。
         Assert.Equal(905, preferenceLine.CashCap);
     }
+
+    /// <summary>
+    /// 【核心】別表B-2(a)・(b)。生産の入力の <c>DemandLine.ProfitCap</c> / <c>HasProfitCap</c> が
+    /// <c>BuyerDemand.Build</c> 越しに立っていること、そして利潤上限がゲートを閉じる帯で
+    /// <c>BuyerBudget.Decide</c> が入力の約定量を0にすること。
+    /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21)。</b>(a) <c>BuyerDemand.Build</c> が入力の行へ渡す
+    /// <c>hasProfitCap[itemId], profitCap[itemId]</c> を <c>false, 0</c> に置換する変異
+    /// (タスク仕様 別表B-2(a))を当てたところ、<c>Assert.True(firewoodLine.HasProfitCap)</c> が
+    /// 実際値falseで失敗した(赤を確認)。(b) 摩耗費の材料
+    /// <c>household.PurchaseUnitCostAverage[Item.Tools]</c> を <c>0</c> に置換する変異
+    /// (別表B-2(b))を当てたところ、摩耗費が5→0になり許容原価合計が35→40、
+    /// <c>Assert.Equal(11, firewoodLine.ProfitCap)</c> が実際値13(FloorDiv(40×10,30))で失敗した
+    /// (赤を確認、flourLine側も23→26にずれる)。いずれも変異を戻して緑に復帰させた。
+    /// B-2(c)(段1→段4の前日価格の配線)は
+    /// <see cref="TradeSystemTests.ProfitCapGateUsesYesterdaysOutputOfferPrice"/> が持つ
+    /// (両端がTradeSystem.Stepの中にあり、BuyerDemand越しには踏めないため)。
+    /// </remarks>
+    [Fact]
+    public void ProductionInputProfitCapReachesTheDemandLineAndClosesTheGate()
+    {
+        var definition = BuildDefinition(outputQuantity: 2, minimumMarginPermille: 0, toolLifeLaborDays: 30, tolerancePermille: 1200);
+        var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(new[] { NpcRank.Master });
+        world.Households[0].PurchaseUnitCostAverage[Item.Tools] = 130;
+        // 生産の入力の目標在庫(5)ちょうどに合わせる ── 在庫圧力‰を1000(据え置き)に保ち、
+        // 相場項がそのままゲートの分岐点になるようにする。
+        world.Households[0].WorkshopInventory[Item.Flour] = 5;
+
+        SetReference(world, world.Households[0].HeadNpcId, Item.Firewood, price: 10);
+        SetReference(world, world.Households[0].HeadNpcId, Item.Flour, price: 20);
+
+        var demand = new BuyerDemand(definition).Build(
+            world, world.Households[0], hasPreviousOutputOfferPrice: true, previousOutputOfferPrice: 20);
+
+        var firewoodLine = FindLine(demand, DemandPurpose.ProductionInput, Item.Firewood);
+        var flourLine = FindLine(demand, DemandPurpose.ProductionInput, Item.Flour);
+
+        // 見込み収益 = 20×2 = 40、摩耗費 = CeilDiv(130×1000,30000) = 5、
+        // 許容原価合計 = FloorDiv(40000,1000) − 5 = 35、相場での原価 = 10×1+20×1 = 30。
+        // 利潤上限(薪) = FloorDiv(35×10,30) = 11、利潤上限(小麦粉) = FloorDiv(35×20,30) = 23。
+        Assert.True(firewoodLine.HasProfitCap);
+        Assert.Equal(11, firewoodLine.ProfitCap);
+        Assert.True(flourLine.HasProfitCap);
+        Assert.Equal(23, flourLine.ProfitCap);
+
+        // 相場項(圧力1000‰) = ApplyPermille(20,1200) = 24。実効価格24は相場項では閉じないが
+        // (24 <= 24)、利潤上限23は下回る(24 > 23)ので利潤上限で閉じる。
+        Assert.Equal(24, flourLine.MarketTerm);
+        var decision = BuyerBudget.Decide(flourLine, effectivePrice: 24);
+        Assert.Equal(0, decision.Quantity);
+        Assert.Equal(NoPurchaseReason.ProfitCap, decision.Reason);
+    }
 }
