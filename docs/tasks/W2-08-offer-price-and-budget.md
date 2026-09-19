@@ -443,15 +443,17 @@ hasReference = MarketReference.TrySeller(
 
 ### 呼び出し側の配線(規則7)
 
-本タスクが作るもののうち、**書き手または読み手が本タスクの外にあるもの**。テストが踏めないので契約を書く。
+本タスクが作るもののうち、**書き手または読み手が本タスクの外にあるもの**。契約を書く。
 
-| 何 | 書く | 読む | 約束 |
-| -- | ---- | ---- | ---- |
-| `UnaffordableNecessityCount` | 本タスク(順5 段5。**毎日 0 で上書きしてから加算**) | [#39](https://github.com/stama72/visionary/issues/39)(順3 の破産中フラグ) | 単位 件。**必需の (用途, 品目) の組ごとに最大 1** — 2 経路が同じ line で二重に立たない。**順3 は順5 より前にあるので、#39 が読む時点でその欄は前日の値である**([GDD02b §3.2](../03-gdd/02b-consumption-and-household.md)) |
-| `IsBankrupt` | #39(順3) | 本タスク(順5 段1 の §1.4) | 0 / 1。**本タスクの時点では誰も 1 にしない** — 値付けの破産中の枝はテストが直接 1 を置いて踏む |
-| 前日の約定単価 | `TradeSettlement`(既存。`Sale` の行)/ #38(輸出の行) | 本タスク(順5 段1) | **`Ledgers` の `Sale` だけ。輸出を含む。** #38 が輸出の行を足すと、余剰を捌いた売り手の錨が床寄りに動く — それは [GDD02c §1.2](../03-gdd/02c-price-and-budget.md) が意図した挙動である |
-| `store.UnitEffectivePrice` | `StoreChoice`(既存) | 本タスク(段5 手順 3・8) | **移動費を含まない単価。** #98 が `UnitRealCost` と店の選び方を改訂するとき、**予算の側は既に実効価格なので触らなくてよい** |
-| `ProfitCaps` の `提示価格_出力[前日]` | 段1(`Market.Clear()` の**前**に控える) | 段4 | **当日の値を渡すと同一 tick 内で循環する**([GDD08 §6.3](../03-gdd/08-household-and-decision.md)) |
+> **訂正(フェーズ2・2巡目の象限 I-b)。** 初版はここに「**テストが踏めないので**契約を書く」と書いていた。**これは広すぎた。** 下表のうち「踏める」と記した 3 行は、**両端がこの `TradeSystem.Step` の中にあるか、書き手が既存コードとして同じ Step の中で動く**ので、2 日走らせるパイプラインテストで踏める。広い保証は「見なくてよい」と読ませるので、**契約だけを書いた結果、その配線に検出器が 1 件も掛からなかった**([process/03-corrections](../process/03-corrections.md))。**「踏める」行は契約に加えてテストを書く**(別表 B-1・B-2)。
+
+| 何 | 書く | 読む | 踏めるか | 約束 |
+| -- | ---- | ---- | -------- | ---- |
+| `UnaffordableNecessityCount` | 本タスク(順5 段5。**毎日 0 で上書きしてから加算**) | [#39](https://github.com/stama72/visionary/issues/39)(順3 の破産中フラグ) | 読み手が外 | 単位 件。**必需の (用途, 品目) の組ごとに最大 1** — 2 経路が同じ line で二重に立たない。**順3 は順5 より前にあるので、#39 が読む時点でその欄は前日の値である**([GDD02b §3.2](../03-gdd/02b-consumption-and-household.md)) |
+| `IsBankrupt` | #39(順3) | 本タスク(順5 段1 の §1.4) | 書き手が外 | 0 / 1。**本タスクの時点では誰も 1 にしない** — 値付けの破産中の枝はテストが直接 1 を置いて踏む |
+| 前日の約定単価 | `TradeSettlement`(既存。`Sale` の行)/ #38(輸出の行) | 本タスク(順5 段1) | **踏める**(書き手は既存だが同じ Step の段5 で動く。**別表 B-1**) | **`Ledgers` の `Sale` だけ。輸出を含む。** #38 が輸出の行を足すと、余剰を捌いた売り手の錨が床寄りに動く — それは [GDD02c §1.2](../03-gdd/02c-price-and-budget.md) が意図した挙動である |
+| `store.UnitEffectivePrice` | `StoreChoice`(既存) | 本タスク(段5 手順 3・8) | **踏める**(表 #30 が踏んでいる) | **移動費を含まない単価。** #98 が `UnitRealCost` と店の選び方を改訂するとき、**予算の側は既に実効価格なので触らなくてよい** |
+| `ProfitCaps` の `提示価格_出力[前日]` | 段1(`Market.Clear()` の**前**に控える) | 段4 | **踏める**(**両端とも本タスクの中**。**別表 B-2**) | **当日の値を渡すと同一 tick 内で循環する**([GDD08 §6.3](../03-gdd/08-household-and-decision.md)) |
 
 ## 落ちるべき条件(テスト)
 
@@ -519,6 +521,34 @@ hasReference = MarketReference.TrySeller(
 - **1 日目で成立する。** #81 が「2 日目以降でないと」と書いたのは旧の基礎値の話であり、本タスクでは観測を直接置けば 1 日目の段5 で判定できる
 
 **逆順の変異は `Lines` を `Reverse()` して段5 へ渡すことで当てる。** 実装本体を書き換えずに済むよう、テスト側が `HouseholdDemand` を組み立てて段5 相当を呼べる形にしておくこと(段5 を `private` のまま残すなら、`Lines` の並びを変えた `BuyerDemand` の派生を使うのではなく、**`TradeSystem.Step` を通して `BuyerDemand` の出力順だけが違う状態を作る**)。
+
+## 別表: レビューで足した「落ちるべき条件」(フェーズ2)
+
+**上の表は実装に渡した時点の指示であって最終形ではない。** レビューで足りないと分かったぶんをここに足す。**上の表は書き換えない** — どこまでが凍結時点の仕様で、どこからがレビューの産物かが読めなくなるため。
+
+### A. 判別力の補強(1巡目)
+
+いずれも**上の表が自分で名指しした変異が、実際には落ちなかった**もの。式は正しく、テストが変異を通していた。
+
+| #  | テスト | 落ちなかった変異 | なぜ通っていたか |
+| -- | ------ | ---------------- | ---------------- |
+| A-1 | `PurchaseQuantitySolvesTheLinearDemand` に**割り切れない**組を追加(表 #19) | `CeilDiv` → `FloorDiv` | 4 ケースの被除数が**すべて基礎値で割り切れて**いた。あわせて「確認した」と誤って書いていた doc コメントを訂正した |
+| A-2 | `DurableLineIsMeasuredInDurabilityNotUnits` / `DurableTargetUsesTheHeadRankNotAMemberRank` / `DurableTargetActuallyAppliesTheRankCoefficient`(表 §6 順2) | 階層係数‰ を落とす / 世帯主でなく構成員の階層を採る / `− ToolWear` を落とす / 個数のまま予想在庫にする | 耐久行の値を見るテストが 1 件も無く、**並び位置しか見ていなかった**。3 件目が要るのは、世帯主が Master(係数 1000‰)だと `ApplyPermille(x, 1000) == x` で**恒等元になり係数の掛け忘れが通る**ため |
+| A-3 | `DemandExcludesTheHouseholdIdNotTheHeadNpcId`(表 §6) | `TryBuyer` の `selfHouseholdId` に `HeadNpcId` を渡す | 買い手側のテストが**すべて `headNpcId == id == 0` のフィクスチャ**で、2 つの Id が常に一致していた。本番世界では `masterId = householdId * 2` で一致しない |
+| A-4 | `BakerLikeRecipe` の入力を**降順**に変更(表 #23) | 品目 Id 昇順ループをやめて `recipe.Inputs` を直接回す | レシピの入力が**既に昇順**で、両者が同じ並びを出していた |
+| A-5 | `SellerFoldKeepsTheLaterEntryOnATie`(表 §1) | 畳み込みのタイブレーク `>=` → `>` | 観測が**すべて別 tick** で、同一 tick の重複が 1 件も無かった |
+| A-6 | `CashCapReflectsTheStagedAvailableFundsPerPurpose`(表 #11) | 嗜好の母数から運転資金を引かない | `AvailableFunds` の**単体**しか試しておらず、`DemandLine.CashCap` を見るアサートが 1 件も無かった |
+
+### B. 配線の検出器(2巡目・上の §「呼び出し側の配線(規則7)」の I-b 訂正に対応)
+
+**どちらも「テストが弱い」ではなく「テストが 1 件も無い」**。上の表が一度も触れていないので、表を読む限り見えない。**2 日走らせるパイプラインテスト**で踏む。
+
+| #  | テスト | 落ちるべき変異 | 核心 |
+| -- | ------ | -------------- | ---- |
+| B-1 | **売り手の錨(前日の約定単価)がパイプラインで効いていること。** 1 日目に**実際に約定する**売り手を作り、2 日目の提示価格が「他の売り手の値だけ」から作った値と**異なる**こと | 段1 が `MarketReference.TrySeller` へ渡す `hasSettled, settledPrice` を `false, 0` に置換 | **核心。** 自分を錨に含めるのは [GDD02c §1.2](../03-gdd/02c-price-and-budget.md) の囲みが言う**売り手2世帯の交互振動モードを消す**仕掛けである。落ちると交互振動が出るが、それは「機構の帰結」として読めてしまい、[GDD02 §8](../03-gdd/02-economy.md)-1 の実測が**別のものを測ったまま結論を出す** |
+| B-2 | **利潤上限が需要行に届いていること。** 生産の入力の `DemandLine.ProfitCap` / `HasProfitCap` が立ち、**利潤上限がゲートを閉じる帯**で入力の約定が 0 になること | (a) `BuyerDemand` が `hasProfitCap` / `profitCap` を渡さない (b) 摩耗費の材料 `PurchaseUnitCostAverage[Item.Tools]` を 0 にする (c) 段1 が段4 へ `提示価格_出力[前日]` を渡さない | **核心。** 届かないと生産者は「相場では儲からない値」でも入力を買い続け、[GDD02c §2.3](../03-gdd/02c-price-and-budget.md) の仕入上限が事実上無効になる。最低利幅‰ の保証は `ProfitCaps` の中だけで成立し**世界に出ない** |
+
+**`TradeSystemTests.SellerAnchorsOnSettledPriceNotOnItsOwnPreviousOffer` の doc コメントも直す。** 「パイプラインで確かめる」と書いているが、実際に確かめているのは**約定が無い日は錨を使わない**という半分だけである。広い保証は次に読む者に確認をやめさせる([process/03-corrections](../process/03-corrections.md))。
 
 ## 編集してよい文書
 
