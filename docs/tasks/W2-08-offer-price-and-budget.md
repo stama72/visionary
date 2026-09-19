@@ -50,7 +50,7 @@
 
 **「使わないので残す」を選ばない理由は、残る `UnitCost` が [GDD02a §5](../03-gdd/02a-production.md) の現行式と**違う**からである** — 現行の `原価[レシピ1回]` は摩耗費を含むが、`UnitCost` は含まない。読み手が居ないまま古い式を残すと、原価を最初に読む [#41](https://github.com/stama72/visionary/issues/41)(メトリクスの日次の利潤)が**それを正だと思って使う**。#41 が読み手と一緒に 02a §5 の式で書くこと。
 
-**`OfferPrice.UpdatedAcquisitionCost`(仕入れ移動平均単価、02a §5.1)は残す。** こちらは呼び出し側(`TradeSettlement`)が生きており、本タスクの利潤上限が摩耗費の材料として読む。
+**`OfferPrice.UpdatedAcquisitionCost`(仕入れ移動平均単価、02a §5.1)は残す。** こちらは呼び出し側(`TradeSettlement`)が生きており、本タスクの利潤上限が摩耗費の材料として読む。**ただし呼び出し側の条件が古い** — §10 を見ること。
 
 ### 相場基準は「速さだけが違う 2 つ」である
 
@@ -441,6 +441,20 @@ hasReference = MarketReference.TrySeller(
 - **売り手の在庫が尽きて 0 個になったのは、どちらの経路でもない**(現行のまま。[GDD02b §3.3](../03-gdd/02b-consumption-and-household.md) の囲み)
 - **店を 1 つも知らない(手順 2 で `continue`)もどちらでもない**
 
+### 10. `TradeSettlement` の仕入れ移動平均を耐久へ広げる(`Systems/TradeSettlement.cs`)
+
+**差し戻し後の追加(フェーズ1、2026-09-20)。** フェーズ2 が `SPEC-OUTSIDE` で提起し、フェーズ1 がスコープを広げると決めた。
+
+**手順5 の条件を `purpose == DemandPurpose.ProductionInput` から `purpose is DemandPurpose.ProductionInput or DemandPurpose.Durable` に広げる。**
+
+[GDD02a §5.1](../03-gdd/02a-production.md) は「更新するのは『生産の入力として買った』約定**と、耐久として買った工具**だけである」と定めている。**現行の `ProductionInput` だけという条件は、一世代前の規則の正確な実装である** — [#85](https://github.com/stama72/visionary/issues/85) の途中(`13e274a`:「必需・嗜好・**耐久**で買った分は混ぜない」)から現行(`50cf648`)へ反転しており、**履歴を引かないと見えない**。
+
+**本タスクで直すのは、本タスクが読み手を作るからである。** §5 の `BuyerBudget.WearCostPerRun` が `PurchaseUnitCostAverage[Item.Tools]` を読む。広げないと工具の移動平均が `InitialAcquisitionCost[Item.Tools]` に**恒久に固定**され、摩耗費が工具価格に応答しない — [GDD02c §2.3](../03-gdd/02c-price-and-budget.md) の「原材料価格の下流への転嫁」の負のフィードバックが、**摩耗費の項だけ死ぬ**。**踏んでも気付けない種類の誤りである**(値は出るし、テストも緑になる)。
+
+- **必需・嗜好は引き続き混ぜない。** 暖房用に買った薪が焼成の原価に乗る経路は閉じたままである
+- **`Item.Tools` で分岐させない。用途が `Durable` である約定の品目を更新する。** M0 の耐久財は工具だけ([GDD02 §9.1](../03-gdd/02-economy.md))なので結果は同じだが、品目で書くと [GDD02b §3.2](../03-gdd/02b-consumption-and-household.md)「走査の単位は(用途, 品目)の組」に反し、耐久財が増えたときに黙って外れる
+- **単位は 貨幣/個 で揃っている。** `Durable` の約定数量は `PurchaseQuantityInUnits` で個へ直した後であり、`unitEffectivePrice` も 貨幣/個 である
+
 ### 呼び出し側の配線(規則7)
 
 本タスクが作るもののうち、**書き手または読み手が本タスクの外にあるもの**。契約を書く。
@@ -496,9 +510,9 @@ hasReference = MarketReference.TrySeller(
 | 31 | `WorldDefinitionHasNoBudgetRatios` | `TolerancePermille` が 1200 で、**全用途の相場項がこれを使う**(必需と嗜好で同じ値になる)。`budgetRatioPermilleByPurpose` の引数が無いこと(コンパイルで担保) | 必需だけに許容乖離を掛け、他の用途を素の相場基準にする |  |
 | 32 | `TradePipelineStillRunsDeterministically` | (既存を維持)同じシードで 2 回走らせると状態ハッシュが一致する。`TradeSystem` が乱数を引かない | `SortedDictionary` を `Dictionary` に戻す。帳簿の走査で列挙順に依存する |  |
 
-**「核心」印(#1・#2・#4・#6・#8・#9・#11・#13・#14・#16・#18・#19・#20・#22・#23・#24・#26・#27・#28・#29・#30)は多い。** [process/02](../process/02-task-spec.md) の「1 タスクあたり 2〜3 件」を大きく超えるので、**実際に変異を当てるのは次の 6 件に絞る**:
+**「核心」印(#1・#2・#4・#6・#8・#9・#11・#13・#14・#16・#18・#19・#20・#22・#23・#24・#26・#27・#28・#29・#30)は多い。** [process/02](../process/02-task-spec.md) の「1 タスクあたり 2〜3 件」を大きく超えるので、**実際に変異を当てるのは次の 7 件に絞る**(**D-1 は差し戻し後の追加**):
 
-| 印を当てる | なぜこの 6 件か |
+| 印を当てる | なぜこの 7 件か |
 | ---------- | --------------- |
 | #1 | 売り手と買い手の速さの取り違え。**天井が消えても A/B 比較の差分に現れない**(GDD02c §1.2) |
 | #9 | 在庫圧力の下側の傾き。旧実装がここを据え置いていたので、**善意の「元に戻す」が起きうる** |
@@ -506,6 +520,7 @@ hasReference = MarketReference.TrySeller(
 | #16 | 在庫圧力をどの項に掛けるか。**本タスクの主題そのもの** |
 | #20 | 理由の判定順。argmin は自然な書き方であり、壊れても緑のまま通る |
 | #29 | 走査順の検出器([#81](https://github.com/stama72/visionary/issues/81))。**判別力が無いことが実測されて立った issue なので、判別力を実測で示さないと閉じられない** |
+| **D-1** | 耐久の仕入れ移動平均(§10)。**上位文書が規則を反転させても、古い条件のままのコードは緑で通る** — 反転を見落とした経路そのもの([#101](https://github.com/stama72/visionary/issues/101)) |
 
 **残りの「核心」印は「壊れたときの影響が大きい」ことだけを示す** — 変異は当てず、レビュアーが読む優先度として使う。
 
@@ -559,6 +574,18 @@ hasReference = MarketReference.TrySeller(
 | C-3 | `ProfitCapSurvivesWhenSellableStockIsZeroOnTheFollowingDay` | `hasOwnPreviousOffer[household.Id]` を `hasOwnOffer && sellableStock > 0` に置換 | **核心。** 本書 §9 段1 が明記した不変条件。**出力を売り切った / 入力切れで作れなかった工房 = まさに仕入れたい日の工房**が `HasProfitCap = false` になり、最低利幅‰ の保証が**最も必要な状態でだけ**外れる。挙動は「仕入が旺盛な工房」に見えるので機構の帰結と読めてしまう |
 
 **`TradeSystemTests.SellerAnchorsOnSettledPriceNotOnItsOwnPreviousOffer` の doc コメントも直す。** 「パイプラインで確かめる」と書いているが、実際に確かめているのは**約定が無い日は錨を使わない**という半分だけである。広い保証は次に読む者に確認をやめさせる([process/03-corrections](../process/03-corrections.md))。
+
+## 別表 D: 差し戻し後の追加(フェーズ1、2026-09-20)
+
+**`SPEC-OUTSIDE` での差し戻しを受けてフェーズ1 が足した。** §10 に対応する。上の表と同じ拘束力を持つ。
+
+| #   | テスト | 検証内容 | この実装ミスで落ちる | 核心 |
+| --- | ------ | -------- | -------------------- | ---- |
+| D-1 | `DurablePurchaseUpdatesToolAcquisitionCost` | `Durable` で工具を買った約定 → `PurchaseUnitCostAverage[Item.Tools]` が `UpdatedAcquisitionCost` の式で動く。**`Necessity` / `Preference` の約定では動かない**(別表 A の既存ケースを維持) | 条件を `ProductionInput` だけに戻す(摩耗費が初期値に固定され、利潤上限が工具価格に応答しない)。`Necessity` まで広げる(暖房用の薪が焼成の原価に乗る)。`itemId == Item.Tools` で分岐させる(用途ではなく品目で振り分ける) | **核心** |
+| D-2 | `WearCostFollowsSettledToolPrice` | 工具を**初期取得原価と違う単価**で買った翌日、`BuyerDemand` が作る生産の入力の行の `ProfitCap` が**前日と変わる**(摩耗費が動いたぶんだけ許容原価合計がずれる)。工具を買わなかった日は変わらない | §10 を入れずに D-1 だけ通す(`TradeSettlement` は緑でも、**読み手まで繋がっていない**)。摩耗費を許容原価合計から引き忘れる |  |
+
+- **D-2 は「書き手と読み手が繋がっていること」を見る。** D-1 は `TradeSettlement` の中で閉じており、`WearCostPerRun` → `ProfitCaps` の経路が生きているかは踏まない。**§10 を入れた動機そのもの(摩耗費が工具価格に応答する)を確かめるのは D-2 である**
+- **D-2 に変異を当てる必要は無い。** D-1 の変異(条件を戻す)で D-2 も落ちるはずであり、落ちなければ D-2 が経路を踏んでいない証拠になる。**D-1 の変異を当てたときに D-2 も赤になることを確認し、結果に書くこと**
 
 ## 編集してよい文書
 
