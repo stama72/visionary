@@ -1,3 +1,5 @@
+using Visionary.Sim.Numerics;
+
 namespace Visionary.Sim;
 
 /// <summary>品目と数量の組(GDD02 §2.3)。レシピの入力・出力に使う。</summary>
@@ -62,6 +64,41 @@ public sealed class Recipe
         Outputs = outputs.ToArray();
         Inputs = inputs.ToArray();
         LaborPermille = laborPermille;
+    }
+
+    /// <summary>
+    /// 生産能力(実行回数)= floor( floor(労働力合計‰ × 設備係数‰ ÷ 1000) ÷ 所要労働‰ )(GDD02a §1)。
+    /// </summary>
+    /// <remarks>
+    /// <b>両方の除算を切り下げる。</b>端数の労働力ではレシピを1回完成できない —
+    /// <see cref="IntegerMath.ApplyPermille"/>(切り上げ)を内側に使うと存在しない労働力で
+    /// 生産したことになる(GDD02a §1 の「切り上げ規約の意図的な例外」)。
+    /// <see cref="Systems.ProductionSystem"/>(日次の実行回数)と <see cref="WorldDefinition"/>
+    /// (目標在庫の物差し)の両方がこのメソッドを呼ぶ ── 式を書き分けると、片方の丸めを
+    /// 直したとき他方が黙ってずれる(タスク仕様「生産能力の式は1か所にしか置かない」)。
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="laborPermille"/> または <paramref name="equipmentPermille"/> が負のとき。
+    /// </exception>
+    public int CapacityRuns(int laborPermille, int equipmentPermille)
+    {
+        if (laborPermille < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(laborPermille), laborPermille, "労働力合計‰は非負(GDD02a §2)。");
+        }
+
+        if (equipmentPermille < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(equipmentPermille), equipmentPermille, "設備係数‰は非負(GDD02a §3)。");
+        }
+
+        // 中間の積はlong(労働力合計‰×設備係数‰はintを超えうる)。
+        long effectiveLaborPermille = IntegerMath.FloorDiv(
+            (long)laborPermille * equipmentPermille, IntegerMath.PermilleScale);
+
+        return checked((int)IntegerMath.FloorDiv(effectiveLaborPermille, LaborPermille));
     }
 
     private static void ValidateQuantities(ItemQuantity[] items, string paramName)

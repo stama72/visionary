@@ -34,16 +34,18 @@ internal static class EconomySystemTestFixtures
     /// <summary>
     /// <paramref name="primaryRecipe"/> を <c>Occupation.Miller</c>(添字0)として登録した定義。
     /// </summary>
+    /// <remarks>
+    /// <b>既定の外部価格表はレシピを見て組み立てる</b>(#96 タスク仕様 §7)。1次産品
+    /// (どのレシピも出力しない品目)か都市生産品かはレシピから決まるので、表の側で
+    /// 決め打ちすると <paramref name="primaryRecipe"/> の品目次第で整合しなくなる。
+    /// </remarks>
     internal static WorldDefinition BuildDefinition(
         Recipe primaryRecipe,
         int[]? laborPermilleByRank = null,
-        int productionRunsPerToolWear = 30,
         int[][]? dailyConsumptionPerNpcByRank = null,
         int[]? firewoodConsumptionSeasonPermille = null,
         int minimumMarginPermille = 0,
-        int[][]? shipmentTargetStockByOccupation = null,
         int observationRetentionDays = 7,
-        int[][]? inputTargetStockByOccupation = null,
         int[]? necessityTargetStockDays = null,
         int[]? preferenceTargetStockDays = null,
         int toolTargetStockPermille = 1000,
@@ -52,7 +54,16 @@ internal static class EconomySystemTestFixtures
         int[]? budgetRatioPermilleByPurpose = null,
         int[]? opportunityCostBaseByOccupation = null,
         int travelHoursPerDistrict = 1,
-        int acquisitionCostSmoothingPermille = 250)
+        int acquisitionCostSmoothingPermille = 250,
+        int inputBufferDays = 5,
+        int shipmentDays = 1,
+        int toolLifeLaborDays = 30,
+        int equipmentPermilleWithoutTools = 0,
+        int disposableHours = 12,
+        int initialWorkshopInputDays = 0,
+        int[]? externalSellPriceBaseOverride = null,
+        int[][]? externalSellPriceSeasonPermilleOverride = null,
+        int[]? externalBuyPriceOverride = null)
     {
         var recipes = new[]
         {
@@ -63,6 +74,31 @@ internal static class EconomySystemTestFixtures
             UnusedRecipe(Occupation.Smith),
         };
 
+        var produced = ComputeProducedFlags(recipes);
+
+        // 1次産品(=どのレシピも出力しない品目)だけが外部売値を持ち、都市生産品だけが
+        // 外部買値を持つ(WorldDefinitionのコンストラクタの検証と同じ規則)。
+        // *Override は WorldDefinition 自身の価格表の検証(WorldDefinitionTests)だけが使う ──
+        // わざと崩した表を渡すため、既定の自動組み立てを丸ごと差し替える。
+        var externalSellPriceBase = new int[Item.Count];
+        var externalBuyPrice = new int[Item.Count];
+        var externalSellPriceSeasonPermille = new int[Item.Count][];
+
+        for (int itemId = 0; itemId < Item.Count; itemId++)
+        {
+            if (produced[itemId])
+            {
+                externalBuyPrice[itemId] = 1;
+            }
+            else
+            {
+                externalSellPriceBase[itemId] = 1;
+            }
+
+            // 年平均1000‰(合計4000)を満たす、季節性の無い既定の行。
+            externalSellPriceSeasonPermille[itemId] = new[] { 1000, 1000, 1000, 1000 };
+        }
+
         return new WorldDefinition(
             itemCount: Item.Count,
             householdsPerOccupation: 2, // 5職業 × 2 = 10戸(区画数9〜18を満たす)
@@ -70,20 +106,15 @@ internal static class EconomySystemTestFixtures
             initialLiquidFunds: 0,
             initialAcquisitionCost: Enumerable.Repeat(1, Item.Count).ToArray(),
             initialHouseholdInventory: new int[Item.Count],
-            initialWorkshopInputDays: 0,
+            initialWorkshopInputDays: initialWorkshopInputDays,
             initialToolStock: 1,
             initialSkillPermilleByRank: new[] { 0, 0, 0 },
             laborPermilleByRank: laborPermilleByRank ?? new[] { 1000, 800, 300 },
-            productionRunsPerToolWear: productionRunsPerToolWear,
             dailyConsumptionPerNpcByRank: dailyConsumptionPerNpcByRank ?? ZeroConsumptionTable(),
             firewoodConsumptionSeasonPermille:
                 firewoodConsumptionSeasonPermille ?? new[] { 1000, 1000, 1000, 1000 },
             minimumMarginPermille: minimumMarginPermille,
-            shipmentTargetStockByOccupation:
-                shipmentTargetStockByOccupation ?? DefaultShipmentTargetStockByOccupation(recipes),
             observationRetentionDays: observationRetentionDays,
-            inputTargetStockByOccupation:
-                inputTargetStockByOccupation ?? DefaultInputTargetStockByOccupation(recipes),
             necessityTargetStockDays: necessityTargetStockDays ?? new int[Item.Count],
             preferenceTargetStockDays: preferenceTargetStockDays ?? new int[Item.Count],
             toolTargetStockPermille: toolTargetStockPermille,
@@ -93,57 +124,36 @@ internal static class EconomySystemTestFixtures
             opportunityCostBaseByOccupation:
                 opportunityCostBaseByOccupation ?? Enumerable.Repeat(1, recipes.Length).ToArray(),
             travelHoursPerDistrict: travelHoursPerDistrict,
-            acquisitionCostSmoothingPermille: acquisitionCostSmoothingPermille);
+            acquisitionCostSmoothingPermille: acquisitionCostSmoothingPermille,
+            externalSellPriceBase: externalSellPriceBaseOverride ?? externalSellPriceBase,
+            externalSellPriceSeasonPermille:
+                externalSellPriceSeasonPermilleOverride ?? externalSellPriceSeasonPermille,
+            externalBuyPrice: externalBuyPriceOverride ?? externalBuyPrice,
+            inputBufferDays: inputBufferDays,
+            shipmentDays: shipmentDays,
+            toolLifeLaborDays: toolLifeLaborDays,
+            equipmentPermilleWithoutTools: equipmentPermilleWithoutTools,
+            disposableHours: disposableHours);
     }
 
-    /// <summary>
-    /// 各職業の出力品目の欄だけ1を置き、残りは0にする(コンストラクタが出力品目以外の
-    /// 非0を拒むため)。<see cref="OfferPrice"/> / <see cref="TradeSystem"/> のテストは
-    /// 通常こちらを差し替えて使う。
-    /// </summary>
-    private static int[][] DefaultShipmentTargetStockByOccupation(Recipe[] recipes)
+    /// <summary>どのレシピも出力しない品目か(= 1次産品か)を、渡されたレシピ表から求める。</summary>
+    private static bool[] ComputeProducedFlags(Recipe[] recipes)
     {
-        var rows = new int[recipes.Length][];
+        var produced = new bool[Item.Count];
 
-        for (int occupationId = 0; occupationId < recipes.Length; occupationId++)
+        foreach (var recipe in recipes)
         {
-            var row = new int[Item.Count];
-            foreach (var output in recipes[occupationId].Outputs)
+            foreach (var output in recipe.Outputs)
             {
-                row[output.ItemId] = 1;
+                produced[output.ItemId] = true;
             }
-
-            rows[occupationId] = row;
         }
 
-        return rows;
+        return produced;
     }
 
     private static int[][] ZeroConsumptionTable() =>
         new[] { new int[Item.Count], new int[Item.Count], new int[Item.Count] };
-
-    /// <summary>
-    /// 各職業のレシピの入力品目の欄だけ1を置き、残りは0にする(コンストラクタが入力品目以外の
-    /// 非0を拒むため)。<see cref="BuyerBudget"/> / <see cref="BuyerDemand"/> のテストは通常
-    /// こちらを差し替えて使う。
-    /// </summary>
-    private static int[][] DefaultInputTargetStockByOccupation(Recipe[] recipes)
-    {
-        var rows = new int[recipes.Length][];
-
-        for (int occupationId = 0; occupationId < recipes.Length; occupationId++)
-        {
-            var row = new int[Item.Count];
-            foreach (var input in recipes[occupationId].Inputs)
-            {
-                row[input.ItemId] = 1;
-            }
-
-            rows[occupationId] = row;
-        }
-
-        return rows;
-    }
 
     /// <summary>
     /// 構成員 <paramref name="memberRanks"/>(先頭が世帯主)を持つ、世帯1戸だけの世界を作る。

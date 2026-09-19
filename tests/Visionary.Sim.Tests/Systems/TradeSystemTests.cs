@@ -18,33 +18,17 @@ public sealed class TradeSystemTests
             laborPermille: 1000);
 
     /// <summary>
-    /// 出荷目標在庫の表。Miller(添字0)の小麦粉だけ <paramref name="flourTarget"/>、
-    /// 他4職業(EconomySystemTestFixtures.UnusedRecipe)は出力itemId 0 に1を置く。
+    /// 出荷目標在庫(小麦粉)を <paramref name="shipmentTarget"/> にする。生産能力1
+    /// (<see cref="WorldDefinition.NominalLaborPermille"/> 1300‰・レシピの所要労働‰ 1000 →
+    /// 1実行/日) × 出力数量1 × <c>shipmentDays</c> = <paramref name="shipmentTarget"/> となるよう
+    /// <c>shipmentDays</c> をそのまま渡す(定義が導出する。旧の定数表に代わる)。
     /// </summary>
-    private static int[][] ShipmentTargets(int flourTarget)
-    {
-        var rows = new int[5][];
-
-        var millerRow = new int[Item.Count];
-        millerRow[Item.Flour] = flourTarget;
-        rows[0] = millerRow;
-
-        for (int occupationId = 1; occupationId < 5; occupationId++)
-        {
-            var row = new int[Item.Count];
-            row[0] = 1; // UnusedRecipeの出力itemId(EconomySystemTestFixtures参照)
-            rows[occupationId] = row;
-        }
-
-        return rows;
-    }
-
     private static WorldDefinition BuildDefinition(
         int shipmentTarget, int minimumMarginPermille = 0) =>
         EconomySystemTestFixtures.BuildDefinition(
             MillerRecipe(),
             minimumMarginPermille: minimumMarginPermille,
-            shipmentTargetStockByOccupation: ShipmentTargets(shipmentTarget));
+            shipmentDays: shipmentTarget);
 
     private static PriceObservation Observation(int itemId, int sellerId, int price, Tick observedAt) =>
         new()

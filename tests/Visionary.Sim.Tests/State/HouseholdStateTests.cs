@@ -153,15 +153,38 @@ public sealed class HouseholdStateTests
 
     /// <summary>
     /// テスト表 #26(#34)。負のカウンタは <c>FloorDiv(摩耗, N)</c> が負の商を返し、
-    /// 工具在庫が増えてしまう(<see cref="HouseholdState.ToolWearCount"/> の doc 参照)。
+    /// 工具在庫が増えてしまう(<see cref="HouseholdState.ToolWear"/> の doc 参照)。
     /// </summary>
     [Fact]
-    public void ToolWearCountRejectsNegativeValues()
+    public void ToolWearRejectsNegativeValues()
     {
         var household = new HouseholdState(
             id: 0, districtId: 0, headNpcId: 0, memberNpcIds: new[] { 0 }, itemCount: 0);
 
-        Assert.Throws<ArgumentOutOfRangeException>(() => household.ToolWearCount = -1);
+        Assert.Throws<ArgumentOutOfRangeException>(() => household.ToolWear = -1);
+    }
+
+    /// <summary>
+    /// テスト表 #15(#96)。<see cref="HouseholdState.ErrandLaborLossPermille"/> と
+    /// <see cref="HouseholdState.ProductionRuns"/> も同じく検証なしの自動プロパティにする
+    /// 実装ミスを捕まえる。
+    /// </summary>
+    [Theory]
+    [InlineData("errandLaborLoss")]
+    [InlineData("productionRuns")]
+    public void NewHouseholdFieldsRejectNegativeValues(string field)
+    {
+        var household = new HouseholdState(
+            id: 0, districtId: 0, headNpcId: 0, memberNpcIds: new[] { 0 }, itemCount: 0);
+
+        Action assign = field switch
+        {
+            "errandLaborLoss" => () => household.ErrandLaborLossPermille = -1,
+            "productionRuns" => () => household.ProductionRuns = -1,
+            _ => throw new ArgumentOutOfRangeException(nameof(field), field, "未知のフィールド。"),
+        };
+
+        Assert.Throws<ArgumentOutOfRangeException>(assign);
     }
 
     /// <summary>#34: <see cref="HouseholdState.UnmetConsumption"/> は品目数ぶん0で確保される。</summary>

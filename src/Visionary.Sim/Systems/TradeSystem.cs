@@ -131,9 +131,9 @@ public sealed class TradeSystem : ISimSystem
                 ownPreviousPrice,
                 out int marketReference);
 
-            // 職業は世帯の現在の値を読む(#39の付け替えで変わる)。出荷目標在庫も現在の職業の行を引く。
+            // 職業は世帯の現在の値を読む(#39の付け替えで変わる)。出荷目標在庫も現在の職業から導く。
             int shipmentTargetStock =
-                _definition.ShipmentTargetStockByOccupation[(int)household.Occupation][outputItemId];
+                _definition.ShipmentTargetStock(household.Occupation, outputItemId);
 
             int price = hasReference
                 ? OfferPrice.Calculate(costFloor, marketReference, sellableStock, shipmentTargetStock)
@@ -190,18 +190,18 @@ public sealed class TradeSystem : ISimSystem
     /// 変換が要る。<b>用途による分岐をここに持つ</b> ── 段5 の本文に残すと、耐久の約定が
     /// W2 では構造的に起きない以上どこからもテストが踏めない(レビュー1巡目 I-b の訂正)。
     /// </summary>
-    public static int TargetStockInUnits(DemandPurpose purpose, int targetStock, int runsPerToolWear) =>
+    public static int TargetStockInUnits(DemandPurpose purpose, int targetStock, int durabilityPerTool) =>
         purpose == DemandPurpose.Durable
-            ? IntegerMath.CeilDiv(targetStock, runsPerToolWear)
+            ? IntegerMath.CeilDiv(targetStock, durabilityPerTool)
             : targetStock;
 
     /// <summary>
     /// 購入量(用途の単位)を個数へ直す(段5 手順5。GDD02 §8.2.1)。耐久だけ耐久値で持つので
     /// 変換が要る。<b>用途による分岐をここに持つ</b>(理由は <see cref="TargetStockInUnits"/> と同じ)。
     /// </summary>
-    public static int PurchaseQuantityInUnits(DemandPurpose purpose, int quantity, int runsPerToolWear) =>
+    public static int PurchaseQuantityInUnits(DemandPurpose purpose, int quantity, int durabilityPerTool) =>
         purpose == DemandPurpose.Durable
-            ? IntegerMath.CeilDiv(quantity, runsPerToolWear)
+            ? IntegerMath.CeilDiv(quantity, durabilityPerTool)
             : quantity;
 
     /// <summary>段5 の1世帯ぶんの買い物(タスク仕様の10手順)。</summary>
@@ -219,7 +219,7 @@ public sealed class TradeSystem : ISimSystem
         {
             // 1. 目標在庫を個数へ直す(移動費の分母。GDD06 §2)。
             int targetInUnits = TargetStockInUnits(
-                line.Purpose, line.TargetStock, _definition.ProductionRunsPerToolWear);
+                line.Purpose, line.TargetStock, _definition.ToolDurabilityPerUnit);
 
             // 2. 知っている店のうち実質コストが最小のものを選ぶ。0件ならこのlineは終わり
             // (Needは立てない、#40)。販売在庫は約定のたびに減るのでworldを毎回読み直す ──
@@ -242,7 +242,7 @@ public sealed class TradeSystem : ISimSystem
 
             // 5. 個数へ直す。
             int purchaseQuantityInUnits = PurchaseQuantityInUnits(
-                line.Purpose, purchaseQuantity, _definition.ProductionRunsPerToolWear);
+                line.Purpose, purchaseQuantity, _definition.ToolDurabilityPerUnit);
 
             // 6. 0以下なら、このlineは終わり(店は選んだが買う量が0。訪問にも数えない)。
             if (purchaseQuantityInUnits <= 0)

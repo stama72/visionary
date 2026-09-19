@@ -82,8 +82,12 @@ public static class WorldGenerator
 
             foreach (var input in recipe.Inputs)
             {
+                // × 1日の投入量(生産能力 × 必要数量)。旧は「× 必要数量」(1実行/日 の前提)
+                // だったが、生産能力が1実行/日 に固定されなくなった(#96)ため、こちらでないと
+                // 生産能力が2以上の職業の初日が入力切れで生産停止する(タスク仕様 §6)。
                 household.WorkshopInventory[input.ItemId] =
-                    definition.InitialWorkshopInputDays * input.Quantity;
+                    definition.InitialWorkshopInputDays
+                        * definition.DailyInputQuantity(occupations[householdId], input.ItemId);
             }
 
             // += で足すのは、#28がレシピを変えて工具を入力に持つ職業が現れたときに、

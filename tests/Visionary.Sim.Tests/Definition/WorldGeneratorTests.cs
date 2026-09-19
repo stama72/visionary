@@ -1,5 +1,6 @@
 using Visionary.Sim.Determinism;
 using Visionary.Sim.Randomness;
+using Visionary.Sim.Tests.Systems;
 
 namespace Visionary.Sim.Tests.Definition;
 
@@ -229,10 +230,12 @@ public sealed class WorldGeneratorTests
             var recipe = definition.Recipes[(int)household.Occupation];
 
             // 自職業のレシピの入力から期待される在庫量をテスト側で組み立てる(核心印)。
+            // #96: × 必要数量ではなく × 1日の投入量(DailyInputQuantity)。
             var expectedByItemId = new int[definition.ItemCount];
             foreach (var input in recipe.Inputs)
             {
-                expectedByItemId[input.ItemId] = definition.InitialWorkshopInputDays * input.Quantity;
+                expectedByItemId[input.ItemId] = definition.InitialWorkshopInputDays
+                    * definition.DailyInputQuantity(household.Occupation, input.ItemId);
             }
 
             expectedByItemId[Item.Tools] += definition.InitialToolStock;
@@ -242,6 +245,39 @@ public sealed class WorldGeneratorTests
                 Assert.Equal(expectedByItemId[itemId], household.WorkshopInventory[itemId]);
             }
         }
+    }
+
+    /// <summary>
+    /// テスト表 #21。<c>InitialWorkshopInputDays = 3</c>・穀物2→小麦粉1・生産能力7の定義 →
+    /// 水車小屋番の工房在庫[穀物] = 42(= 3 × DailyInputQuantity(穀物) = 3 × 14)。
+    /// 同じシードで2回生成すると配置が一致する(M0 以外の定義でも決定論が保たれること)。
+    /// </summary>
+    [Fact]
+    public void WorldGeneratorSeedsWorkshopInputsFromDailyInputQuantity()
+    {
+        var recipe = new Recipe(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = Item.Flour, Quantity = 1 } },
+            inputs: new[] { new ItemQuantity { ItemId = Item.Grain, Quantity = 2 } },
+            laborPermille: 185); // 1300‰ ÷ 185‰ = 7実行/日
+
+        var definition = EconomySystemTestFixtures.BuildDefinition(
+            recipe,
+            laborPermilleByRank: new[] { 1000, 800, 300 },
+            initialWorkshopInputDays: 3);
+
+        Assert.Equal(7, definition.ProductionCapacity(Occupation.Miller));
+        Assert.Equal(14, definition.DailyInputQuantity(Occupation.Miller, Item.Grain));
+
+        var first = WorldGenerator.Generate(definition, new RandomSource(1));
+        var second = WorldGenerator.Generate(definition, new RandomSource(1));
+
+        // 水車小屋番(Occupation.Miller、添字0)の世帯を探す(HouseholdsPerOccupation=2なので
+        // 複数居るが、どちらも同じ値になるはずなので先頭を見る)。
+        var millerHousehold = first.Households.First(h => h.Occupation == Occupation.Miller);
+        Assert.Equal(42, millerHousehold.WorkshopInventory[Item.Grain]);
+
+        Assert.Equal(StateHasher.Compute(first), StateHasher.Compute(second));
     }
 
     /// <summary>
