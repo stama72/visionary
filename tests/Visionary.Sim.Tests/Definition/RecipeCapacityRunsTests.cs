@@ -16,14 +16,17 @@ public sealed class RecipeCapacityRunsTests
     /// <c>CapacityRuns(1300, 1000)</c> で所要労働217‰ → 5(floor(1300÷217) = 5)。
     /// </summary>
     /// <remarks>
-    /// <b>変異の実測(2026-09-19)。</b><c>Recipe.CapacityRuns</c> の内側の除算
-    /// <c>IntegerMath.FloorDiv((long)laborPermille * equipmentPermille, IntegerMath.PermilleScale)</c>
-    /// を <c>IntegerMath.ApplyPermille(laborPermille, equipmentPermille)</c>(切り上げ)に
-    /// 変える変異を当てたところ、<c>Assert.Equal(1, recipeA.CapacityRuns(1275, 500))</c> が
-    /// 実際値2(ApplyPermille(1275,500)=638、638÷319=2)で失敗した(赤を確認)。続けて外側の
-    /// 除算を <c>IntegerMath.CeilDiv</c> に変える変異を当てたところ、
-    /// <c>Assert.Equal(5, recipeB.CapacityRuns(1300, 1000))</c> が実際値6(CeilDiv(1300,217)=6)
-    /// で失敗した(赤を確認)。いずれも変異を戻して緑に復帰させた。
+    /// <b>変異の実測・再測(2026-09-19、レビュー1巡目 象限III)。</b><c>Recipe.CapacityRuns</c> の
+    /// 内側の除算 <c>IntegerMath.FloorDiv((long)laborPermille * equipmentPermille,
+    /// IntegerMath.PermilleScale)</c> を <c>IntegerMath.ApplyPermille(laborPermille,
+    /// equipmentPermille)</c>(切り上げ)に変える変異を当てたところ、
+    /// <c>Assert.Equal(1, recipeA.CapacityRuns(1275, 500))</c>(32行目)が実際値2で失敗した
+    /// (赤を確認)。変異を戻し、続けて外側の除算を <c>IntegerMath.CeilDiv</c> に変える変異を
+    /// 単独で当てたところ、この変異は <c>CapacityRuns</c> 内の1か所を通る共通コードなので
+    /// recipeA の呼び出しにも同じ式が適用され、<c>Assert.Equal(1, recipeA.CapacityRuns(1275,
+    /// 500))</c>(32行目、recipeB の35行目ではない)が実際値2(<c>CeilDiv(637, 319) = 2</c>)で
+    /// 先に失敗した(赤を確認 ── xUnit は最初の失敗で止まるので35行目には到達しない)。
+    /// いずれも変異を戻して緑に復帰させた。
     /// </remarks>
     [Fact]
     public void CapacityRunsFloorsBothDivisions()

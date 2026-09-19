@@ -421,8 +421,8 @@ public sealed class WorldDefinitionTests
     /// <c>ShipmentTargetStock(小麦粉)</c> = 21、入力でも出力でもない品目は0。
     /// </summary>
     /// <remarks>
-    /// <b>変異の実測(2026-09-19)。</b><c>WorldDefinition.ShipmentTargetStock</c> の
-    /// <c>ProductionCapacity(occupation) * output.Quantity * ShipmentDays</c> から
+    /// <b>変異の実測・再測(2026-09-19、レビュー1巡目 象限III)。</b><c>WorldDefinition.ShipmentTargetStock</c>
+    /// の <c>ProductionCapacity(occupation) * output.Quantity * ShipmentDays</c> から
     /// <c>ProductionCapacity(occupation) *</c> を外す変異(生産能力を掛けるのを出荷側だけ忘れる)を
     /// 当てたところ、<c>Assert.Equal(21, ...ShipmentTargetStock(小麦粉))</c> が実際値3
     /// (出力数量1×出荷日数3)で失敗した(赤を確認)。変異を戻して緑に復帰させた。

@@ -145,11 +145,12 @@ public sealed class ProductionSystemTests
     /// このテストで置き換える(タスク仕様)。旧仕様は工具切れの設備係数を0にしていたが、
     /// GDD02a §3 の改訂で500‰(初期値)に変わり、生産は止まらず半分の能力で続く。
     /// <para>
-    /// <b>変異の実測(2026-09-19)。</b><c>ProductionSystem.RunOneHousehold</c> の設備係数の判定を
+    /// <b>変異の実測・再測(2026-09-19、レビュー1巡目 象限III)。</b>
+    /// <c>ProductionSystem.RunOneHousehold</c> の設備係数の判定を
     /// <c>household.WorkshopInventory[Item.Tools] &gt;= 1 ? IntegerMath.PermilleScale : 0</c>
     /// (旧仕様。工具なしを常に0回にする)へ戻す変異を当てたところ、
-    /// <c>Assert.Equal(3, ...Output)</c> が実際値0(生産能力0のまま実行回数0)で失敗した
-    /// (赤を確認)。変異を戻して緑に復帰させた。
+    /// <c>Assert.Equal(3, ...Output)</c>(172行目)が実際値0(生産能力0のまま実行回数0)で
+    /// 失敗した(赤を確認)。変異を戻して緑に復帰させた。
     /// </para>
     /// </remarks>
     [Fact]
@@ -479,11 +480,13 @@ public sealed class ProductionSystemTests
     /// <c>ToolWear</c> = 14256 − 13000 = 1256。
     /// </summary>
     /// <remarks>
-    /// <b>変異の実測(2026-09-19)。</b><c>ProductionSystem.WearTools</c> の
-    /// <c>household.ToolWear += laborPermille * runs;</c> を <c>household.ToolWear += runs;</c>
-    /// (回数を足す)に変える変異を当てたところ、11日目の <c>Assert.Equal(4, ...Tools)</c>
-    /// (工具1個減って4個)が実際値5(11日で累計しても132 &lt; 13000 に遠く及ばず、工具が
-    /// 一度も減らない)で失敗した(赤を確認)。変異を戻して緑に復帰させた。
+    /// <b>変異の実測・再測(2026-09-19、レビュー1巡目 象限III)。</b><c>ProductionSystem.WearTools</c>
+    /// の <c>household.ToolWear += laborPermille * runs;</c> を <c>household.ToolWear += runs;</c>
+    /// (回数を足す)に変える変異を当てたところ、<b>10日目の <c>Assert.Equal(12960,
+    /// ...ToolWear)</c>(506行目)が実際値120(12回/日 × 10日)で先に失敗した</b>(赤を確認)。
+    /// 11日目の <c>Assert.Equal(4, ...Tools)</c> には xUnit が最初の失敗で止まるため到達しない
+    /// (旧版の記録は11日目の assert が失敗すると書いていたが、実測はこの10日目の assert で
+    /// 止まる。訂正)。変異を戻して緑に復帰させた。
     /// </remarks>
     [Fact]
     public void ToolWearAccumulatesLaborNotRuns()
@@ -516,10 +519,10 @@ public sealed class ProductionSystemTests
     /// 1日で2個減り、<c>ToolWear</c> = 450(= 2450 − 2×1000)。
     /// </summary>
     /// <remarks>
-    /// <b>変異の実測(2026-09-19)。</b><c>ProductionSystem.WearTools</c> の
-    /// <c>household.ToolWear -= consumed * _definition.ToolDurabilityPerUnit;</c> を
+    /// <b>変異の実測・再測(2026-09-19、レビュー1巡目 象限III)。</b><c>ProductionSystem.WearTools</c>
+    /// の <c>household.ToolWear -= consumed * _definition.ToolDurabilityPerUnit;</c> を
     /// <c>household.ToolWear -= _definition.ToolDurabilityPerUnit;</c>(掛け忘れ)に変える
-    /// 変異を当てたところ、<c>Assert.Equal(450, ...ToolWear)</c> が実際値1450
+    /// 変異を当てたところ、<c>Assert.Equal(450, ...ToolWear)</c>(546行目)が実際値1450
     /// (2450 − 1000 = 1450。「工具在庫がある間は 0 ≤ ToolWear &lt; N×1000」の後条件が破れる)
     /// で失敗した(赤を確認)。変異を戻して緑に復帰させた。
     /// </remarks>
@@ -577,17 +580,94 @@ public sealed class ProductionSystemTests
     }
 
     /// <summary>
+    /// 【核心】別表 #29(#96)。表 #9 の続き。工具が尽きた翌日以降も、工具0個で生産が続く
+    /// あいだ日末の <c>ToolWear</c> が0のままであること(耐久値1000に届かないので
+    /// <c>worn == 0</c> の経路を通る)。さらにその翌日に工具を1個与えて1日進め、新品が
+    /// 前日までの摩耗を引き継がないこと。
+    /// </summary>
+    /// <remarks>
+    /// <b>#9 と同じ工具・労働量の設定を使い、日数だけ伸ばす</b>(タスク仕様の別表)。別の
+    /// フィクスチャを立てると、#9 が押さえる「尽きた日の破棄」と #29 が押さえる
+    /// 「尽きた翌日以降の破棄」が別の前提の上に乗り、片方を壊してももう片方が緑のまま残る。
+    /// <para>
+    /// <b>変異の実測(2026-09-19)。</b><c>ProductionSystem.WearTools</c> の
+    /// 破棄(<c>if (household.WorkshopInventory[Item.Tools] == 0) household.ToolWear = 0;</c>)を
+    /// <c>if (worn &gt; 0)</c> の内側へ入れ子にする変異(1巡目 象限I-b の指摘そのもの)を
+    /// 当てたところ、2日目(工具0個のまま1回実行・<c>worn == 0</c>)終了時点の
+    /// <c>Assert.Equal(0, world.Households[0].ToolWear)</c> が実際値400で失敗した(赤を確認 ──
+    /// 破棄が <c>worn &gt; 0</c> の枝に入れ子だと、<c>worn == 0</c> の日は破棄を素通りする)。
+    /// 変異を戻して緑に復帰させた。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void ToolWearIsDroppedOnEveryDayWithoutTools()
+    {
+        var recipe = new Recipe(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = Output, Quantity = 1 } },
+            inputs: Array.Empty<ItemQuantity>(),
+            laborPermille: 400);
+
+        var definition = EconomySystemTestFixtures.BuildDefinition(
+            recipe, laborPermilleByRank: new[] { 1200, 0, 0 }, toolLifeLaborDays: 1,
+            equipmentPermilleWithoutTools: 500);
+        var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(new[] { NpcRank.Master });
+        world.Households[0].WorkshopInventory[Item.Tools] = 1;
+
+        var system = new ProductionSystem(definition);
+
+        // 1日目。#9と同じ:工具1個→0個、ToolWear=0(破棄済み)。
+        EconomySystemTestFixtures.RunDays(world, system, days: 1);
+        Assert.Equal(0, world.Households[0].WorkshopInventory[Item.Tools]);
+        Assert.Equal(0, world.Households[0].ToolWear);
+
+        // 2日目。工具0個のまま500‰で1回実行(400‰人日)、耐久値1000に届かず worn == 0。
+        // 破棄が無条件(worn > 0の外)でなければ、ここでToolWearが400のまま残る。
+        EconomySystemTestFixtures.RunDays(world, system, days: 1);
+        Assert.Equal(1, world.Households[0].ProductionRuns);
+        Assert.Equal(0, world.Households[0].WorkshopInventory[Item.Tools]);
+        Assert.Equal(0, world.Households[0].ToolWear);
+
+        // 耐久の予想在庫(工具在庫×耐久値−ToolWear)が非負であること(元の指摘の実害の経路)。
+        var demandAfterDay2 = new BuyerDemand(definition).Build(
+            world, world.Households[0], hasPreviousOutputOfferPrice: false, previousOutputOfferPrice: 0);
+        var durableLineAfterDay2 = demandAfterDay2.Lines.Single(
+            line => line.Purpose == DemandPurpose.Durable && line.ItemId == Item.Tools);
+        Assert.True(
+            durableLineAfterDay2.ExpectedStock >= 0,
+            $"耐久の予想在庫が負({durableLineAfterDay2.ExpectedStock})。ToolWearの破棄漏れの実害。");
+
+        // 3日目。工具を1個与えて1日進める ── 新品が前日までの摩耗を引き継がないこと。
+        world.Households[0].WorkshopInventory[Item.Tools] = 1;
+        EconomySystemTestFixtures.RunDays(world, system, days: 1);
+        Assert.Equal(0, world.Households[0].WorkshopInventory[Item.Tools]);
+        Assert.Equal(0, world.Households[0].ToolWear);
+
+        var demandAfterDay3 = new BuyerDemand(definition).Build(
+            world, world.Households[0], hasPreviousOutputOfferPrice: false, previousOutputOfferPrice: 0);
+        var durableLineAfterDay3 = demandAfterDay3.Lines.Single(
+            line => line.Purpose == DemandPurpose.Durable && line.ItemId == Item.Tools);
+        Assert.True(
+            durableLineAfterDay3.ExpectedStock >= 0,
+            $"耐久の予想在庫が負({durableLineAfterDay3.ExpectedStock})。ToolWearの破棄漏れの実害。");
+    }
+
+    /// <summary>
     /// 【核心】テスト表 #16(#96)。所要労働216‰・損失100‰ → 5回(損失なしなら6)。
     /// 損失1300‰以上(ここでは1400‰)なら0回で在庫が動かず、負にもならない。
     /// </summary>
     /// <remarks>
-    /// <b>変異の実測(2026-09-19)。</b><c>ProductionSystem.RunOneHousehold</c> の
+    /// <b>変異の実測・再測(2026-09-19、レビュー1巡目 象限III)。</b>
+    /// <c>ProductionSystem.RunOneHousehold</c> の
     /// <c>int laborPermille = Math.Max(0, totalLaborPermille - household.ErrandLaborLossPermille);</c>
     /// を <c>int laborPermille = totalLaborPermille - household.ErrandLaborLossPermille;</c>
     /// (<c>Math.Max(0, …)</c> を落とす)に変える変異を当てたところ、損失1400‰のケースで
-    /// <c>Recipe.CapacityRuns</c> 内の <c>FloorDiv</c> が負の労働力(-100)を負の商として返し、
-    /// <c>Assert.Equal(0, ...ProductionRuns)</c> が実際値-1(0以下だが0ではない)で失敗した
-    /// (赤を確認)。変異を戻して緑に復帰させた。
+    /// 負の労働力(-100)が <c>Recipe.CapacityRuns</c> にそのまま渡り、その入口検査
+    /// (<c>laborPermille &lt; 0</c>)に引っかかって <c>ArgumentOutOfRangeException</c>
+    /// (「労働力合計‰は非負」)が投げられ、テストが例外で失敗した(赤を確認 ── 旧版の記録は
+    /// <c>Assert.Equal(0, ...)</c> が実際値-1で失敗すると書いていたが、
+    /// <c>CapacityRuns</c> が負の引数を先に例外で拒むため <c>FloorDiv</c> が負の商を返す経路は
+    /// 実在しない。訂正)。変異を戻して緑に復帰させた。
     /// </remarks>
     [Fact]
     public void ProductionSubtractsPreviousDayErrandLaborLoss()
@@ -652,10 +732,12 @@ public sealed class ProductionSystemTests
     /// 2日目(入力0)は <c>== 0</c>(前日の6が残らない)。
     /// </summary>
     /// <remarks>
-    /// <b>変異の実測(2026-09-19)。</b><c>ProductionSystem.RunOneHousehold</c> の
+    /// <b>変異の実測・再測(2026-09-19、レビュー1巡目 象限III)。</b>
+    /// <c>ProductionSystem.RunOneHousehold</c> の
     /// <c>household.ProductionRuns = runs;</c> を <c>household.ProductionRuns += runs;</c>
-    /// (累積する変異)に変えたところ、2日目の <c>Assert.Equal(0, ...ProductionRuns)</c> が
-    /// 実際値6(前日の6に0を足しただけで残った)で失敗した(赤を確認)。変異を戻して緑に復帰させた。
+    /// (累積する変異)に変えたところ、2日目の <c>Assert.Equal(0, ...ProductionRuns)</c>
+    /// (762行目)が実際値6(前日の6に0を足しただけで残った)で失敗した(赤を確認)。
+    /// 変異を戻して緑に復帰させた。
     /// </remarks>
     [Fact]
     public void ProductionRecordsRunsEveryDayIncludingZero()

@@ -114,19 +114,17 @@ public sealed class ProductionSystem : ISimSystem
 
         int worn = IntegerMath.FloorDiv(household.ToolWear, _definition.ToolDurabilityPerUnit);
 
-        if (worn <= 0)
+        if (worn > 0)
         {
-            return;
+            int consumed = Math.Min(worn, household.WorkshopInventory[Item.Tools]);
+            household.WorkshopInventory[Item.Tools] -= consumed;
+            household.ToolWear -= consumed * _definition.ToolDurabilityPerUnit;
         }
 
-        int consumed = Math.Min(worn, household.WorkshopInventory[Item.Tools]);
-        household.WorkshopInventory[Item.Tools] -= consumed;
-        household.ToolWear -= consumed * _definition.ToolDurabilityPerUnit;
-
+        // worn>0 の外。日次の無条件の手順(GDD02a §3.1)。工具0個のまま摩耗を積み続けると、
+        // 次に買った工具がその日のうちに壊れうる(worn==0でも累積を捨てないと再現する)。
         if (household.WorkshopInventory[Item.Tools] == 0)
         {
-            // 工具が尽きたので端数を持ち越さない ── 次に手に入る工具は摩耗していない新品として
-            // 扱う(タスク仕様の具体例。テスト #9)。
             household.ToolWear = 0;
         }
     }
