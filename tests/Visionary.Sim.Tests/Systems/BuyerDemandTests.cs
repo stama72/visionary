@@ -29,29 +29,6 @@ public sealed class BuyerDemandTests
             },
             laborPermille: 1000);
 
-    /// <summary>
-    /// 生産の入力の目標在庫。Miller(添字0)の小麦粉・薪だけ指定値、他4職業
-    /// (<see cref="EconomySystemTestFixtures.UnusedRecipe"/>)は入力itemId 1 に1を置く。
-    /// </summary>
-    private static int[][] InputTargets(int flourTarget, int firewoodTarget)
-    {
-        var millerRow = new int[Item.Count];
-        millerRow[Item.Flour] = flourTarget;
-        millerRow[Item.Firewood] = firewoodTarget;
-
-        var rows = new int[5][];
-        rows[0] = millerRow;
-
-        for (int occupationId = 1; occupationId < 5; occupationId++)
-        {
-            var row = new int[Item.Count];
-            row[1] = 1; // UnusedRecipeの入力itemId(EconomySystemTestFixtures参照)
-            rows[occupationId] = row;
-        }
-
-        return rows;
-    }
-
     private static int[] NecessityDays(int firewoodDays = 7, int breadDays = 3)
     {
         var row = new int[Item.Count];
@@ -79,9 +56,12 @@ public sealed class BuyerDemandTests
         return new[] { (int[])row.Clone(), (int[])row.Clone(), (int[])row.Clone() };
     }
 
+    /// <summary>
+    /// 生産の入力の目標在庫(小麦粉・薪とも5)。生産能力1(<see cref="WorldDefinition.NominalLaborPermille"/>
+    /// 1300‰・レシピの所要労働‰ 1000 → 1実行/日) × 必要数量1 × <c>inputBufferDays</c>5 = 5
+    /// (WorldDefinition が導出する。EconomySystemTestFixtures の既定値のまま)。
+    /// </summary>
     private static WorldDefinition BuildDefinition(
-        int flourInputTarget = 5,
-        int firewoodInputTarget = 5,
         int firewoodConsumptionQty = 2,
         int breadConsumptionQty = 1,
         int beerConsumptionQty = 0,
@@ -91,15 +71,14 @@ public sealed class BuyerDemandTests
         int[]? budgetRatioPermilleByPurpose = null,
         int[]? necessityTargetStockDays = null,
         int[]? preferenceTargetStockDays = null,
-        int productionRunsPerToolWear = 30,
+        int toolLifeLaborDays = 30,
         int minimumMarginPermille = 0,
         int outputQuantity = 2) =>
         EconomySystemTestFixtures.BuildDefinition(
             BakerLikeRecipe(outputQuantity),
-            productionRunsPerToolWear: productionRunsPerToolWear,
+            toolLifeLaborDays: toolLifeLaborDays,
             dailyConsumptionPerNpcByRank:
                 ConsumptionTable(firewoodConsumptionQty, breadConsumptionQty, beerConsumptionQty),
-            inputTargetStockByOccupation: InputTargets(flourInputTarget, firewoodInputTarget),
             necessityTargetStockDays: necessityTargetStockDays ?? NecessityDays(),
             preferenceTargetStockDays: preferenceTargetStockDays ?? PreferenceDays(),
             toolTargetStockPermille: toolTargetStockPermille,
@@ -159,7 +138,7 @@ public sealed class BuyerDemandTests
     [Fact]
     public void FirewoodAppearsAsTwoLinesWithDifferentStocksAndTargets()
     {
-        var definition = BuildDefinition(firewoodInputTarget: 5, firewoodConsumptionQty: 2);
+        var definition = BuildDefinition(firewoodConsumptionQty: 2);
         var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(new[] { NpcRank.Master });
         world.Households[0].HouseholdInventory[Item.Firewood] = 3;
         world.Households[0].WorkshopInventory[Item.Firewood] = 8;
@@ -174,7 +153,7 @@ public sealed class BuyerDemandTests
         Assert.Equal(14, necessityLine.TargetStock);
         Assert.Equal(3, necessityLine.ExpectedStock);
 
-        // 生産の入力: 定数表(InputTargets)の値そのもの。
+        // 生産の入力: 定義から導出(生産能力1 × 必要数量1 × inputBufferDays5 = 5)。
         Assert.Equal(5, inputLine.TargetStock);
         Assert.Equal(8, inputLine.ExpectedStock);
     }
@@ -341,14 +320,19 @@ public sealed class BuyerDemandTests
     }
 
     /// <summary>
-    /// 【核心】テスト表 #29。工具1個・N=30・摩耗5・500‰・階層1000‰ → 予想在庫25、目標在庫15。
+    /// 【核心】テスト表 #29。工具1個・N=30(耐久値30000‰人日)・摩耗5000‰人日・500‰・階層1000‰
+    /// → 予想在庫25000、目標在庫15000。
     /// </summary>
     /// <remarks>
+    /// <b>単位が‰人日になった(#96)。</b>旧(回数)の期待値25/15を、耐久値N×1000=30000で
+    /// 揃えて1000倍(25000/15000)にした ── 式自体は変えていない。
+    /// <para>
     /// <b>変異の実測(2026-09-16)。</b>耐久の予想在庫の計算を
     /// <c>household.WorkshopInventory[Item.Tools]</c>(個数のまま、耐久値へ変換しない変異)に
-    /// 変えたところ、<c>Assert.Equal(25, durableLine.ExpectedStock)</c> が実際値1
-    /// (在庫1・目標15で圧力1000‰のまま摩耗が進むまで工具を買い続ける経路)で失敗した
+    /// 変えたところ、<c>Assert.Equal(25000, durableLine.ExpectedStock)</c> が実際値1
+    /// (在庫1・目標15000で圧力1000‰のまま摩耗が進むまで工具を買い続ける経路)で失敗した
     /// (赤を確認)。変異を戻して緑に復帰させた。
+    /// </para>
     /// </remarks>
     [Fact]
     public void DurableLineIsMeasuredInDurabilityNotUnits()
@@ -356,34 +340,37 @@ public sealed class BuyerDemandTests
         var definition = BuildDefinition(
             toolTargetStockPermille: 500,
             rankCoefficientPermille: new[] { 1000, 600, 200 },
-            productionRunsPerToolWear: 30);
+            toolLifeLaborDays: 30);
         var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(new[] { NpcRank.Master });
         world.Households[0].WorkshopInventory[Item.Tools] = 1;
-        world.Households[0].ToolWearCount = 5;
+        world.Households[0].ToolWear = 5000;
 
         var demand = new BuyerDemand(definition).Build(
             world, world.Households[0], hasPreviousOutputOfferPrice: false, previousOutputOfferPrice: 0);
         var durableLine = FindLine(demand, DemandPurpose.Durable, Item.Tools);
 
-        Assert.Equal(25, durableLine.ExpectedStock);
-        Assert.Equal(15, durableLine.TargetStock);
+        Assert.Equal(25000, durableLine.ExpectedStock);
+        Assert.Equal(15000, durableLine.TargetStock);
     }
 
-    /// <summary>テスト表 #30。世帯主の階層を Apprentice(200‰)にすると目標在庫が3に縮む。</summary>
+    /// <summary>
+    /// テスト表 #30。世帯主の階層を Apprentice(200‰)にすると目標在庫が3000に縮む
+    /// (単位が‰人日になったので旧の3を1000倍。#96)。
+    /// </summary>
     [Fact]
     public void DurableTargetUsesTheHeadRankCoefficient()
     {
         var definition = BuildDefinition(
             toolTargetStockPermille: 500,
             rankCoefficientPermille: new[] { 1000, 600, 200 },
-            productionRunsPerToolWear: 30);
+            toolLifeLaborDays: 30);
         var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(new[] { NpcRank.Apprentice });
 
         var demand = new BuyerDemand(definition).Build(
             world, world.Households[0], hasPreviousOutputOfferPrice: false, previousOutputOfferPrice: 0);
         var durableLine = FindLine(demand, DemandPurpose.Durable, Item.Tools);
 
-        Assert.Equal(3, durableLine.TargetStock);
+        Assert.Equal(3000, durableLine.TargetStock);
     }
 
     /// <summary>
@@ -679,7 +666,7 @@ public sealed class BuyerDemandTests
         var definition = BuildDefinition(
             toolTargetStockPermille: 500,
             rankCoefficientPermille: new[] { 1000, 600, 200 },
-            productionRunsPerToolWear: 30);
+            toolLifeLaborDays: 30);
         var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(
             new[] { NpcRank.Master, NpcRank.Apprentice }); // 先頭(世帯主)がMaster
 
@@ -687,8 +674,9 @@ public sealed class BuyerDemandTests
             world, world.Households[0], hasPreviousOutputOfferPrice: false, previousOutputOfferPrice: 0);
         var durableLine = FindLine(demand, DemandPurpose.Durable, Item.Tools);
 
-        // 世帯主(Master,1000‰)の係数で15。徒弟(200‰)の最小を採ると3になる。
-        Assert.Equal(15, durableLine.TargetStock);
+        // 世帯主(Master,1000‰)の係数で15000。徒弟(200‰)の最小を採ると3000になる
+        // (単位が‰人日になったので旧の15/3を1000倍。#96)。
+        Assert.Equal(15000, durableLine.TargetStock);
     }
 
     /// <summary>

@@ -198,29 +198,6 @@ public sealed class ObservationsTests
             laborPermille: 1000);
 
     /// <summary>
-    /// 出荷目標在庫の表。Miller(添字0)の小麦粉だけ <paramref name="flourTarget"/>、
-    /// 他4職業(<see cref="EconomySystemTestFixtures.UnusedRecipe"/>)は出力itemId 0 に1を置く
-    /// (TradeSystemTestsと同じ形)。
-    /// </summary>
-    private static int[][] ShipmentTargets(int flourTarget)
-    {
-        var rows = new int[5][];
-
-        var millerRow = new int[Item.Count];
-        millerRow[Item.Flour] = flourTarget;
-        rows[0] = millerRow;
-
-        for (int occupationId = 1; occupationId < 5; occupationId++)
-        {
-            var row = new int[Item.Count];
-            row[0] = 1;
-            rows[occupationId] = row;
-        }
-
-        return rows;
-    }
-
-    /// <summary>
     /// 【核心】テスト表 #37。パイプラインを1日進めて観測が生まれても当日の相場基準は立たない
     /// (原価下限のまま)。2日目に進めると立つ。
     /// </summary>
@@ -242,7 +219,7 @@ public sealed class ObservationsTests
         const int SellableStock = 5; // 在庫比 = 1000‰(目標どおり) → 価格係数1000‰
 
         var definition = EconomySystemTestFixtures.BuildDefinition(
-            MillerRecipe(), minimumMarginPermille: 0, shipmentTargetStockByOccupation: ShipmentTargets(ShipmentTarget));
+            MillerRecipe(), minimumMarginPermille: 0, shipmentDays: ShipmentTarget);
 
         var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
         world.Households[0] = new HouseholdState(

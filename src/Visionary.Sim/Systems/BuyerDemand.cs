@@ -158,8 +158,6 @@ public sealed class BuyerDemand
 
         // 1・2・5・6(生産の入力)。品目Id昇順に並べる ── recipe.Inputsの並びに依存しない
         // (Recipeは入力が昇順であることを保証していない)。
-        int occupationId = (int)household.Occupation;
-
         for (int itemId = 0; itemId < itemCount; itemId++)
         {
             bool isInputItem = false;
@@ -177,7 +175,7 @@ public sealed class BuyerDemand
                 continue;
             }
 
-            int target = definition.InputTargetStockByOccupation[occupationId][itemId];
+            int target = definition.InputTargetStock(household.Occupation, itemId);
             int expected = household.WorkshopInventory[itemId];
 
             if (hasReference[itemId])
@@ -194,10 +192,10 @@ public sealed class BuyerDemand
         {
             int headRank = (int)world.Npcs[household.HeadNpcId].Rank;
             int target = IntegerMath.ApplyPermille(
-                IntegerMath.ApplyPermille(definition.ProductionRunsPerToolWear, definition.ToolTargetStockPermille),
+                IntegerMath.ApplyPermille(definition.ToolDurabilityPerUnit, definition.ToolTargetStockPermille),
                 definition.RankCoefficientPermille[headRank]);
-            int expected = (household.WorkshopInventory[Item.Tools] * definition.ProductionRunsPerToolWear)
-                - household.ToolWearCount;
+            int expected = (household.WorkshopInventory[Item.Tools] * definition.ToolDurabilityPerUnit)
+                - household.ToolWear;
             int baseValue = BuyerBudget.DurableBaseValue(
                 hasReference[Item.Tools], reference[Item.Tools], household.LiquidFunds,
                 definition.BudgetRatioPermilleByPurpose[(int)DemandPurpose.Durable]);

@@ -336,14 +336,43 @@ public sealed class StateHasherTests
         Assert.NotEqual(before, after);
     }
 
-    /// <summary>テスト表 #24(#34)。ToolWearCountの書き忘れ(凍結検査だけ更新した状態)で落ちる。</summary>
+    /// <summary>
+    /// テスト表 #14(#96)。ToolWear(旧ToolWearCount)の書き忘れ(凍結検査だけ更新した状態)で落ちる。
+    /// 改名後も書いていることを見る ── 欄名を変えるときにコピー元の行ごと消し忘れる経路。
+    /// </summary>
     [Fact]
-    public void HashChangesWhenToolWearCountChanges()
+    public void HashChangesWhenToolWearChanges()
     {
         var world = OneHouseholdWorld();
         ulong before = StateHasher.Compute(world);
 
-        world.Households[0].ToolWearCount = 5;
+        world.Households[0].ToolWear = 5;
+        ulong after = StateHasher.Compute(world);
+
+        Assert.NotEqual(before, after);
+    }
+
+    /// <summary>テスト表 #12(#96)。ErrandLaborLossPermilleの書き忘れで落ちる。</summary>
+    [Fact]
+    public void HashChangesWhenErrandLaborLossChanges()
+    {
+        var world = OneHouseholdWorld();
+        ulong before = StateHasher.Compute(world);
+
+        world.Households[0].ErrandLaborLossPermille = 5;
+        ulong after = StateHasher.Compute(world);
+
+        Assert.NotEqual(before, after);
+    }
+
+    /// <summary>テスト表 #13(#96)。ProductionRunsの書き忘れで落ちる。</summary>
+    [Fact]
+    public void HashChangesWhenProductionRunsChange()
+    {
+        var world = OneHouseholdWorld();
+        ulong before = StateHasher.Compute(world);
+
+        world.Households[0].ProductionRuns = 5;
         ulong after = StateHasher.Compute(world);
 
         Assert.NotEqual(before, after);

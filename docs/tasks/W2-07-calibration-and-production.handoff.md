@@ -11,9 +11,11 @@
 
 ## implementer の件数(フェーズ2)
 
-- 止まって報告した件数: N 件
+**1 回目の実行(2026-09-19 21:01 起動)はネットワーク断で中断した**(`.pipeline/96-impl-20260919-210129.jsonl`。implementer が build を通した直後、報告を出す前に API へ到達できず終了。`NO-SENTINEL`)。**1 回目の件数は採れていない。** 作業ツリーには未コミットの成果(build 緑・format 緑・テスト 342 本中 1 本赤: `TradePipelineTests.UnaffordableNecessityCountsOnlyTheFundsShortfall` の追随漏れ)が残っており、2 回目はそこから続ける。
+
+- 止まって報告した件数: N 件(2 回目の実行ぶん)
   - <内容を1行ずつ>
-- 決めて報告した件数: M 件
+- 決めて報告した件数: M 件(同上)
   - <内容を1行ずつ>
 
 ## 直さないと決めた指摘(フェーズ2)

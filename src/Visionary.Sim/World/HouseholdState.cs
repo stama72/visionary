@@ -18,8 +18,10 @@ namespace Visionary.Sim;
 public sealed class HouseholdState
 {
     private int isBankrupt;
-    private int toolWearCount;
+    private int toolWear;
     private int unaffordableNecessityCount;
+    private int errandLaborLossPermille;
+    private int productionRuns;
 
     /// <summary><see cref="World.Households"/> の添字と一致する、非負の Id(TDD01 §3.2)。</summary>
     public int Id { get; }
@@ -113,26 +115,73 @@ public sealed class HouseholdState
     /// </remarks>
     public const int ExternalMarketSellerId = int.MaxValue;
 
-    /// <summary>累積した工具の摩耗(レシピ実行回数)。0以上(GDD02 §5.3)。</summary>
+    /// <summary>
+    /// 累積した工具の摩耗。単位: ‰人日。0以上(GDD02a §3.1)。旧 <c>ToolWearCount</c>(回)を改名した
+    /// ── 所要労働‰ が108から1000まで違うので、回数で数えると木材加工は鍛冶の12倍の速さで
+    /// 工具を消費する(タスク仕様「摩耗は実行回数ではなく労働量で数える」)。
+    /// </summary>
     /// <remarks>
-    /// <b>上限(N)は型では守れない</b> — <c>N</c> を知っているのは <c>WorldDefinition</c> であって
-    /// この型ではない。「工具在庫がある間は 0 ≤ ToolWearCount &lt; N」は
-    /// <see cref="Systems.ProductionSystem"/> の後条件であり、テストで押さえる。
-    /// 負を setter で拒むのは、負になると <c>FloorDiv</c> が負の商を返し工具在庫が
-    /// 増えてしまうため。
+    /// <b>上限(N × 1000)は型では守れない</b> — <c>N</c> を知っているのは
+    /// <see cref="WorldDefinition.ToolDurabilityPerUnit"/> であってこの型ではない。
+    /// 「工具在庫がある間は 0 ≤ ToolWear &lt; N × 1000」は <see cref="Systems.ProductionSystem"/> の
+    /// 後条件であり、テストで押さえる。負を setter で拒むのは、負になると <c>FloorDiv</c> が
+    /// 負の商を返し工具在庫が増えてしまうため。
     /// </remarks>
-    public int ToolWearCount
+    public int ToolWear
     {
-        get => toolWearCount;
+        get => toolWear;
         set
         {
             if (value < 0)
             {
                 throw new ArgumentOutOfRangeException(
-                    nameof(value), value, "工具の摩耗カウンタは0以上(GDD02 §5.3)。");
+                    nameof(value), value, "工具の摩耗は0以上(GDD02a §3.1)。");
             }
 
-            toolWearCount = value;
+            toolWear = value;
+        }
+    }
+
+    /// <summary>
+    /// 前日の外出の労働損失‰。0以上(GDD02a §2 / GDD06 §2)。順5(#98)が当日の外出の合計を
+    /// 毎日上書きし、翌日の順1(<see cref="Systems.ProductionSystem"/>)が読む。
+    /// </summary>
+    /// <remarks>
+    /// <b>上限(<see cref="WorldDefinition.NominalLaborPermille"/>)は型では守れない。</b>
+    /// 超える値が来ても <see cref="Systems.ProductionSystem"/> が <c>max(0, …)</c> で0へ潰す
+    /// (GDD02a §2)。W2-07 の範囲では書き手が無く、初期値0のままである。
+    /// </remarks>
+    public int ErrandLaborLossPermille
+    {
+        get => errandLaborLossPermille;
+        set
+        {
+            if (value < 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(value), value, "外出の労働損失‰は0以上(GDD02a §2)。");
+            }
+
+            errandLaborLossPermille = value;
+        }
+    }
+
+    /// <summary>
+    /// 当日の生産量(実行回数)。0以上(GDD02a §1)。順1(<see cref="Systems.ProductionSystem"/>)が
+    /// 毎日書く(0の日も書く)。順3の④のゲート(#39)と順4のNeed(#40)が読む。
+    /// </summary>
+    public int ProductionRuns
+    {
+        get => productionRuns;
+        set
+        {
+            if (value < 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(value), value, "当日の生産量(実行回数)は0以上(GDD02a §1)。");
+            }
+
+            productionRuns = value;
         }
     }
 
@@ -236,7 +285,9 @@ public sealed class HouseholdState
         PurchaseUnitCostAverage = new int[itemCount];
         UnmetConsumption = new int[itemCount];
         IsBankrupt = 0;
-        ToolWearCount = 0;
+        ToolWear = 0;
         UnaffordableNecessityCount = 0;
+        ErrandLaborLossPermille = 0;
+        ProductionRuns = 0;
     }
 }
