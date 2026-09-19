@@ -548,6 +548,16 @@ hasReference = MarketReference.TrySeller(
 | B-1 | **売り手の錨(前日の約定単価)がパイプラインで効いていること。** 1 日目に**実際に約定する**売り手を作り、2 日目の提示価格が「他の売り手の値だけ」から作った値と**異なる**こと | 段1 が `MarketReference.TrySeller` へ渡す `hasSettled, settledPrice` を `false, 0` に置換 | **核心。** 自分を錨に含めるのは [GDD02c §1.2](../03-gdd/02c-price-and-budget.md) の囲みが言う**売り手2世帯の交互振動モードを消す**仕掛けである。落ちると交互振動が出るが、それは「機構の帰結」として読めてしまい、[GDD02 §8](../03-gdd/02-economy.md)-1 の実測が**別のものを測ったまま結論を出す** |
 | B-2 | **利潤上限が需要行に届いていること。** 生産の入力の `DemandLine.ProfitCap` / `HasProfitCap` が立ち、**利潤上限がゲートを閉じる帯**で入力の約定が 0 になること | (a) `BuyerDemand` が `hasProfitCap` / `profitCap` を渡さない (b) 摩耗費の材料 `PurchaseUnitCostAverage[Item.Tools]` を 0 にする (c) 段1 が段4 へ `提示価格_出力[前日]` を渡さない | **核心。** 届かないと生産者は「相場では儲からない値」でも入力を買い続け、[GDD02c §2.3](../03-gdd/02c-price-and-budget.md) の仕入上限が事実上無効になる。最低利幅‰ の保証は `ProfitCaps` の中だけで成立し**世界に出ない** |
 
+### C. 削除された検出器の取り残し(3巡目)
+
+**いずれも「実装は正しいが、守っているテストが無い」型。** C-1・C-2 は**本コミット範囲で削除された旧テストの取り残し**で、C-3 は本タスクで新たに荷重がかかった不変条件(利潤上限の材料になった)に検出器が付いていないもの。
+
+| #  | テスト | 落ちるべき変異 | 核心 |
+| -- | ------ | -------------- | ---- |
+| C-1 | `BankruptSellerPostsTheHalvedFloorInThePipeline`(旧テストを新 API へ移す) | 段1 が `OfferPrice.Calculate` へ渡す `household.IsBankrupt` を `0` に置換 | **核心。** 表 #8 は `Calculate` の**単体**で、世界からフラグが届いているかを見ていない。[#39](https://github.com/stama72/visionary/issues/39) がフラグを立てた瞬間、[GDD02c §1.4](../03-gdd/02c-price-and-budget.md) の投げ売りが**世界では一度も発火しない**。しかもその状態は「相場が床の 2 倍を下回っていたので分岐が何もしなかった」という正規の挙動と**見分けがつかない** |
+| C-2 | `SellableStockIsOnlyTheWorkshopOutputInventory`(旧テストを新 API へ移す) | `sellableStock` に `HouseholdInventory[出力品目]` を足す | **核心。** [GDD02c §1.3](../03-gdd/02c-price-and-budget.md)「販売在庫は工房在庫の部分集合」。M0 では**実際に両方の在庫に載る品目がある**(パン・ビール)ので机上の話ではない。自家消費用の在庫が在庫比の分子に入り、提示価格が系統的に床寄りへ引かれる |
+| C-3 | `ProfitCapSurvivesWhenSellableStockIsZeroOnTheFollowingDay` | `hasOwnPreviousOffer[household.Id]` を `hasOwnOffer && sellableStock > 0` に置換 | **核心。** 本書 §9 段1 が明記した不変条件。**出力を売り切った / 入力切れで作れなかった工房 = まさに仕入れたい日の工房**が `HasProfitCap = false` になり、最低利幅‰ の保証が**最も必要な状態でだけ**外れる。挙動は「仕入が旺盛な工房」に見えるので機構の帰結と読めてしまう |
+
 **`TradeSystemTests.SellerAnchorsOnSettledPriceNotOnItsOwnPreviousOffer` の doc コメントも直す。** 「パイプラインで確かめる」と書いているが、実際に確かめているのは**約定が無い日は錨を使わない**という半分だけである。広い保証は次に読む者に確認をやめさせる([process/03-corrections](../process/03-corrections.md))。
 
 ## 編集してよい文書
