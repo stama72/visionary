@@ -64,7 +64,7 @@ public sealed class WorldDefinition
     /// <summary>添字 = (int)Season の薪の消費の季節係数‰。長さ4(GDD02 §9 / GDD03 §2.1)。</summary>
     public int[] FirewoodConsumptionSeasonPermille { get; }
 
-    /// <summary>最低利幅‰。原価下限 = ApplyPermille(原価, 1000 + これ)(GDD02 §8.1.1)。</summary>
+    /// <summary>最低利幅‰。利潤上限の許容原価合計(GDD02c §2.3)。値付けからは消えた。</summary>
     public int MinimumMarginPermille { get; }
 
     /// <summary>相場観測の保持期間。単位: 日(GDD06 §3.1)。</summary>
@@ -82,13 +82,15 @@ public sealed class WorldDefinition
     /// <summary>階層係数‰。添字 = (int)NpcRank。長さ3(GDD08 §9)。単位: ‰。</summary>
     public int[] RankCoefficientPermille { get; }
 
-    /// <summary>必需の許容乖離‰。基礎値 = ApplyPermille(相場基準, これ)(GDD02 §8.2.1)。単位: ‰。</summary>
-    public int NecessityTolerancePermille { get; }
-
     /// <summary>
-    /// 用途別の予算比率‰。添字 = (int)DemandPurpose。長さ4(GDD02 §8.2.1・§8.2.7)。単位: ‰。
+    /// 許容乖離‰。相場項 = ApplyPermille(相場基準, これ)(GDD02c §2.1)。単位: ‰。
     /// </summary>
-    public int[] BudgetRatioPermilleByPurpose { get; }
+    /// <remarks>
+    /// <b>全用途の相場項が使う</b>(GDD02c §2.1 の表)── 必需専用だった旧
+    /// <c>NecessityTolerancePermille</c> を改名した。専用だと読める名前のまま全用途に配ると、
+    /// 片方の用途だけ別の値にしたくなったときに黙って全部動く(本タスク仕様)。
+    /// </remarks>
+    public int TolerancePermille { get; }
 
     /// <summary>
     /// 機会費用の職業別の基準値。添字 = (int)Occupation。単位: 貨幣/1時間(GDD08 §9)。
@@ -191,8 +193,7 @@ public sealed class WorldDefinition
         int[] preferenceTargetStockDays,
         int toolTargetStockPermille,
         int[] rankCoefficientPermille,
-        int necessityTolerancePermille,
-        int[] budgetRatioPermilleByPurpose,
+        int tolerancePermille,
         int[] opportunityCostBaseByOccupation,
         int travelHoursPerDistrict,
         int acquisitionCostSmoothingPermille,
@@ -215,7 +216,6 @@ public sealed class WorldDefinition
         ArgumentNullException.ThrowIfNull(necessityTargetStockDays);
         ArgumentNullException.ThrowIfNull(preferenceTargetStockDays);
         ArgumentNullException.ThrowIfNull(rankCoefficientPermille);
-        ArgumentNullException.ThrowIfNull(budgetRatioPermilleByPurpose);
         ArgumentNullException.ThrowIfNull(opportunityCostBaseByOccupation);
         ArgumentNullException.ThrowIfNull(externalSellPriceBase);
         ArgumentNullException.ThrowIfNull(externalSellPriceSeasonPermille);
@@ -354,11 +354,11 @@ public sealed class WorldDefinition
             }
         }
 
-        // 負だけを拒む。0(利幅なし = 原価がそのまま下限)は構造として成立する(GDD02 §12-5)。
+        // 負だけを拒む。0(利幅なし = 許容原価合計が見込み収益そのまま)は構造として成立する。
         if (minimumMarginPermille < 0)
         {
             throw new ArgumentOutOfRangeException(
-                nameof(minimumMarginPermille), minimumMarginPermille, "最低利幅‰は非負(GDD02 §8.1)。");
+                nameof(minimumMarginPermille), minimumMarginPermille, "最低利幅‰は非負(GDD02c §2.3)。");
         }
 
         // 0だと有効な観測が永久に0件になる(下記の境界規則が「差1日以上」を要求するため)。
@@ -446,59 +446,13 @@ public sealed class WorldDefinition
             }
         }
 
-        // 詰みは作らない(GDD02 §4.2)。許容乖離0だと必需の基礎値が常に0になり、パンも薪も
+        // 詰みは作らない(GDD02 §4.2)。許容乖離0だと相場項が常に0になり、パンも薪も
         // 永久に買えなくなる。
-        if (necessityTolerancePermille < 1)
+        if (tolerancePermille < 1)
         {
             throw new ArgumentOutOfRangeException(
-                nameof(necessityTolerancePermille), necessityTolerancePermille,
-                "必需の許容乖離‰は1以上(GDD02 §8.2.1)。");
-        }
-
-        // 長さ4はDemandPurposeの用途数(GDD02 §8.2.1・§8.2.7)。
-        if (budgetRatioPermilleByPurpose.Length != 4)
-        {
-            throw new ArgumentException(
-                "用途別の予算比率‰は DemandPurpose の4用途ぶん(長さ4)必要(GDD02 §8.2.1)。",
-                nameof(budgetRatioPermilleByPurpose));
-        }
-
-        // 生産の入力は母数を持たない(派生需要。GDD02 §8.2.1)。観測ゼロ時のフォールバックは
-        // Necessityの比率‰を流用すると§8.2.1が明記しているので、専用の欄を作ると
-        // 「使われない調整軸」が表に住み着く。
-        if (budgetRatioPermilleByPurpose[(int)DemandPurpose.ProductionInput] != 0)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(budgetRatioPermilleByPurpose),
-                budgetRatioPermilleByPurpose[(int)DemandPurpose.ProductionInput],
-                "生産の入力(ProductionInput)は母数を持たない。予算比率‰は0(GDD02 §8.2.1)。");
-        }
-
-        // 詰みは作らない(GDD02 §4.2)。必需が0だとパンも薪も永久に買えず、耐久が0だと
-        // 工具が買えず設備係数が全世帯0‰に落ちて恒久停止する。
-        if (budgetRatioPermilleByPurpose[(int)DemandPurpose.Necessity] < 1)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(budgetRatioPermilleByPurpose),
-                budgetRatioPermilleByPurpose[(int)DemandPurpose.Necessity],
-                "必需の予算比率‰は1以上(GDD02 §4.2 / §8.2.7)。");
-        }
-
-        if (budgetRatioPermilleByPurpose[(int)DemandPurpose.Durable] < 1)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(budgetRatioPermilleByPurpose),
-                budgetRatioPermilleByPurpose[(int)DemandPurpose.Durable],
-                "耐久の予算比率‰は1以上(GDD02 §4.2 / §8.2.1)。");
-        }
-
-        // 嗜好の0は許す ── 嗜好を切っても詰まない(GDD02 §4.2)。
-        if (budgetRatioPermilleByPurpose[(int)DemandPurpose.Preference] < 0)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(budgetRatioPermilleByPurpose),
-                budgetRatioPermilleByPurpose[(int)DemandPurpose.Preference],
-                "嗜好の予算比率‰は非負(GDD02 §8.2.1)。");
+                nameof(tolerancePermille), tolerancePermille,
+                "許容乖離‰は1以上(GDD02c §2.1)。");
         }
 
         if (householdsPerOccupation < 1)
@@ -754,8 +708,7 @@ public sealed class WorldDefinition
         PreferenceTargetStockDays = preferenceTargetStockDays.ToArray();
         ToolTargetStockPermille = toolTargetStockPermille;
         RankCoefficientPermille = rankCoefficientPermille.ToArray();
-        NecessityTolerancePermille = necessityTolerancePermille;
-        BudgetRatioPermilleByPurpose = budgetRatioPermilleByPurpose.ToArray();
+        TolerancePermille = tolerancePermille;
         OpportunityCostBaseByOccupation = opportunityCostBaseByOccupation.ToArray();
         TravelHoursPerDistrict = travelHoursPerDistrict;
         AcquisitionCostSmoothingPermille = acquisitionCostSmoothingPermille;
@@ -1015,16 +968,7 @@ public sealed class WorldDefinition
         // 階層係数‰。添字 = (int)NpcRank(Master, Journeyman, Apprentice)。GDD08 §9 の表。
         var rankCoefficientPermille = new[] { 1000, 600, 200 }; // 単位: ‰
 
-        const int NecessityTolerancePermilleForM0 = 1200; // ‰。相場の1.2倍までは追随する
-
-        // 用途別の予算比率‰。添字 = (int)DemandPurpose。GDD02 §8.2.1・§8.2.7。
-        var budgetRatioPermilleByPurpose = new[]
-        {
-            0,   // ProductionInput: 母数なし
-            50,  // Necessity:  流動資金の 5%(GDD02 §8.2.7)
-            200, // Preference: 余剰資金の 20%
-            10,  // Durable:    流動資金の 1%(GDD02 §8.2.1)
-        };
+        const int TolerancePermilleForM0 = 1200; // ‰。相場の1.2倍までは追随する(全用途共通、GDD02c §2.1)
 
         // 添字 = (int)Occupation(Miller, Baker, Brewer, Woodworker, Smith)。単位: 貨幣/1時間(GDD02c §2.4)。
         var opportunityCostBaseByOccupation = new[] { 20, 20, 20, 20, 20 };
@@ -1051,8 +995,7 @@ public sealed class WorldDefinition
             preferenceTargetStockDays: preferenceTargetStockDays,
             toolTargetStockPermille: ToolTargetStockPermilleForM0,
             rankCoefficientPermille: rankCoefficientPermille,
-            necessityTolerancePermille: NecessityTolerancePermilleForM0,
-            budgetRatioPermilleByPurpose: budgetRatioPermilleByPurpose,
+            tolerancePermille: TolerancePermilleForM0,
             opportunityCostBaseByOccupation: opportunityCostBaseByOccupation,
             travelHoursPerDistrict: TravelHoursPerDistrictForM0,
             acquisitionCostSmoothingPermille: AcquisitionCostSmoothingPermilleForM0,
