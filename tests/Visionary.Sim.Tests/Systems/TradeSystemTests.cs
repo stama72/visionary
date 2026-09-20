@@ -1640,6 +1640,202 @@ public sealed class TradeSystemTests
         Assert.True(externalSaleCount >= 1, "Aの外部Saleの行が1件も無い(輸出が実際には起きていない)。");
     }
 
+    /// <summary>
+    /// 別表(続き)R-5(レビュー2巡目)。段6の閾在庫は<b>売り手側(速い側、
+    /// <see cref="MarketReference.TrySeller"/>)</b>の相場基準で決まり、買い手側(遅い側、
+    /// <see cref="MarketReference.TryBuyer"/>)を読み直してはならない(GDD02c §1.2末尾)。
+    /// 2日目に、他の売り手の観測(20)だけの平均(<c>TryBuyer</c>=20)と、それに自分の前日の
+    /// 約定単価(2)を混ぜた平均(<c>TrySeller</c>=<c>CeilDiv(22,2)</c>=11)が異なる値になる構成を
+    /// 作り、閾在庫を挟む位置(12〜20の間、15)に販売在庫を置く。
+    /// </summary>
+    /// <remarks>
+    /// <b>M-11(実測されたら書く)。</b>段6が<c>hasSellerReference</c>/<c>sellerReference</c>を
+    /// 捨てて<c>MarketReference.TryBuyer</c>を呼び直す変異(タスク仕様が名指し)を当てると、
+    /// 相場基準が20(買い手側)になり閾在庫が20(出荷目標在庫10の2倍・上限)へ跳ね上がる。
+    /// 販売在庫15はこの閾を超えないため輸出が起きなくなり、本テストの表明(在庫12・数量3の
+    /// 外部Sale)が崩れることを期待する。<b>取り違えても例外は出ない</b>
+    /// ([GDD02c §1.2](../../../docs/03-gdd/02c-price-and-budget.md)末尾)。
+    /// </remarks>
+    [Fact]
+    public void ExportUsesTheSellerSideMarketReference()
+    {
+        const int OtherSellerId = 999;
+
+        var externalBuyPrice = new int[Item.Count];
+        externalBuyPrice[Item.Bread] = 10;
+        externalBuyPrice[Item.Grain] = 1; // UnusedRecipe(Baker等)が出力する都市生産品。0だと構築時に投げる。
+
+        var breadRecipe = new Recipe(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = Item.Bread, Quantity = 1 } },
+            inputs: Array.Empty<ItemQuantity>(),
+            laborPermille: 1000);
+
+        // shipmentDays=10 → 出荷目標在庫(生産能力1×出力数量1×出荷日数10)=10。
+        var definition = EconomySystemTestFixtures.BuildDefinition(
+            breadRecipe,
+            opportunityCostBaseByOccupation: new[] { 1, 1, 1, 1, 1 },
+            rankCoefficientPermille: new[] { 1000, 1000, 1000 },
+            travelHoursPerDistrict: 1,
+            inputBufferDays: 1,
+            shipmentDays: 10,
+            externalBuyPriceOverride: externalBuyPrice);
+
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+        // 中心区画に置く(段6のIsWithinReachを常に真にし、Tの検査を本テストの関心の外にする)。
+        AddHousehold(world, id: 0, districtId: District.ExternalMarketDistrictId, Occupation.Miller);
+
+        var system = new TradeSystem(definition);
+
+        EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目: 在庫0で何も起きない。
+
+        // 他の売り手の観測(20)を1件仕込む(前日=1日目の日付)。TryBuyerはこれだけを平均する。
+        world.Knowledge[0].Add(new PriceObservation
+        {
+            ItemId = Item.Bread,
+            LocationId = 0,
+            Price = 20,
+            SellerId = OtherSellerId,
+            ObservedAt = Tick.Zero,
+            Source = ObservationSource.Direct,
+        });
+
+        // 自分の前日の約定単価(2)を帳簿へ直接置く。TrySellerだけがこれを平均へ混ぜる
+        // (TryBuyerは帳簿を読まない)── 同じ観測集合から2つの異なる相場基準を作る一手。
+        world.Ledgers[0].Add(new LedgerEntry
+        {
+            CounterpartyId = HouseholdState.ExternalMarketSellerId,
+            ItemId = Item.Bread,
+            Quantity = 1,
+            UnitPrice = 2,
+            OccurredAt = Tick.Zero,
+            Terms = LedgerTerms.Cash,
+            Direction = LedgerDirection.Sale,
+        });
+
+        // 2日目の朝、閾在庫(売り手側12/買い手側20)の間に来る在庫(15)を直接与える
+        // (段5の買い物は本テストの関心の外)。
+        world.Households[0].WorkshopInventory[Item.Bread] = 15;
+
+        EconomySystemTestFixtures.RunDays(world, system, days: 1); // 2日目
+
+        // 売り手側の相場基準(11)を使えば閾在庫12・超過分3が輸出される。
+        Assert.Equal(12, world.Households[0].WorkshopInventory[Item.Bread]);
+        Assert.Contains(
+            world.Ledgers[0],
+            entry => entry.Direction == LedgerDirection.Sale
+                && entry.CounterpartyId == HouseholdState.ExternalMarketSellerId
+                && entry.ItemId == Item.Bread
+                && entry.Quantity == 3
+                && entry.UnitPrice == 10);
+    }
+
+    /// <summary>
+    /// 別表(続き)R-6(レビュー2巡目)。段1の相場基準(<see cref="MarketReference.TrySeller"/>)の
+    /// 算出は<c>sellableStock &lt;= 0</c>の<c>continue</c>より<b>上</b>にある(タスク仕様
+    /// 「決めたこと」)。段1時点で販売在庫0・有効な相場基準ありの世帯(工具を作るMiller)が、
+    /// 段5bで自分の出力品目(工具)を耐久として買い入れ(M0では工具を買った鍛冶が踏む経路)、
+    /// 段6の閾在庫が相場基準ベース(0)で決まることを、出荷目標在庫ベース(1、相場基準が
+    /// 無い日の代用)とは異なる結果(輸出の有無)で見る。
+    /// </summary>
+    /// <remarks>
+    /// <b>M-12(実測されたら書く)。</b><c>MarketReference.TrySeller</c>の呼び出しと2つの配列
+    /// (<c>hasSellerReference</c>/<c>sellerReference</c>)への代入を、<c>sellableStock &lt;= 0</c>の
+    /// <c>continue</c>の<b>下</b>へ戻す変異(タスク仕様が名指し)を当てると、段1時点で在庫0の
+    /// この世帯は控えを残せず(既定値<c>false</c>/<c>0</c>のまま)、段6が出荷目標在庫(1)を
+    /// 代用の閾在庫として使う。買い入れた工具はちょうど1個で、超過分は
+    /// <c>max(0, 1-1)=0</c>となり輸出が起きなくなることを期待する。戻しても提示価格は
+    /// 変わらない(<c>Market</c>への書き込みは<c>continue</c>の下のまま)ので、値付けのテストは
+    /// この実装ミスを検出しない。
+    /// </remarks>
+    [Fact]
+    public void SellerReferenceIsTakenBeforeTheSellableStockGate()
+    {
+        const int OtherSellerId = 999;
+
+        var externalBuyPrice = new int[Item.Count];
+        externalBuyPrice[Item.Grain] = 1; // UnusedRecipe(Baker等)が出力する都市生産品。0だと構築時に投げる。
+        externalBuyPrice[Item.Tools] = 100;
+
+        var toolsRecipe = new Recipe(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = Item.Tools, Quantity = 1 } },
+            inputs: Array.Empty<ItemQuantity>(),
+            laborPermille: 1000);
+
+        // shipmentDays=1(既定) → 出荷目標在庫(生産能力1×出力数量1×出荷日数1)=1。
+        var definition = EconomySystemTestFixtures.BuildDefinition(
+            toolsRecipe,
+            externalBuyPriceOverride: externalBuyPrice);
+
+        var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
+
+        // household0: 工具を作るMiller。段1時点で工具在庫0(相場基準はあるが売り注文は無い)。
+        // 中心区画に置く(段6のIsWithinReachを常に真にし、Tの検査を本テストの関心の外にする)。
+        AddHousehold(
+            world, id: 0, districtId: District.ExternalMarketDistrictId, Occupation.Miller,
+            liquidFunds: 1_000_000);
+
+        // household1: 工具の売り手。1日目は在庫0(オファーを立てない)。
+        AddHousehold(world, id: 1, districtId: District.ExternalMarketDistrictId, Occupation.Miller);
+
+        var system = new TradeSystem(definition);
+
+        EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目: 双方とも工具在庫0。
+
+        // household0の売り手側の相場基準(TrySeller)だけに効く「自分の前日の約定単価」(1)を
+        // 帳簿へ直接置く。耐久の需要(TryBuyer、買い手側)は帳簿を見ないので、この一手で
+        // 「買い物に使う基準」(100)と「輸出の閾在庫に使う基準」(CeilDiv(100+1,2)=51)を
+        // 独立に動かせる。
+        world.Ledgers[0].Add(new LedgerEntry
+        {
+            CounterpartyId = HouseholdState.ExternalMarketSellerId,
+            ItemId = Item.Tools,
+            Quantity = 1,
+            UnitPrice = 1,
+            OccurredAt = Tick.Zero,
+            Terms = LedgerTerms.Cash,
+            Direction = LedgerDirection.Sale,
+        });
+
+        // 他の売り手の観測(100)を1件仕込む。耐久の需要(買い手側)と輸出の閾在庫(売り手側)の
+        // 両方がこれを読むが、平均の取り方が違う(上のLedgerが売り手側だけに混ざる)。
+        world.Knowledge[0].Add(new PriceObservation
+        {
+            ItemId = Item.Tools,
+            LocationId = 0,
+            Price = 100,
+            SellerId = OtherSellerId,
+            ObservedAt = Tick.Zero,
+            Source = ObservationSource.Direct,
+        });
+
+        // 2日目の朝、household1に工具在庫を持たせる(段1で相場基準の無いhousehold1は
+        // 床=100で出品する)。
+        world.Households[1].WorkshopInventory[Item.Tools] = 50;
+
+        EconomySystemTestFixtures.RunDays(world, system, days: 1); // 2日目
+
+        // 前提: household0が実際に工具を1個買っている(段5b、耐久)。
+        Assert.Contains(
+            world.Ledgers[0],
+            entry => entry.Direction == LedgerDirection.Purchase
+                && entry.ItemId == Item.Tools
+                && entry.CounterpartyId == 1
+                && entry.Quantity == 1);
+
+        // 相場基準(51)を使えば閾在庫0・買った1個がそのまま輸出される
+        // (household0の工具在庫が0に戻る)。
+        Assert.Equal(0, world.Households[0].WorkshopInventory[Item.Tools]);
+        Assert.Contains(
+            world.Ledgers[0],
+            entry => entry.Direction == LedgerDirection.Sale
+                && entry.CounterpartyId == HouseholdState.ExternalMarketSellerId
+                && entry.ItemId == Item.Tools
+                && entry.Quantity == 1
+                && entry.UnitPrice == 100);
+    }
+
     private static int[][] GrainConsumptionTable()
     {
         var row = new int[Item.Count];

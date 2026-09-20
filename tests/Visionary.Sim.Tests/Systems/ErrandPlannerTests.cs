@@ -404,6 +404,36 @@ public sealed class ErrandPlannerTests
         var plan = planner.Plan(world, world.Households[0], DemandOf(line), Delegate(costPerHour: 1));
 
         Assert.Empty(plan.VisitedDistrictIds);
+
+        // 別表(続き)R-7(レビュー2巡目)。上の表明は`Assert.Empty`だけなので、段1の枝
+        // (距離R以内→当日の外部売値)そのものが丸ごと消えても緑になる。同じ構成で
+        // 外部売値をw(75)より低くすると中心へ行くことを、肯定形のサブケースとして足す
+        // (M-9が消す枝を、消えたことではなく実際に効くことで確かめる)。
+        var externalSellPriceBaseBelowW = (int[])externalSellPriceBase.Clone();
+        externalSellPriceBaseBelowW[PrimaryItem] = 50; // w(75)より低い。
+
+        var definitionBelowW = EconomySystemTestFixtures.BuildDefinition(
+            new Recipe(
+                Occupation.Miller,
+                outputs: new[] { new ItemQuantity { ItemId = ItemA, Quantity = 1 } },
+                inputs: new[] { new ItemQuantity { ItemId = PrimaryItem, Quantity = 1 } },
+                laborPermille: 1000),
+            opportunityCostBaseByOccupation: new[] { 1, 1, 1, 1, 1 },
+            rankCoefficientPermille: new[] { 1000, 1000, 1000 },
+            travelHoursPerDistrict: 1,
+            disposableHours: 12,
+            externalBuyPriceOverride: BuildExternalBuyPrice(),
+            externalSellPriceBaseOverride: externalSellPriceBaseBelowW,
+            externalSellPriceSeasonPermilleOverride: externalSellPriceSeasonPermille);
+
+        var worldBelowW = BuildWorld(buyerDistrictId: BuyerDistrictId);
+        var lineBelowW = BuildLine(PrimaryItem, budget: 1, targetStock: 1, expectedStock: 0, baseValue: 50);
+        var plannerBelowW = new ErrandPlanner(definitionBelowW);
+
+        var planBelowW = plannerBelowW.Plan(
+            worldBelowW, worldBelowW.Households[0], DemandOf(lineBelowW), Delegate(costPerHour: 1));
+
+        Assert.Equal(new[] { District.ExternalMarketDistrictId }, planBelowW.VisitedDistrictIds);
     }
 
     /// <summary>テスト表 #11(#38)。前日の観測があればその価格、当日の観測は使わない。</summary>

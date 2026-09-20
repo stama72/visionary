@@ -291,7 +291,7 @@ TradeSettlement.ExecuteExport(world, seller, 出力品目, 超過分, 外部買�
 | 18 | `ImportsAndExportsAreRecordedAgainstTheReservedId` | 60 日で外部 `Purchase` ≥ 1 かつ 外部 `Sale` ≥ 1。外部の行の相手 Id は予約値のみ | 窓口の帳簿を世帯として持つ(相手 Id が `int.MaxValue` 以外になる) | |
 | 19 | `GoodsChangeOnlyByTheExternalLedger` | 既存 #8 の書き直し。品目ごとに「都市の財の総量の変化 = 外部 `Purchase` の数量 − 外部 `Sale` の数量」 | 輸入が在庫を増やさない。輸出が在庫を減らさない。用途による行き先(世帯在庫/工房在庫)を間違えても**総量では落ちない**ので、これは #12 の守備範囲外である | |
 | 20 | `ExportCanBeTurnedOff` | `IsExportEnabled = false` で 60 日回すと外部 `Sale` が 0 件。**輸入は起き続ける** | 実験軸が輸入まで止める。フラグを読んでいない | |
-| 21 | `ToolsAreTradedInThePipeline` | 60 日で工具の `Purchase` が 1 件以上([#37](https://github.com/stama72/visionary/issues/38) 申し送り2) | 段5b が `BuyerBudget.QuantityInUnits` を通らない(耐久の数量が耐久値のまま約定し、`FundsCap` で 0 個へ落ちる) | |
+| 21 | `ToolsAreTradedInThePipeline` | 60 日で工具の `Purchase` が 1 件以上([#37](https://github.com/stama72/visionary/issues/38) 申し送り2) | **(訂正。下記)** | |
 
 | 22 | `DemandIsBuiltBeforeAnyHouseholdShops` | **[#107](https://github.com/stama72/visionary/issues/107)。** 世帯 A(Id 小)が世帯 B(Id 大)から買い、その売上で B の `DemandLine.CashCap` が閾をまたぐ帯に置く。B の予算が**その日の朝の資金**から決まる | 段4 のループを段5 のループへ畳む(B の予算が A の購入の後で立ち、**予算そのものが世帯 Id の走査順の関数になる**。[TDD01 §3.3](../04-tdd/01-sim-core-and-m0.md))。#97 以降は**利潤上限まで**走査順の関数になる | |
 | 23 | `ExportRunsAfterEveryHouseholdHasShopped` | 世帯 A(Id 小)に閾在庫を超える販売在庫を持たせ、世帯 B(Id 大)がその品目を買う。**B は A の在庫を買えている** | 段6 を段5 の世帯ループへ畳む(A が自分の順番で輸出してしまい、B が着いたときには在庫が閾在庫まで減っている)。[GDD02d §2.3](../03-gdd/02d-external-market-and-money.md)「世帯間の取引が**確定したあと**」 | |
@@ -332,6 +332,33 @@ TradeSettlement.ExecuteExport(world, seller, 出力品目, 超過分, 外部買�
 | - | ---- | ---- | ---- |
 | M-8 | `Observations.CollectWindow` | `LocationId` を `District.ExternalMarketDistrictId` → `household.DistrictId` | テスト **R-1** が赤 |
 | M-9 | `ErrandPlanner` の窓口見積もり | 段1(`District.Distance(...) <= District.VisionRadius` の枝)を消し、常に記憶/床へ落とす | テスト **R-2** が赤 |
+
+### 別表(続き): レビュー2巡目(網羅パス)が見つけた穴
+
+**2巡目は表 #1〜#23・R-1〜R-3 の「この実装ミスで落ちる」列を全数突き合わせた。** 挙がっていた実装ミス 44 件のうち **3 件は、そのテストを実際には落とさなかった**。下はその訂正と、仕様が名指ししながら検出器を割り当てていなかった契約の引き取りである。
+
+#### 仕様の訂正(象限 I-b)
+
+**テスト表 #21 の「この実装ミスで落ちる」列は誤りだったので取り消す。** 旧記述は「段5b が `BuyerBudget.QuantityInUnits` を通らない(耐久の数量が耐久値のまま約定し、**`FundsCap` で 0 個へ落ちる**)」だったが、**`FundsCap` は `FloorDiv(流動資金, 実効価格)` であって数量に依存しない。** 耐久値のままの巨大な数量でも `actualQuantity` は 1 以上に残り、工具の `Purchase` 行は生まれる。つまり **#21 は耐久の換算の検出器ではない**(#38 の検出器でないことは元から断ってあったが、耐久の換算の検出器としては数えたままだった)。
+
+**耐久の換算(`BuyerBudget.QuantityInUnits`)には現時点で検出器が無い。** これは M-5 の測定対象そのものであり、仕様が既に「**緑のままなら、それは耐久の換算が依然としてどこからも守られていないという実測である** — 直さずに #37 の後継として issue へ落とす」と決めている。**M-5 の期待を「緑」と机上で予測したうえで、`mutator` の実測がこれを確かめる。**
+
+#### 足す検出器
+
+| # | テスト | 検証内容 | 何が検出できていなかったか |
+| - | ------ | -------- | -------------------------- |
+| R-4 | `ExportThresholdStockRoundsTheCoefficientUp` | 既存 #1 の `[InlineData]` に **`(9, 84)`** を1行足す(外部買値 10・出荷目標在庫 108) | #1 の6点は**係数‰ の `CeilDiv` を `FloorDiv` にしても全点で一致する**(`mr=7`: 1429/1428 → 142/144 → ともに 16 など)。`mr=9` は `CeilDiv` で 1112 → 776 → **84**、`FloorDiv` で 1111 → 778 → **85** と分かれる。[GDD02d §2.3](../03-gdd/02d-external-market-and-money.md)「丸めの向き」の唯一の守り手 |
+| R-5 | `ExportUsesTheSellerSideMarketReference` | 段6 の閾在庫が**売り手側(速い側)**の相場基準で決まること。**2日目以降**に踏み、`TrySeller` と `TryBuyer` が**異なる値**を返す構成を作り、販売在庫を2つの閾在庫の**あいだ**に置いて輸出の有無が入れ替わるようにする | 仕様は「**取り違えても例外は出ない**」と2か所で名指ししながら、検出器を1件も割り当てていない。段6 を踏むテスト(#14・#15・#16・#23)は**すべて初日**で、`MarketReference` の材料が0件なので両者とも false を返し**差が出ない**。遅い基準を読むと相場上昇局面で輸出が遅れ、[#29](https://github.com/stama72/visionary/issues/29) の比較の片側だけが静かに別物になる |
+| R-6 | `SellerReferenceIsTakenBeforeTheSellableStockGate` | 段1 の相場基準の算出が `sellableStock <= 0` の `continue` **より上**にあること。段1 時点で販売在庫 0・有効な相場基準あり・段5b で自分の出力品目を工房在庫へ買い入れる世帯(M0 では工具を買った鍛冶)を作り、段6 の閾在庫が**相場基準ベース**で決まることを見る | 仕様「決めたこと」が明示的に決めた位置なのに、テスト表にも変異表にも固定する項目が無い。戻しても提示価格は変わらず(`Market` への書き込みは `continue` の下)、60 日走行の恒等式・存在命題はどちらでも成立し、**同一構成同士のハッシュも一致する** |
+| R-7 | #19 と R-2 の空振り防止 | **#19** に「外部 `Purchase` と外部 `Sale` の数量合計が 1 以上」を足す。**R-2** に「その日の外部売値を `w` より低くした同じ構成では中心へ行く」肯定形のサブケースを足す | **#19** は不変条件を「= 0」から「= 外部 `Purchase` − 外部 `Sale`」へ書き換えたのに、空振り防止は旧テストの `anyLedgerEntry`(**世帯間の行でも真**)のままである。外部の約定が 0 件なら両辺とも 0 で緑になり、**書き換え前の主張しか検証していない**。**R-2** の表明は `Assert.Empty` だけなので、窓口の枝そのものが消えても緑になる。1巡目の R-3 と**同じ型** |
+
+**変異の追加**:
+
+| # | 場所 | 変異 | 期待 |
+| - | ---- | ---- | ---- |
+| M-10 | `ExternalMarket.ExportThresholdStock` | 係数‰ の `CeilDiv`(`外部買値 × 1000 ÷ 相場基準`)を `FloorDiv` へ。**閾在庫側の `CeilDiv` は動かさない** | テスト **R-4** が赤 |
+| M-11 | `TradeSystem` 段6 | 段1 が控えた `hasSellerReference` / `sellerReference` を捨て、`MarketReference.TryBuyer` を呼び直した結果を使う | テスト **R-5** が赤 |
+| M-12 | `TradeSystem` 段1 | `MarketReference.TrySeller` の呼び出しと2つの配列への代入を、`if (sellableStock <= 0) { continue; }` の**下**へ戻す | テスト **R-6** が赤 |
 
 ## 編集してよい文書
 

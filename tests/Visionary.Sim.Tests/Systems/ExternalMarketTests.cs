@@ -16,9 +16,17 @@ public sealed class ExternalMarketTests
     /// <b>M-1(実測されたら書く)。</b><c>clamp</c> の上限を 2000 → 1000 にする変異が本テストを
     /// 赤にすることを期待する(タスク仕様)。
     /// </remarks>
+    /// <remarks>
+    /// <b>別表(続き)R-4(レビュー2巡目)。</b>相場基準 9 の行(期待84)は係数‰の丸めの向きを
+    /// 固定している ── 他の点(6/7/10/14/20/30)は係数‰の<c>CeilDiv</c>を<c>FloorDiv</c>に
+    /// しても全点で一致する(例: <c>mr=7</c>は1429/1428→142/144→どちらも16)。
+    /// <c>mr=9</c>は<c>CeilDiv</c>で1112→776→84、<c>FloorDiv</c>で1111→778→85と分かれる
+    /// (M-10)。
+    /// </remarks>
     [Theory]
     [InlineData(6, 0)]
     [InlineData(7, 16)]
+    [InlineData(9, 84)]
     [InlineData(10, 108)]
     [InlineData(14, 170)]
     [InlineData(20, 216)]

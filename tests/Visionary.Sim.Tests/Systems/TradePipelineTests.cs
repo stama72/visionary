@@ -237,6 +237,8 @@ public sealed class TradePipelineTests
         var externalPurchaseByItem = new long[definition.ItemCount];
         var externalSaleByItem = new long[definition.ItemCount];
         bool anyLedgerEntry = false;
+        long externalPurchaseQuantityTotal = 0;
+        long externalSaleQuantityTotal = 0;
 
         foreach (var household in world.Households)
         {
@@ -253,10 +255,12 @@ public sealed class TradePipelineTests
                 if (entry.Direction == LedgerDirection.Purchase)
                 {
                     externalPurchaseByItem[entry.ItemId] += entry.Quantity;
+                    externalPurchaseQuantityTotal += entry.Quantity;
                 }
                 else
                 {
                     externalSaleByItem[entry.ItemId] += entry.Quantity;
+                    externalSaleQuantityTotal += entry.Quantity;
                 }
             }
         }
@@ -272,6 +276,14 @@ public sealed class TradePipelineTests
         Assert.True(
             anyLedgerEntry,
             "1日回しても1件も約定していない(値の問題の可能性。止まって報告する対象)。");
+
+        // 別表(続き)R-7(レビュー2巡目)。上のanyLedgerEntryは世帯間の行でも真になるので、
+        // 不変条件を「=0」から「=外部Purchase-外部Sale」へ書き換えたのに旧テストの空振り防止を
+        // 持ち越すと、外部の約定が0件の日でも両辺とも0で緑になる(書き換え前の主張しか
+        // 検証していない)。外部の約定が実際に1件以上あることを別に確かめる。
+        Assert.True(
+            externalPurchaseQuantityTotal + externalSaleQuantityTotal >= 1,
+            "1日回しても外部の約定(Purchase/Sale)が1件も無い(値の問題の可能性)。");
     }
 
     /// <summary>
