@@ -109,6 +109,8 @@ label:needs-decision label:P0,P1 -label:blocked
 
 **GDD / TDD の規則を書き換える `type:design` の issue は、閉じる条件に「追随表」を含める。** 追随表は「変えた規則 → それを実装している既存コード → 引き取る impl issue」の3列で、issue の本文かコメントに置く(文書には置かない。進行の器は issue である)。
 
+**docs 直下(コンセプトシート・企画書・世界観設定書)の規則を書き換える issue も同じ形で、向きが一段上がる** — 「変えた規則 → 追随する GDD / TDD の節 → 引き取る design issue」。[#68](https://github.com/stama72/visionary/issues/68) の ADR-0011「領主 → 市参事会」が最初の適用例で、波及節が「別 issue」とだけ書いた時点では GDD01 / 02 / 09 の「領主」16 箇所に引き取る issue が無かった。層の表は [06-design-sessions](06-design-sessions.md)。
+
 | 変えた規則(現行版の節) | 実装している既存コード | 引き取る issue |
 | ------------------------ | ---------------------- | -------------- |
 | GDD02a §5.1 移動平均の更新対象に耐久を足す | `TradeSettlement.Execute` の更新条件 | [#97](https://github.com/stama72/visionary/issues/97) |
@@ -142,11 +144,12 @@ CLAUDE.md が「数値(閾値・係数)は初期値であり調整対象。固�
 | ------ | ---- | ---- |
 | 設計・ADR・ゲームデザイン(`type:design`) | **1** | 判断を全工程で食う。途中経過が成果物であり、並行すると保持すべき文脈が増える |
 | 仕様が凍結済みの実装(`type:impl`) | **2** | 判断を末尾でだけ食う。前段はレビュアーエージェントが吸う([ADR-0008](../adr/0008-review-scope-narrowed-to-unnoticeable-defects.md) 後も実装工程ではレビュアーを使う) |
-| その他(`type:process` / `type:marketing`) | 別コンテキストなので上限に数えない | |
+| その他(`type:process` / `type:marketing`) | **数えない(暫定)** | 根拠は「別コンテキストだから」**ではない**。`type:process` も設計タスクであり([06](06-design-sessions.md))、[#104](https://github.com/stama72/visionary/issues/104) 自身が判断を全工程で食った。**食うかは型では決まらず**、同じ `type:process` でもパイプラインのスクリプト修正は食わない。**上限は未実測。[#122](https://github.com/stama72/visionary/issues/122) が決める** |
 
 - **「仕様が凍結済み」とは、タスク仕様書がマージされ、実装エージェントに渡せる状態を指す。** 仕様を書いている最中は `type:design` として数える
 - レビューが難航した、または前提として別タスクが必要だと判明したときは、**承認せずに凍結してよい**(ADR-0004 論点3)。凍結は issue を閉じずに `blocked` を付け、待っている issue を本文に書く
 - **上限2は仮説である。** 「2本目が『レビュー中』のまま1週間を超えるか」で検証し、超えたら1へ戻す
+- **上限の軸は「開発者の判断を全工程で食うか」であって、型ラベルではない**(ADR-0006 論点4)。表が型で書かれているのは数えやすさのためで、`type:process` の免除はその近似が崩れている箇所である。**枠(トークン)の制約は注意の制約とは別の原因なので、WIP に負わせない** — [#122](https://github.com/stama72/visionary/issues/122) が両方を見る
 
 ## ライフサイクル
 

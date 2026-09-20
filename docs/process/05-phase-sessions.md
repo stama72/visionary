@@ -12,7 +12,7 @@
 | | フェーズ1 設計 | フェーズ2 実装とレビュー | フェーズ3 文書更新と PR |
 | --- | --- | --- | --- |
 | 起動 | 既定のメインセッション | [`/impl`](../../.claude/commands/impl.md) | [`/wrap`](../../.claude/commands/wrap.md) |
-| モデル | Opus | Opus(実装は Sonnet の implementer) | **Sonnet**([`wrap.md`](../../.claude/commands/wrap.md) の `model:` とパイプラインの `--model` が握る) |
+| モデル | `~/.claude/settings.json` の既定(2026-09-20 時点で fable。opus に落とすかは [06](06-design-sessions.md) の検証条件) | Opus(実装は Sonnet の implementer) | **Sonnet**([`wrap.md`](../../.claude/commands/wrap.md) の `model:` とパイプラインの `--model` が握る) |
 | 成果物 | タスク仕様の凍結 | 緑のコードとコミット | PR と切り出した issue |
 | 終わり方 | 引き継ぎメモを書き、**パイプラインを背景起動して止まる** | 引き継ぎメモに追記し `PIPELINE: DONE` | PR を作り `PIPELINE: DONE` |
 
@@ -192,4 +192,4 @@ pwsh scripts/pipeline.ps1 -Status
 
 仕様を書くまでもない規模なら、そもそも実装タスクではない — [02-task-spec](02-task-spec.md) 規則2(「宣言のみでよい」と書かない)の裏返しである。
 
-**設計・プロセス・文書のみの変更は、この3フェーズに乗らない。** フェーズ1 だけで終わり、レビュアーではなく [`/advise`](../../.claude/commands/advise.md) と開発者が見る([01-review](01-review.md))。
+**設計・プロセス・文書のみの変更は、この3フェーズに乗らない。** レビュアーではなく [`/advise`](../../.claude/commands/advise.md) と開発者が見る([01-review](01-review.md))。**進め方は [06-design-sessions](06-design-sessions.md) が持つ** — 束ごとに決めて書いてコミットし、引き継ぎメモは書かない。フェーズ1 と設計タスクの境界(却下する選択肢があるか)も同書。
