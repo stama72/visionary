@@ -222,8 +222,9 @@ public sealed class ObservationsTests
     /// <b>W2-11 追随。</b><c>household.Ledgers[0]</c> へ <c>Sale</c> の行を直接置く理由は
     /// GDD02c §1.1 の頭打ちを外すためである ── 約定が無い売り手は<b>相場基準より上へ</b>出ない
     /// (頭打ちが無ければ構成の前提が崩れる)。<b>この構成では</b>相場基準 = <c>CeilDiv(床+床,2)</c>
-    /// = 床(household1 は1日目に相場基準が立たず床のまま提示しているため)なので、頭打ちが外れれば
-    /// 提示価格が床のままになってしまい、旧来の <c>Assert.NotEqual</c> が偽になる。<b>一般則として
+    /// = 床(household1 は1日目に相場基準が立たず床のまま提示しているため)なので、頭打ちが掛かると
+    /// (<c>Sale</c> の行を置かないと)提示価格が床のままになってしまい、旧来の <c>Assert.NotEqual</c>
+    /// が偽になる。<b>一般則として
     /// 「床へ引き戻される」と読んではならない</b> ── 相場基準 &gt; 床 の売り手は相場基準そのもので
     /// 並ぶ(反例: <see cref="TradeSystemTests.UnsoldSellerIsCappedAtTheReferenceInThePipeline"/>、
     /// 床10・相場基準200の売れていない売り手が200を提示する)。GDD02c §1.2 の囲み(「ラチェットの
@@ -260,9 +261,11 @@ public sealed class ObservationsTests
         Assert.Equal(floorPrice, world.Market[key0]); // 相場基準が立たない(床のまま)
 
         // household0は1日目に売れていない(hasSettled=false)ので、§1.1の頭打ちを受ける ──
-        // 頭打ちを入れないと相場基準はhousehold1の前日の提示価格(=床)だけになり、係数1000‰で
-        // 提示価格が床のまま2日目のAssert.NotEqualが崩れる(「構成の前提が崩れた」、本タスク仕様)。
-        // household0自身の約定を帳簿へ直接置き、hasSettled=trueにして頭打ちを外す。
+        // Saleの行を置かないとhasSettledYesterdayがfalseのままになり、頭打ちで係数が1000‰に
+        // なって提示価格が床のままになり、2日目のAssert.NotEqualが崩れる(「構成の前提が崩れた」、
+        // 本タスク仕様)。相場基準の材料(自分の錨を含むか)を決めるのはSaleの行であって頭打ちでは
+        // ない(§1.2)。この構成ではhousehold1の前日の提示価格も床なので、相場基準はどちらにせよ
+        // 床のままである。household0自身の約定を帳簿へ直接置き、hasSettled=trueにして頭打ちを外す。
         world.Ledgers[0].Add(new LedgerEntry
         {
             ItemId = Item.Flour,
