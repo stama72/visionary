@@ -163,6 +163,6 @@
 - `dotnet test Visionary.sln -c Release` 全件緑(**既存 2 件の修正を含む**)
 - `dotnet format Visionary.sln --verify-no-changes --severity warn`
 - テスト表 #1〜#8 が存在し、「この実装ミスで落ちる」列の変異で落ちる形になっている
-- 変異 M-1〜M-4 を `mutator` が実測し、結果が doc コメントに転記されている
+- 変異 **M-1〜M-5** を `mutator` が実測し、結果が doc コメントに転記されている(**M-5 は別表「レビューの網羅パスが追加した変異」。M-4 止まりにすると、テスト表 #7 の判別力が未確認のまま完了条件を満たしてしまう**)
 - `MarketReference.cs` / `MarketReferenceTests.cs` / `BuyerDemand.cs` / `BuyerDemandTests.cs` に「複利発散の歯止め」「§1.2 の天井」の語が残っていない(`grep -rn "複利発散の歯止め\|§1.2 の天井" src tests` が 0 件)
 - `TradePipelineTests.cs` に「#120 が直れば動く」の語が残っていない
