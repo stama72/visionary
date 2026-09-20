@@ -40,6 +40,7 @@ public sealed class ErrandTests
     /// <summary>
     /// 【核心】テスト表 #4。q=4・w=76・p=54 → 44。w=p → 0。
     /// q=1・w=50・p=51 → 0(FloorDiv(−1,2)が−1にならない)。
+    /// q=3・w=57・p=50 → FloorDiv(21,2)=10(積が奇数になるケース。別表E-1)。
     /// </summary>
     /// <remarks>
     /// <b>変異の実測(2026-09-20)。</b><c>Errand.Surplus</c> の <c>willingness &lt;= price</c> の
@@ -48,12 +49,22 @@ public sealed class ErrandTests
     /// が実際値-1(<c>FloorDiv(1×(50-51),2) = FloorDiv(-1,2) = -1</c>。負の余剰が他の品目の
     /// 余剰を食う経路)で失敗した(赤を確認)。変異を戻して緑に復帰させた。
     /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-20、別表E-1)。</b>3巡目の網羅パスが、既存の3ケース(44/0/0)は
+    /// いずれも積が偶数(4×22・0・−1)であり、<c>FloorDiv</c> を <c>CeilDiv</c> に変える変異が
+    /// 1件も赤にならないことを指摘した(GDD06 §3・GDD01 §2.3の切り上げ規約の例外である
+    /// <c>FloorDiv</c> に検出器が無かった)。<c>q=3・w=57・p=50</c>(積21、奇数)を足し、
+    /// <c>Errand.Surplus</c> 内部の <c>FloorDiv</c> を <c>CeilDiv</c> に置き換える変異を当てたところ、
+    /// 期待値10に対し実際値11(<c>CeilDiv(21,2)</c>)で失敗した(赤を確認)。変異を戻して
+    /// 緑に復帰させた。
+    /// </remarks>
     [Fact]
     public void SurplusNeverGoesNegative()
     {
         Assert.Equal(44, Errand.Surplus(quantity: 4, willingness: 76, price: 54));
         Assert.Equal(0, Errand.Surplus(quantity: 4, willingness: 54, price: 54));
         Assert.Equal(0, Errand.Surplus(quantity: 1, willingness: 50, price: 51));
+        Assert.Equal(10, Errand.Surplus(quantity: 3, willingness: 57, price: 50));
     }
 
     /// <summary>
@@ -67,6 +78,15 @@ public sealed class ErrandTests
     /// T=7の上限そのものと両立しない(<see cref="ErrandPlanner"/> を通すと2回目が上限で
     /// 弾かれてしまい、この数値例を再現できない)。「外出ごとに切り上げてから合計する」という
     /// 性質そのものは <see cref="Errand.LaborLossPermille"/> の呼び出し2回として直接確かめる。
+    /// </remarks>
+    /// <remarks>
+    /// <b>別表E-3(3巡目の網羅パス)。</b>本テストは <see cref="ErrandPlanner"/> の集計
+    /// (<c>Σ_d CeilDiv(…)</c>)を一度も通らない ── <c>perTripSum</c> はテスト自身が2回の呼び出し
+    /// を合計しているだけであり、製品コードの集計を <c>CeilDiv(Σ_d …, T)</c> へ変える変異を
+    /// 当てても本テストは動かない(赤にならない)。この集計そのものを
+    /// <see cref="ErrandPlanner.Plan"/> 越しに確かめるのが
+    /// <see cref="ErrandPlannerTests.ErrandLaborLossCeilsEachTripSeparatelyThroughThePlanner"/> である
+    /// (T=12ならA-1訂正後の2区画の計画が成立するので、こちらは弾かれない)。
     /// </remarks>
     [Fact]
     public void ErrandLaborLossCeilsEachTripSeparately()

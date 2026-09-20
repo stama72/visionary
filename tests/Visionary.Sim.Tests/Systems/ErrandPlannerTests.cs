@@ -168,13 +168,28 @@ public sealed class ErrandPlannerTests
     /// 【核心】テスト表 #9。Rの外の店について、3日前(90)と1日前(50)の観測 → 50(最新)を使う
     /// (平均・最古ではない)。当日(差0)の観測は使わない(使うと落ちるべき床のケースが行ってしまう)。
     /// </summary>
+    /// <remarks>
+    /// <b>別表E-4(3巡目の網羅パス)。</b>サブケースAは <c>targetStock: 1・expectedStock: 0</c> の
+    /// 在庫圧力が1500‰であり、実際の <c>w = ApplyPermille(70, 1500) = 105</c> である
+    /// (旧doc コメントは誤って「w=70」と書いていた)。旧費用(往復4時間×機会費用1=4)では
+    /// 平均(70)でも <c>105 &gt; 70</c> で余剰が正になり行ってしまうため、「平均する」変異
+    /// (<c>MarketReference</c> を流用して店ごとの差を潰す)を当てても赤にならなかった。
+    /// <b>費用を20(=往復4時間×機会費用5)へ動かし、余剰(70)=17 ≤ 費用20 &lt; 余剰(50)=27</b>
+    /// を満たす配置にした。
+    /// <para>
+    /// <b>変異の実測(2026-09-20、別表E-4)。</b>2件の観測の平均(70)を見積もり価格として使う変異
+    /// を当てたところ、価値 = 17−20 = −3 ≤ 0 で <c>Assert.Equal(new[] { SellerDistrictId }, ...)</c>
+    /// が実際値 <c>[]</c>(行かない)で失敗した(赤を確認)。変異を戻して緑に復帰させた。
+    /// </para>
+    /// </remarks>
     [Fact]
     public void EstimateUsesTheLatestValidMemoryOutsideVisionRadius()
     {
         const int SellerDistrictId = 2; // 距離2(Rの外)。
         const int SellerId = 1;
 
-        // サブケースA: 3日前(90)・1日前(50)。w=70(平均70・最古90はどちらも余剰0、最新50だけ行く)。
+        // サブケースA: 3日前(90)・1日前(50)。実際のw=105(ApplyPermille(70,1500)。<remarks>参照)。
+        // 平均70→余剰17、最新50→余剰27。費用20を挟むことで平均/最新が行く/行かないを分ける。
         {
             var definition = BuildDefinition(externalBuyPriceOverride: BuildExternalBuyPrice(itemAPrice: 200));
             var world = BuildWorld(buyerDistrictId: 0, (SellerDistrictId, Occupation.Miller));
@@ -187,7 +202,8 @@ public sealed class ErrandPlannerTests
             var line = BuildLine(ItemA, budget: 1, targetStock: 1, expectedStock: 0, baseValue: 70);
             var planner = new ErrandPlanner(definition);
 
-            var plan = planner.Plan(world, world.Households[0], DemandOf(line), Delegate(costPerHour: 1));
+            // 距離2 → 往復4時間 × 機会費用5 = 費用20。
+            var plan = planner.Plan(world, world.Households[0], DemandOf(line), Delegate(costPerHour: 5));
 
             Assert.Equal(new[] { SellerDistrictId }, plan.VisitedDistrictIds);
         }
@@ -338,6 +354,9 @@ public sealed class ErrandPlannerTests
     /// 【核心】テスト表 #14。前半: 2つの遠方区画が同じ安値で同じ品目を売る → 1区画だけ行く
     /// (2つ目は差0−費用&lt;0。同値はId最小)。後半(訂正後、A-1): 1周目で選ばれなかった区画に
     /// しか無い別品目の余剰が費用を超えるときだけ、2周目でその区画も追加される。
+    /// 追加(別表E-2): 両方の遠方区画が同じ品目(item A)を売り、district2のほうが厳密に安いとき、
+    /// 「1周目で見積もりが得られた行を需要リストから外す」という却下済み設計が黙って戻っても、
+    /// 後半のケースだけでは検出できないことを埋める。
     /// </summary>
     /// <remarks>
     /// <b>単一品目では2区画目は構造的に起こらない。</b>同じ品目を2区画が売るとき、1周目は
@@ -354,6 +373,23 @@ public sealed class ErrandPlannerTests
     /// <c>[District1, District2]</c>(同じ余剰を2度取り、2区画とも行ってしまう)で失敗し、
     /// <c>ErrandPicksTheLowestDistrictIdOnTies</c>(#16)も同様の理由で赤になった(赤を確認)。
     /// 変異を戻して緑に復帰させた。
+    /// </remarks>
+    /// <remarks>
+    /// <b>別表E-2。</b>後半(item B専用のdistrict2)は、item Bが1周目で一度も見積もられていない
+    /// ので「1周目で見積もりが得られた行を需要リストから外す」という却下済み設計を戻しても
+    /// 影響を受けない(3巡目の網羅パスが指摘)。<b>追加のブロックは district1・district2の
+    /// 両方にitem Aを置き(district2のほうが安い)、この却下済み設計が戻ると2周目の
+    /// district2評価からitem Aの行が消える</b>ことを直接突く。district1はitem B(1周目の
+    /// 主動因)も売る ── item A単独では「1周目の勝者が2周目でも安値によって改善されうる」
+    /// ことが上の証明と同じ理由で構造的に起こらないため、district1の勝利を別品目で確保する
+    /// 必要がある。
+    /// <para>
+    /// <b>変異の実測(2026-09-20、別表E-2)。</b>1周目で選んだ区画で見積もりが得られた行
+    /// (item Bとitem A、どちらもdistrict1で売っている)を2周目以降の需要リストから除く変異を
+    /// 当てたところ、2周目のdistrict2評価からitem Aの行が消えてitem Bも売っていないため
+    /// 価値が−16(費用のみ)になり、<c>Assert.Equal(new[] { District1, District2 }, ...)</c> が
+    /// 実際値 <c>[District1]</c> で失敗した(赤を確認)。変異を戻して緑に復帰させた。
+    /// </para>
     /// </remarks>
     [Fact]
     public void SecondErrandIsMeasuredAgainstTheDistrictsAlreadyChosen()
@@ -423,6 +459,44 @@ public sealed class ErrandPlannerTests
             var planner = new ErrandPlanner(definition);
             var plan = planner.Plan(world, world.Households[0], DemandOf(line, lineB), errand);
 
+            Assert.Equal(new[] { District1, District2 }, plan.VisitedDistrictIds);
+        }
+
+        // 追加(別表E-2): district1・district2の両方がitem Aを売り、district2のほうが厳密に
+        // 安い(70→50)。district1はitem B(床40、余剰108)も売り、これが1周目の主動因になる
+        // (item A単独ではdistrict1は1周目に勝てない ── 上のremarksの証明のとおり)。
+        // district1・district2はいずれも距離2(Rの外)なので、item Aの見積もりは記憶で与える
+        // (床は品目単位なので、同じ品目に区画ごと異なる価格を表現できない)。
+        {
+            const int SellerBId = 1;     // district1: item B(1周目の主動因、床40)。
+            const int SellerANearId = 2; // district1: item A(高値70)。
+            const int SellerAFarId = 3;  // district2: item A(安値50)。
+
+            var definition = BuildDefinition(
+                externalBuyPriceOverride: BuildExternalBuyPrice(itemAPrice: 999, itemBPrice: 40));
+            var world = BuildWorld(
+                buyerDistrictId: 0,
+                (District1, Occupation.Baker),
+                (District1, Occupation.Miller),
+                (District2, Occupation.Miller));
+
+            world.Households[SellerBId].WorkshopInventory[ItemB] = 10;
+            world.Households[SellerANearId].WorkshopInventory[ItemA] = 10;
+            world.Households[SellerAFarId].WorkshopInventory[ItemA] = 10;
+
+            EconomySystemTestFixtures.AdvanceClockOnly(world, ticks: 3 * 24);
+            AddObservation(world, ItemA, SellerANearId, price: 70, observedAt: Tick.Zero);
+            AddObservation(world, ItemA, SellerAFarId, price: 50, observedAt: Tick.Zero);
+
+            var lineDriver = BuildLine(ItemB, budget: 1, targetStock: 6, expectedStock: 4, baseValue: 65);
+            var lineShared = BuildLine(ItemA, budget: 1, targetStock: 6, expectedStock: 4, baseValue: 65); // w=76。
+
+            var planner = new ErrandPlanner(definition);
+            var plan = planner.Plan(world, world.Households[0], DemandOf(lineDriver, lineShared), errand);
+
+            // 1周目: district1(item B余剰108 + item A余剰3 − 費用16 = 95)がdistrict2
+            // (item A余剰52 − 費用16 = 36)に勝つ。2周目: district1に既にいる状態で
+            // district2のitem Aの増分(52−3=49)が費用16を上回る(価値33) → district2も追加。
             Assert.Equal(new[] { District1, District2 }, plan.VisitedDistrictIds);
         }
     }
@@ -640,6 +714,56 @@ public sealed class ErrandPlannerTests
         Assert.Equal(new[] { SellerDistrictId }, plan.VisitedDistrictIds);
         // CeilDiv(300×2,12) = 50。RankCoefficientPermille(200)で数えるとCeilDiv(200×2,12) = 34。
         Assert.Equal(50, plan.LaborLossPermille);
+    }
+
+    /// <summary>
+    /// 別表E-3。テスト表 #20 を <see cref="ErrandPlanner.Plan"/> 越しに確かめる。T=12・労働力係数
+    /// 100‰で、往復2時間(距離1)と往復4時間(距離2)の2区画へ行く計画が成立し、
+    /// <c>plan.LaborLossPermille</c> が「外出ごとに切り上げてから合計する」
+    /// (<c>CeilDiv(200,12)+CeilDiv(400,12)=17+34=51</c>)であって、「往復時間を先に合計してから
+    /// 1回だけ切り上げる」(<c>CeilDiv(600,12)=50</c>)ではないことを確かめる。
+    /// </summary>
+    /// <remarks>
+    /// <b>置き場所について。</b><see cref="ErrandTests.ErrandLaborLossCeilsEachTripSeparately"/> は
+    /// <see cref="Errand.LaborLossPermille"/> を2回直接呼ぶだけで、製品コードの集計
+    /// (<see cref="ErrandPlanner"/> の周回)を一度も通らない ──
+    /// <c>Σ_d CeilDiv(労働力係数‰×往復_d,T)</c> を <c>CeilDiv(労働力係数‰×Σ_d 往復_d,T)</c> に
+    /// 変える変異を当てても動かない(3巡目の網羅パスの指摘、別表E-3)。<b>労働力係数300‰と
+    /// T=12の組では2区画の往復時間(2+4=6・2+8=10 等)のいずれも12の約数になり、2通りの数え方が
+    /// 恒に一致してしまう</b>ので、労働力係数を100‰へ動かしてこの一致を崩した。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-20、別表E-3)。</b><c>ErrandPlanner</c> の労働損失の集計を
+    /// <c>Σ_d CeilDiv(labor×travelHours_d,T)</c> から <c>CeilDiv(labor×Σ_d travelHours_d,T)</c>
+    /// へ変える変異を当てたところ、期待値51に対し実際値50(<c>CeilDiv(600,12)</c>)で失敗した
+    /// (赤を確認)。変異を戻して緑に復帰させた。
+    /// </remarks>
+    [Fact]
+    public void ErrandLaborLossCeilsEachTripSeparatelyThroughThePlanner()
+    {
+        const int NearDistrictId = 1; // 距離1(R以内) → 往復2時間。
+        const int FarDistrictId = 2;  // 距離2(Rの外) → 往復4時間。
+        const int NearSellerId = 1;
+        const int FarSellerId = 2;
+
+        var definition = BuildDefinition(externalBuyPriceOverride: BuildExternalBuyPrice(itemBPrice: 10));
+        var world = BuildWorld(
+            buyerDistrictId: 0, (NearDistrictId, Occupation.Miller), (FarDistrictId, Occupation.Baker));
+        world.Households[NearSellerId].WorkshopInventory[ItemA] = 10;
+        world.Households[FarSellerId].WorkshopInventory[ItemB] = 10;
+        world.Market[new MarketKey(ItemA, NearSellerId)] = 10; // R以内なので当日の市場を使う。
+
+        var lineA = BuildLine(ItemA, budget: 1, targetStock: 6, expectedStock: 4, baseValue: 65); // w=76。
+        var lineB = BuildLine(ItemB, budget: 1, targetStock: 6, expectedStock: 4, baseValue: 65);  // w=76。
+        var errand = Delegate(costPerHour: 1, laborPermille: 100);
+        var planner = new ErrandPlanner(definition);
+
+        var plan = planner.Plan(world, world.Households[0], DemandOf(lineA, lineB), errand);
+
+        // 1周目: near(余剰264−費用2=262)がfar(余剰264−費用4=260)に勝つ。2周目:
+        // farのitem Bの増分(264)が費用4を上回る(価値260) → 両方行く(合計往復6≤T=12)。
+        Assert.Equal(new[] { NearDistrictId, FarDistrictId }, plan.VisitedDistrictIds);
+        Assert.Equal(51, plan.LaborLossPermille);
     }
 
     /// <summary>
