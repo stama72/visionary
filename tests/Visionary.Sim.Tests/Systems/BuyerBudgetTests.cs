@@ -370,6 +370,26 @@ public sealed class BuyerBudgetTests
             BuyerBudget.PurchaseQuantity(baseValue, effectivePrice: 1, targetStock: 3, expectedStock: 0));
     }
 
+    /// <summary>
+    /// 段5b手順5・<see cref="ErrandPlanner"/> §5.5の用途分岐(<c>Durable</c>はNで割り、
+    /// それ以外は換算しない)。#37のテスト表#6の片側(<c>QuantityInUnits</c>のみ。
+    /// <c>TargetStockInUnits</c>は#98で削除された)。#98(TradeSystem.PurchaseQuantityInUnits
+    /// から移設)。
+    /// </summary>
+    [Fact]
+    public void QuantityInUnitsConvertsOnlyForDurable()
+    {
+        const int PurchaseQuantityInDurabilityUnits = 15; // 耐久値
+        const int ProductionRunsPerToolWear = 30;         // N
+
+        Assert.Equal(
+            1, BuyerBudget.QuantityInUnits(
+                DemandPurpose.Durable, PurchaseQuantityInDurabilityUnits, ProductionRunsPerToolWear));
+        Assert.Equal(
+            15, BuyerBudget.QuantityInUnits(
+                DemandPurpose.Necessity, PurchaseQuantityInDurabilityUnits, ProductionRunsPerToolWear));
+    }
+
     private static DemandLine BuildLine(
         bool hasMarketTerm, int marketTerm, int stockPressurePermille,
         int cashCap, bool hasProfitCap, int profitCap,
