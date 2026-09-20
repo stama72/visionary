@@ -98,7 +98,7 @@
 
 **落ちる既存テスト 2 件の修正。**
 
-- **`ObservationsTests.ObservationBecomesUsableOnTheNextDayNotToday`。** 世帯 0 は買い手が居ないので約定が無く、頭打ちで係数が 1000‰ になる。相場基準は世帯 1 の売り注文(= 床)なので、2 日目の提示価格 = 床 になり `Assert.NotEqual(floorPrice, ...)` が落ちる。**直し方: 1 日目の後(2 日目を回す前)に、世帯 0 の帳簿 `world.Ledgers[0]` へ `Sale` の行を 1 件直接置く**(`ItemId = Item.Flour`、`Quantity = 1`、`UnitPrice = floorPrice`、`OccurredAt = Tick.Zero`、`Direction = LedgerDirection.Sale`、`CounterpartyId = 1`、`Terms = Cash`)。これで 2 日目は `hasSettled = true`、相場基準 = `CeilDiv(床 + 床, 2)` = 床、係数 1400‰(在庫 1 / 目標 5)→ 提示価格 = `ApplyPermille(床, 1400)` > 床。**テストの主張(1 日目に生まれた観測が 2 日目に使える)は変わらず、2026-09-16 の変異(観測の段を値付けの前へ移す)に対する判別力も残る** — 観測が 2 日目の日付で記録されれば相場基準が立たず床に落ちる。remarks に「`Sale` の行を置く理由(§1.1 の頭打ちを外すため。約定が無い売り手は相場基準が立っても床より上へ出ない)」を足す
+- **`ObservationsTests.ObservationBecomesUsableOnTheNextDayNotToday`。** 世帯 0 は買い手が居ないので約定が無く、頭打ちで係数が 1000‰ になる。相場基準は世帯 1 の売り注文(= 床)なので、2 日目の提示価格 = 床 になり `Assert.NotEqual(floorPrice, ...)` が落ちる。**直し方: 1 日目の後(2 日目を回す前)に、世帯 0 の帳簿 `world.Ledgers[0]` へ `Sale` の行を 1 件直接置く**(`ItemId = Item.Flour`、`Quantity = 1`、`UnitPrice = floorPrice`、`OccurredAt = Tick.Zero`、`Direction = LedgerDirection.Sale`、`CounterpartyId = 1`、`Terms = Cash`)。これで 2 日目は `hasSettled = true`、相場基準 = `CeilDiv(床 + 床, 2)` = 床、係数 1400‰(在庫 1 / 目標 5)→ 提示価格 = `ApplyPermille(床, 1400)` > 床。**テストの主張(1 日目に生まれた観測が 2 日目に使える)は変わらず、2026-09-16 の変異(観測の段を値付けの前へ移す)に対する判別力も残る** — 観測が 2 日目の日付で記録されれば相場基準が立たず床に落ちる。remarks に「`Sale` の行を置く理由(§1.1 の頭打ちを外すため。**約定が無い売り手は相場基準より上へ出ない** — この構成では相場基準 = `CeilDiv(床 + 床, 2)` = 床なので、提示価格が床のままになる)」を足す。**「床より上へ出ない」と書いてはならない**(フェーズ2 の訂正 → 下の「フェーズ2 が訂正した箇所」)
 - **`TradePipelineTests.UnaffordableNecessityCountsOnlyTheFundsShortfall`。** 上の表のとおり (世帯 3, 10 日目) へ差し替える
 
 ### 呼び出し側の配線([process/02](../process/02-task-spec.md) 規則7)
@@ -136,6 +136,22 @@
 | M-2 | `TradeSystem.Step` 段1 | `OfferPrice.Calculate` へ渡す第 6 引数を `true` 定数にする | **赤**: #5・#6。**#1 は緑のまま**(単体は正しい — 配線だけが切れている経路) |
 | M-3 | `OfferPrice.Calculate` | `Math.Min(係数, UnsoldCapPermille)` を `UnsoldCapPermille` の代入にする | **赤**: #2(50 が 100)。#1 は緑のまま(1500 → 1000 は同じ) |
 | M-4 | `TradeSystem.RunOneHouseholdsShopping` | `demand.Lines` の走査を `.Reverse()` する(W2-08 テスト表 #29 / [#81](https://github.com/stama72/visionary/issues/81) の検出器の**再実測**。値付けが変わったので、絞った世界(資金 100)で嗜好が必需より先に決済される経路が今も再現するかを測る) | **赤**: `NecessityIsSettledBeforePreference` の `Assert.False(boughtBeer)`。**緑のままなら象限 I-a** — #81 の検出器が新しい経済で判別力を失っており、定数を据え置いた前提が崩れている。そのときは直さずに引き継ぎメモへ残し、issue へ落とす(定数の再校正はフェーズ1 の判断) |
+
+### 別表 — フェーズ2 が訂正した箇所(象限 I-b)
+
+**上の本文は implementer に渡した時点の指示であり、最終形ではない。** レビューで仕様そのものの欠陥が出た箇所だけを、フェーズ2 がここに記録する。
+
+| 巡 | どこ | 何が誤りだったか | 訂正 |
+| -- | ---- | ---------------- | ---- |
+| 2(網羅パス) | §4「落ちる既存テスト 2 件の修正」の `ObservationBecomesUsableOnTheNextDayNotToday` の remarks 指示 | 「**約定が無い売り手は相場基準が立っても床より上へ出ない**」は偽。頭打ち後の提示価格は `max(床, ApplyPermille(相場基準, min(係数, 1000)))` であり、`ApplyPermille(x, 1000) = x` なので **相場基準 > 床 の売り手は相場基準そのもので並ぶ**。反例は本仕様のテスト表 #5(床 10・相場基準 200 の売れていない売り手が **200** を提示する)。この文を規則として読むと「§1.1 は売れない売り手を床へ引き戻す」= 水準の復元力があると理解され、[GDD02c §1.2](../03-gdd/02c-price-and-budget.md) の囲み(「ラチェットの停止であって復元力ではない。止まる水準は経路依存」)と正反対になる | 「**相場基準より上へ出ない**」に改め、この構成で床に落ちる理由(相場基準 = 床)を添える。**GDD / TDD は動かない** — §1.2 の囲みは元から正しい |
+
+### 別表 — レビューの網羅パスが追加した変異
+
+**変異を選ぶのは依頼側である**([ADR-0013](../adr/0013-mutation-measurement-separated.md))。レビュー2巡目の網羅パスが列挙した中から、フェーズ2 が 1 件を `mutator` へ渡す分として立てた。
+
+| #   | 場所 | 変異 | 期待 | なぜ足したか |
+| --- | ---- | ---- | ---- | ------------ |
+| M-5 | `TradeSystem.Step`(観測の段を値付けの段より**前**へ移す。2026-09-16 に一度当てた変異と同じもの) | 当日の提示価格が当日の観測に入るようにする | **赤**: `ObservationsTests.ObservationBecomesUsableOnTheNextDayNotToday` | この変異の赤の実測(2026-09-16)は、**本タスクが差し替える前の `Assert.NotEqual` と、頭打ちが入る前の経済**に対するものだった。本タスクは同テストの構成(帳簿へ `Sale` 行を差し込む)と assert(`Assert.Equal(ApplyPermille(床, 1400), …)`)の両方を変えており、**現本体で判別力が保たれている証拠が無い**。**緑のままなら象限 I-a** — そのときは直さずに引き継ぎメモへ残し、issue へ落とす |
 
 ## 編集してよい文書
 
