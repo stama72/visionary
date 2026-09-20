@@ -772,6 +772,17 @@ public sealed class TradeSystemTests
     /// 必需(単位変換が恒等)と耐久(単位変換がCeilDiv)の両方で確かめる。
     /// </summary>
     /// <remarks>
+    /// <b>レビュー2巡目 I-a-1 の訂正。</b>旧版は買い手・売り手を同区画(距離0)に置いていた。
+    /// 同区画だと <see cref="ErrandPlanner"/> が候補区画を1件も持たず<c>VisitedDistrictIds</c>
+    /// が常に空になるので、計画側が算出した q_個 がどのassertにも現れず、比べているのが
+    /// 「段5bの約定数量」と「テスト内の独立予測」であって計画と購入の一致になっていなかった。
+    /// 本版は<b>売り手を買い手と別区画に置く</b>。耐久の組は、正しい変換(q_個=2・余剰1500)なら
+    /// 行き、取り違え(FloorDiv・q_個=1・余剰750)なら行かない境界(費用1000)に外出の費用を
+    /// 置く ── 行かなければ約定自体が起きず(訪問区画に売り手が無い)、独立予測(非0)と実際の
+    /// 約定数量(0)が食い違って落ちる。必需の組は変換が恒等なので同じ境界は作れない
+    /// (<c>QuantityInUnits</c>がDurable以外でCeilDiv/FloorDivの分岐を持たない)。
+    /// </remarks>
+    /// <remarks>
     /// <b>耐久側の設計。</b>買い手に工具の市場参照(平均2000)を仕込み、基礎値を流動資金から
     /// 切り離す ── 参照が無いと基礎値=現金上限=流動資金となり、ゲートを通る実効価格の範囲では
     /// 資金上限が数量を1個に切り詰めてしまい、CeilDiv(1500,1000)=2 と FloorDiv(1500,1000)=1 の
@@ -780,28 +791,43 @@ public sealed class TradeSystemTests
     /// <remarks>
     /// <b>変異の実測(2026-09-20)。</b><c>BuyerBudget.QuantityInUnits</c> の <c>CeilDiv</c> を
     /// <c>FloorDiv</c> に変える変異を当てたところ、本テストの
+    /// <c>Assert.Equal(2, predictedQuantity)</c> が実際値1(FloorDiv(1500,1000)=1)で失敗した
+    /// (赤を確認)。変異を戻して緑に復帰させた。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-20、レビュー2巡目)。</b><see cref="ErrandPlanner"/> の
+    /// <c>SurplusFor</c>(耐久の変換の呼び出し箇所)を、<c>BuyerBudget.QuantityInUnits</c>を
+    /// 呼ばずローカルに<c>IntegerMath.FloorDiv(decision.Quantity, _definition.ToolDurabilityPerUnit)</c>
+    /// を書き戻す変異(計画側だけ古い変換が残る「2か所に書いて片方だけ直す」の具体形)を
+    /// 当てたところ、耐久の組の
     /// <c>Assert.Equal(predictedQuantity(=2), world.Households[0].WorkshopInventory[Item.Tools])</c>
-    /// が実際値1(FloorDiv(1500,1000)=1)で失敗した(赤を確認)。変異を戻して緑に復帰させた。
+    /// が実際値0(計画側の余剰が750&lt;費用1000で行かない判定になり、区画2が訪問されず
+    /// 約定自体が起きない)で失敗した(赤を確認)。変異を戻して緑に復帰させた。
     /// </remarks>
     [Fact]
     public void ErrandPlannerAndSettlementAgreeOnQuantity()
     {
-        // 必需(パン、単位変換は恒等)。目標6・床1・流動資金大 → 上側clampで数量12。
+        // 必需(パン、単位変換は恒等)。買い手と売り手を別区画(距離1、R以内)に置き、計画が
+        // 実際に外出を選ぶことを確かめる。目標6・床1・流動資金大 → 上側clampで数量12。
         {
+            const int BuyerDistrictId = 4;
+            const int SellerDistrictId = 3; // 距離1(R以内)。
+
             var necessityTargetStockDays = new int[Item.Count];
             necessityTargetStockDays[Item.Bread] = 6;
 
             var definition = BuildShoppingDefinition(breadFloor: 1, necessityTargetStockDays: necessityTargetStockDays);
             var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
 
-            AddHousehold(world, id: 0, districtId: 4, Occupation.Woodworker, liquidFunds: 100_000);
-            AddHousehold(world, id: 1, districtId: 4, Occupation.Miller); // 買い手と同区画(距離0)。
+            AddHousehold(world, id: 0, districtId: BuyerDistrictId, Occupation.Woodworker, liquidFunds: 100_000);
+            AddHousehold(world, id: 1, districtId: SellerDistrictId, Occupation.Miller);
             world.Households[1].WorkshopInventory[Item.Bread] = 1000;
 
             EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
 
-            // 独立予測: baseValue=cashCap=100000(参照なし)・実効価格1(床)・target6・expected0 ──
-            // PurchaseQuantityが上側clamp(2×target)に当たり12。QuantityInUnits(Necessity)は恒等。
+            // 独立予測: baseValue=cashCap=100000(参照なし)・実効価格1(床、距離1はR以内なので
+            // 当日の提示価格をそのまま使う)・target6・expected0 ── PurchaseQuantityが上側
+            // clamp(2×target)に当たり12。QuantityInUnits(Necessity)は恒等。
             var line = new DemandLine
             {
                 Purpose = DemandPurpose.Necessity,
@@ -820,15 +846,22 @@ public sealed class TradeSystemTests
             int predictedQuantity = BuyerBudget.QuantityInUnits(
                 line.Purpose, BuyerBudget.Decide(line, effectivePrice: 1).Quantity, durabilityPerTool: 1);
 
+            // 買い手と売り手が別区画になったことで計画が実際に外出を選んでいる(労働損失‰>0)。
+            Assert.True(world.Households[0].ErrandLaborLossPermille > 0);
             Assert.Equal(predictedQuantity, world.Households[0].HouseholdInventory[Item.Bread]);
         }
 
-        // 耐久(工具、単位変換はCeilDiv)。N=1(耐久値1000)・市場参照2000・床1500 → 数量1500、
-        // q_個=CeilDiv(1500,1000)=2(FloorDivなら1)。
+        // 耐久(工具、単位変換はCeilDiv)。買い手と売り手を別区画(距離2、Rの外)に置く。
+        // N=1(耐久値1000)・市場参照2000・床1500 → 数量1500、q_個=CeilDiv(1500,1000)=2
+        // (FloorDivなら1)。費用1000は正しい変換(余剰1500)なら行き、取り違え(余剰750)なら
+        // 行かない境界(上のremarks参照)。
         {
             const int ToolDurabilityPerUnit = 1000; // toolLifeLaborDays=1 × PermilleScale(1000)。
             const int MarketReferencePrice = 2000;  // 買い手の工具の市場参照(平均)。
             const int SellerFloorPrice = 1500;       // 床(参照なし初日の提示価格そのもの)。
+            const int BuyerDistrictId = 0;
+            const int SellerDistrictId = 2; // 距離2(Rの外) → 往復4時間(travelHoursPerDistrict=1)。
+            const int WoodworkerOpportunityCostPerHour = 250; // 費用=4時間×250=1000。
 
             var toolRecipe = new Recipe(
                 Occupation.Miller,
@@ -843,7 +876,9 @@ public sealed class TradeSystemTests
             var definition = EconomySystemTestFixtures.BuildDefinition(
                 toolRecipe,
                 toolLifeLaborDays: 1,
-                opportunityCostBaseByOccupation: new[] { 1, 1, 1, 1, 1 },
+                // Woodworker(買い手の職業。Miller=0,Baker=1,Brewer=2,Woodworker=3,Smith=4)だけ
+                // 機会費用を上げ、外出の費用を1000に固定する。
+                opportunityCostBaseByOccupation: new[] { 1, 1, 1, WoodworkerOpportunityCostPerHour, 1 },
                 rankCoefficientPermille: new[] { 1000, 1000, 1000 },
                 travelHoursPerDistrict: 1,
                 shipmentDays: 1,
@@ -851,11 +886,13 @@ public sealed class TradeSystemTests
                 externalBuyPriceOverride: externalBuyPrice);
 
             var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
-            AddHousehold(world, id: 0, districtId: 4, Occupation.Woodworker, liquidFunds: 100_000);
-            AddHousehold(world, id: 1, districtId: 4, Occupation.Miller); // 買い手と同区画(距離0)。
+            AddHousehold(world, id: 0, districtId: BuyerDistrictId, Occupation.Woodworker, liquidFunds: 100_000);
+            AddHousehold(world, id: 1, districtId: SellerDistrictId, Occupation.Miller);
             world.Households[1].WorkshopInventory[Item.Tools] = 100;
 
             // 買い手の工具の市場参照(前日以前の観測。基礎値を流動資金から切り離す。上の<remarks>参照)。
+            // SellerId=999は実在しない売り手 ── ErrandPlannerの見積もり(5.3)は売り手Id一致を
+            // 要求するのでこの観測には当たらず、距離2(Rの外)は床(1500)へ落ちる。
             EconomySystemTestFixtures.AdvanceClockOnly(world, ticks: 24);
             world.Knowledge[0].Add(new PriceObservation
             {
@@ -891,6 +928,9 @@ public sealed class TradeSystemTests
                 line.Purpose, decision.Quantity, ToolDurabilityPerUnit);
 
             Assert.Equal(2, predictedQuantity); // CeilDiv(1500,1000)=2(FloorDivなら1、分岐の確認)。
+
+            // 正しい変換なら価値500(余剰1500-費用1000)で行く。行かなければ約定自体が起きない。
+            Assert.True(world.Households[0].ErrandLaborLossPermille > 0);
             Assert.Equal(predictedQuantity, world.Households[0].WorkshopInventory[Item.Tools]);
         }
     }

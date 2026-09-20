@@ -643,18 +643,88 @@ public sealed class ErrandPlannerTests
     }
 
     /// <summary>
-    /// テスト表 #27。世帯Id昇順に段5aを回した結果と、段5aを全世帯ぶん先に回してから
-    /// (別の順で)回した結果とで、VisitedDistrictIdsとLaborLossPermilleが一致する
+    /// 段5bの1行分だけを、TradeSystem.RunOneHouseholdsShoppingの骨子を公開APIだけで
+    /// 複製して実行する(privateメソッドを直接呼べないため)。
+    /// <see cref="ErrandPlanIsDeterministicAcrossHouseholdOrder"/>専用 ── 資金・在庫を
+    /// 実際に動かして2つの実行順のあいだに差を作るのが目的であり、帳簿の細部
+    /// (UnaffordableNecessityCount等)は再現しない。
+    /// </summary>
+    private static void Purchase(
+        World world, StoreChoice storeChoice, HouseholdState buyer, DemandLine line,
+        IReadOnlyList<int> visitedDistrictIds)
+    {
+        if (!storeChoice.TrySelect(world, buyer, line.ItemId, visitedDistrictIds, out var store))
+        {
+            return;
+        }
+
+        var decision = BuyerBudget.Decide(line, store.UnitEffectivePrice);
+
+        if (decision.Quantity <= 0)
+        {
+            return;
+        }
+
+        int quantityInUnits = BuyerBudget.QuantityInUnits(line.Purpose, decision.Quantity, durabilityPerTool: 1);
+
+        if (quantityInUnits <= 0)
+        {
+            return;
+        }
+
+        var seller = world.Households[store.SellerId];
+        int fundsCap = TradeSettlement.FundsCap(buyer.LiquidFunds, store.UnitEffectivePrice);
+        int actualQuantity = Math.Min(Math.Min(quantityInUnits, fundsCap), seller.WorkshopInventory[line.ItemId]);
+
+        if (actualQuantity >= 1)
+        {
+            TradeSettlement.Execute(
+                world, buyer, seller, line.Purpose, line.ItemId, actualQuantity, store.UnitEffectivePrice,
+                acquisitionCostSmoothingPermille: 0);
+        }
+    }
+
+    /// <summary>
+    /// テスト表 #27。世帯Id昇順に段5(5a→5b)を回した結果と、段5aを全世帯ぶん先に回してから
+    /// 段5bを回した結果とで、VisitedDistrictIdsとLaborLossPermilleが一致する
     /// (計画がMarket以外の可変状態を読まないことの確認)。
     /// </summary>
+    /// <remarks>
+    /// <b>レビュー2巡目 I-a-2 の訂正。</b>旧版は<c>Plan</c>を2順で呼ぶだけで段5bを一度も
+    /// 走らせておらず、2回の呼び出しのあいだで<see cref="World"/>の可変状態が何も変わらない
+    /// ── <see cref="ErrandPlanner"/>がインスタンス状態を持たない限り恒に一致してしまい、
+    /// 「<see cref="HouseholdState.LiquidFunds"/>など<see cref="HouseholdState.WorkshopInventory"/>
+    /// 以外の可変状態を読む」変異を検出できなかった。
+    /// <para>
+    /// 本版はH0がH1から品目Aを買う(H1のLiquidFundsが動く)配置にし、H1自身の計画(品目Bを
+    /// 遠方のH2へ買いに行くか)を、「H0→H1の順に5a→5bを交互に回す」実行と「5aを全世帯先に
+    /// 回してから5bを回す」実行の両方で比べる。前者はH1のPlan呼び出し時点でH0の支払いを
+    /// 受け取った<b>後</b>、後者は受け取る<b>前</b> ── H1.LiquidFundsが呼び出し時点で
+    /// 実際に異なる(<c>Assert.NotEqual(fundsBeforePlanA1, fundsBeforePlanB1)</c>で確認)。
+    /// </para>
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-20、レビュー2巡目)。</b><see cref="ErrandPlanner.Plan"/> の候補
+    /// 区画のループへ、区画候補を「<c>buyer.LiquidFunds &lt;= 0</c> なら飛ばす」という
+    /// <see cref="HouseholdState.LiquidFunds"/> を読む変異(可変状態を読み込む具体例)を
+    /// 当てたところ、順序A(<c>VisitedDistrictIds = [2]</c>。H1がH0の支払いを受け取った後で
+    /// 資金が正)と順序B(<c>VisitedDistrictIds = []</c>。支払いを受け取る前で資金が0のため
+    /// 候補が飛ばされる)が食い違い、<c>Assert.Equal(planA1.VisitedDistrictIds, planB1.VisitedDistrictIds)</c>
+    /// が失敗した(赤を確認)。変異を戻して緑に復帰させた。
+    /// </remarks>
     [Fact]
     public void ErrandPlanIsDeterministicAcrossHouseholdOrder()
     {
-        const int SellerDistrictId = 2;
+        const int HomeDistrictId = 0; // H0とH1の区画(H0がH1から品目Aを買う。距離0)。
+        const int RemoteDistrictId = 2; // H2の区画(距離2 → 往復4時間。H1が品目Bを買いに行く)。
 
-        var definition = BuildDefinition(externalBuyPriceOverride: BuildExternalBuyPrice(itemAPrice: 30));
-        var errand = Delegate(costPerHour: 1);
-        var line = BuildLine(ItemA, budget: 1, targetStock: 1, expectedStock: 0, baseValue: 1000);
+        var definition = BuildDefinition(externalBuyPriceOverride: BuildExternalBuyPrice(itemAPrice: 1, itemBPrice: 30));
+
+        // H0がH1から買う品目Aの需要行(在庫・資金を動かす側)。
+        var lineA = BuildLine(ItemA, budget: 1, targetStock: 1, expectedStock: 0, baseValue: 1000, cashCap: 1000);
+
+        // H1がH2へ外出して買う品目Bの需要行(検査対象)。
+        var lineB = BuildLine(ItemB, budget: 1, targetStock: 1, expectedStock: 0, baseValue: 1000);
 
         World BuildScenario()
         {
@@ -664,38 +734,63 @@ public sealed class ErrandPlannerTests
             world.Npcs[2].Rank = NpcRank.Master;
 
             world.Households[0] = new HouseholdState(
-                id: 0, districtId: 0, headNpcId: 0, memberNpcIds: new[] { 0 }, itemCount: Item.Count);
+                id: 0, districtId: HomeDistrictId, headNpcId: 0, memberNpcIds: new[] { 0 }, itemCount: Item.Count);
             world.Households[0].Occupation = Occupation.Smith;
+            world.Households[0].LiquidFunds = 1000;
 
             world.Households[1] = new HouseholdState(
-                id: 1, districtId: 0, headNpcId: 1, memberNpcIds: new[] { 1 }, itemCount: Item.Count);
-            world.Households[1].Occupation = Occupation.Smith;
+                id: 1, districtId: HomeDistrictId, headNpcId: 1, memberNpcIds: new[] { 1 }, itemCount: Item.Count);
+            world.Households[1].Occupation = Occupation.Miller; // 品目Aの売り手(かつ品目Bの買い手)。
+            world.Households[1].WorkshopInventory[ItemA] = 10;
+            world.Households[1].LiquidFunds = 0; // H0の支払いを受け取る前は0。
 
             world.Households[2] = new HouseholdState(
-                id: 2, districtId: SellerDistrictId, headNpcId: 2, memberNpcIds: new[] { 2 }, itemCount: Item.Count);
-            world.Households[2].Occupation = Occupation.Miller;
-            world.Households[2].WorkshopInventory[ItemA] = 10;
+                id: 2, districtId: RemoteDistrictId, headNpcId: 2, memberNpcIds: new[] { 2 }, itemCount: Item.Count);
+            world.Households[2].Occupation = Occupation.Baker; // 品目Bの売り手。
+            world.Households[2].WorkshopInventory[ItemB] = 10;
+
+            // 段5b(店選択)は距離を見ずMarketの提示価格を読む(GDD06 §3)ので、Rの外でも要る。
+            world.Market[new MarketKey(ItemA, 1)] = 1;
+            world.Market[new MarketKey(ItemB, 2)] = 30;
 
             return world;
         }
 
         var planner = new ErrandPlanner(definition);
+        var storeChoice = new StoreChoice(definition);
 
-        // 順序A: 世帯0→1の順にPlanを呼ぶ。
+        // 順序A: 世帯Id昇順に段5(5a→5b)を交互に回す(TradeSystemの実際の順)。
         var worldA = BuildScenario();
-        var planA0 = planner.Plan(worldA, worldA.Households[0], DemandOf(line), errand);
-        var planA1 = planner.Plan(worldA, worldA.Households[1], DemandOf(line), errand);
+        var errandA0 = OpportunityCost.SelectErrandDelegate(definition, worldA, worldA.Households[0]);
+        var planA0 = planner.Plan(worldA, worldA.Households[0], DemandOf(lineA), errandA0);
+        Purchase(worldA, storeChoice, worldA.Households[0], lineA, planA0.VisitedDistrictIds);
 
-        // 順序B: 世帯1→0の順(段5aを別順で回す)。
+        int fundsBeforePlanA1 = worldA.Households[1].LiquidFunds; // H0の支払いを受け取った後。
+        var errandA1 = OpportunityCost.SelectErrandDelegate(definition, worldA, worldA.Households[1]);
+        var planA1 = planner.Plan(worldA, worldA.Households[1], DemandOf(lineB), errandA1);
+        Purchase(worldA, storeChoice, worldA.Households[1], lineB, planA1.VisitedDistrictIds);
+
+        // 順序B: 段5aを全世帯ぶん先に回してから段5bを回す。
         var worldB = BuildScenario();
-        var planB1 = planner.Plan(worldB, worldB.Households[1], DemandOf(line), errand);
-        var planB0 = planner.Plan(worldB, worldB.Households[0], DemandOf(line), errand);
+        var errandB0 = OpportunityCost.SelectErrandDelegate(definition, worldB, worldB.Households[0]);
+        var planB0 = planner.Plan(worldB, worldB.Households[0], DemandOf(lineA), errandB0);
+
+        int fundsBeforePlanB1 = worldB.Households[1].LiquidFunds; // H0の支払いを受け取る前。
+        var errandB1 = OpportunityCost.SelectErrandDelegate(definition, worldB, worldB.Households[1]);
+        var planB1 = planner.Plan(worldB, worldB.Households[1], DemandOf(lineB), errandB1);
+
+        Purchase(worldB, storeChoice, worldB.Households[0], lineA, planB0.VisitedDistrictIds);
+        Purchase(worldB, storeChoice, worldB.Households[1], lineB, planB1.VisitedDistrictIds);
+
+        // 前提: H1のPlan呼び出し時点でLiquidFundsが順序間で実際に異なる。これが無いと、
+        // Marketの列挙順に依存する変異(#28相当)以外は何も検出できない(レビュー2巡目 I-a-2)。
+        Assert.NotEqual(fundsBeforePlanA1, fundsBeforePlanB1);
 
         Assert.Equal(planA0.VisitedDistrictIds, planB0.VisitedDistrictIds);
         Assert.Equal(planA0.LaborLossPermille, planB0.LaborLossPermille);
         Assert.Equal(planA1.VisitedDistrictIds, planB1.VisitedDistrictIds);
         Assert.Equal(planA1.LaborLossPermille, planB1.LaborLossPermille);
-        Assert.NotEmpty(planA0.VisitedDistrictIds); // 前提(実際に外出している)を確かめる。
+        Assert.NotEmpty(planA1.VisitedDistrictIds); // 前提(H1が実際に外出している)を確かめる。
     }
 
     /// <summary>
