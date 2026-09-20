@@ -49,13 +49,16 @@ public static class Errand
     /// </summary>
     /// <remarks>
     /// <b>負を返さない。</b><paramref name="willingness"/> が <paramref name="price"/> 以下なら
-    /// 先に0を返し、<see cref="IntegerMath.FloorDiv(int, int)"/> に負の被除数を渡さない ──
+    /// 先に0を返し、<see cref="IntegerMath.FloorDiv(long, long)"/> に負の被除数を渡さない ──
     /// 負の <c>FloorDiv</c> は−∞方向へ丸まるため、渡すと丸め誤差が「損をする外出」として
     /// 他の品目の余剰から差し引かれてしまう(GDD06 §3)。
-    /// <para>中間の積は <see cref="long"/>。<c>quantity × (willingness − price)</c> は
-    /// int を超えうる。</para>
+    /// <para>戻り値と中間の積は <see cref="long"/>。<c>quantity × (willingness − price)</c> は
+    /// int を容易に超える。<b>ここで <c>checked</c> により int へ戻さない</b> ──
+    /// <see cref="OverflowException"/> は「相場が発散している」という別の事実の報せとしては
+    /// 使えない(発散が緩やかなら投げずに通り、同じ欠陥が緑のまま残る。別表B)。
+    /// 呼び出し側(<see cref="ErrandPlanner"/> の利得・価値の積算)も <see cref="long"/> で受ける。</para>
     /// </remarks>
-    public static int Surplus(int quantity, int willingness, int price)
+    public static long Surplus(int quantity, int willingness, int price)
     {
         if (willingness <= price)
         {
@@ -64,6 +67,6 @@ public static class Errand
 
         long product = (long)quantity * (willingness - price);
 
-        return checked((int)IntegerMath.FloorDiv(product, 2));
+        return IntegerMath.FloorDiv(product, 2);
     }
 }

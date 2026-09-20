@@ -367,16 +367,17 @@ public sealed class WorldDefinitionTests
     }
 
     /// <summary>
-    /// 信用による実効価格の割引係数‰(<see cref="WorldDefinition.TrustDiscountPermille"/>)が
-    /// 0〜1000の外(-1・1001)を拒む(GDD06 §2。1000超だと信用100で実効価格が0以下になる)。
+    /// テスト表 #6。信用による実効価格の割引係数‰(<see cref="WorldDefinition.TrustDiscountPermille"/>)が
+    /// 0〜999の外(-1・1000ちょうど)を拒む(GDD06 §2。1000ちょうどだと信用100で係数が0になり
+    /// 実効価格が0になって下流(BuyerBudget.Decide / TradeSettlement.FundsCap)が投げる)。
     /// </summary>
     [Fact]
-    public void WorldDefinitionRejectsTrustDiscountPermilleOutsideZeroToThousand()
+    public void WorldDefinitionRejectsTrustDiscountPermilleOutsideZeroToNineHundredNinetyNine()
     {
         Assert.Throws<ArgumentOutOfRangeException>(
             () => BuildDefinition(trustDiscountPermille: -1));
         Assert.Throws<ArgumentOutOfRangeException>(
-            () => BuildDefinition(trustDiscountPermille: 1001));
+            () => BuildDefinition(trustDiscountPermille: 1000));
     }
 
     // ── ここから #96 タスク仕様「落ちるべき条件」の新規テスト。

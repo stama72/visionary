@@ -144,7 +144,8 @@ public sealed class WorldDefinition
 
     /// <summary>
     /// 信用による実効価格の割引係数 α‰(GDD01 §2.2 効果1)。単位: ‰。信用100で
-    /// <c>trustDiscountPermille</c>‰の割引(M0の既定200‰なら2割引)。
+    /// <c>trustDiscountPermille</c>‰の割引(M0の既定200‰なら2割引)。<b>値域は0〜999</b>
+    /// (1000を含めない。1000ちょうどだと信用100で実効価格が0になり下流が投げる)。
     /// </summary>
     public int TrustDiscountPermille { get; }
 
@@ -687,13 +688,14 @@ public sealed class WorldDefinition
                 nameof(disposableHours), disposableHours, "可処分時間Tは1以上(GDD08 §3.1)。");
         }
 
-        // 0〜1000の外を拒む。1000を超えると信用100で係数が0以下になり、実効価格が0以下になって
-        // 下流(BuyerBudget.Decide / TradeSettlement.FundsCap)が投げる(GDD06 §2)。
-        if (trustDiscountPermille is < 0 or > 1000)
+        // 0〜999の外を拒む(1000を含めない)。1000ちょうどだと信用100で係数が0になり、
+        // 実効価格が0になって下流(BuyerBudget.Decide / TradeSettlement.FundsCap)が
+        // 投げる(GDD06 §2)。
+        if (trustDiscountPermille is < 0 or > 999)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(trustDiscountPermille), trustDiscountPermille,
-                "信用による実効価格の割引係数‰は0〜1000(GDD06 §2)。");
+                "信用による実効価格の割引係数‰は0〜999(GDD06 §2)。");
         }
 
         ItemCount = itemCount;

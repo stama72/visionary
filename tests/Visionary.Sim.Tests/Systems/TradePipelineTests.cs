@@ -207,6 +207,13 @@ public sealed class TradePipelineTests
     /// ことが日常的になり、旧い境界(世帯数 × (保持期間+1) × 構成員数。「観測は買った相手からだけ
     /// 生まれる」という前提に立っていた)は本タスクの再設計で狭すぎる値になった。
     /// </remarks>
+    /// <remarks>
+    /// <b>本テストは <see cref="World.Knowledge"/> の件数の上界しか見ない。</b>同じ60日走行で
+    /// 提示価格が6桁へ発散し売り注文が2件へ枯れることを、本テストは検出しない
+    /// (別表B-2・B-3。<see href="https://github.com/stama72/visionary/issues/120">#120</see>)。
+    /// <c>Errand.Surplus</c> を<see cref="long"/>にしたことで60日走行は緑に戻るが、それは型が
+    /// 広いあいだ通るだけであり、値付け(GDD02c §1)の発散そのものを止めたわけではない。
+    /// </remarks>
     [Fact]
     public void ObservationsDoNotGrowWithoutBound()
     {
@@ -237,17 +244,14 @@ public sealed class TradePipelineTests
     /// 対照で確かめる ── 同じ世帯の初期資金だけを増やした世界で嗜好の約定が成立すること。
     /// </summary>
     /// <remarks>
-    /// <b>W2-09 追随(2026-09-20)。</b>外出が「1日1区画まで」になった(GDD06 §3 5.6、
-    /// <see cref="TradePipelineTests.UnaffordableNecessityCountsOnlyTheFundsShortfall"/>の
-    /// remarks参照)ことで、必需(薪)と嗜好(ビール)が別々の区画にしか売り手を持たない世帯は、
-    /// その日どちらか一方しか外出できない。<b>資金の絞り方・観察に要する日数を実測し直した</b>
+    /// <b>W2-09 追随(2026-09-20)。移動費の割り戻しから外出の固定費(GDD06 §2・§3)へ
+    /// 置き換わったことで、資金の絞り方・観察に要する日数を実測し直した</b>
     /// (シード1・世帯Id0=Brewer・区画4)。
     /// <list type="bullet">
     /// <item>絞った資金(100): 1日目のうちに薪が約定する(初期28→34)。3日目までビールは
     /// 一度も約定しない。</item>
     /// <item>潤沢な資金(100000): 薪は2日目までに約定する。ビールは3日目に初めて約定する
-    /// (1000では3日目までに一度も約定しない ── 外出のたび薪の方が価値が高く、ビールの番が
-    /// 回ってこない。潤沢さの基準そのものが変わった)。</item>
+    /// (1000では3日目までに一度も約定しない)。</item>
     /// </list>
     /// </remarks>
     [Fact]
@@ -328,32 +332,30 @@ public sealed class TradePipelineTests
     /// </remarks>
     /// <remarks>
     /// <b>W2-09 追随(2026-09-20)。資金不足のケースを、流動資金を人為的に0へ落とす形から
-    /// 自然発生(シード1・操作なし)の日へ差し替えた。</b>外出が「1日1区画まで」の構造的な
-    /// 性質(GDD06 §3 5.6。1周目が全候補中の最良を選ぶ以上、2周目のどの候補の価値も
-    /// <c>−Errand.Cost(1周目の往復,…) ≤ 0</c> を超えられない)により、必需2品目(薪・パン)を
-    /// 別々の区画で買う世帯は「その日どちらか一方しか外出しない」。<c>候補0件(知っている店が
-    /// 無い)</c> と <c>候補は見つかるが現金上限(CashCap)で落ちる</c> を人為的な資金操作なしに
-    /// 判別するには、CashCap が流動資金そのものではなく「用途に使える資金 ÷ 1日分の数量」
-    /// (GDD02c §2.1)で決まることを利用し、1日分の数量が大きい日にたまたま資金不足になる
-    /// 自然な日を探した(実測: 世帯Id2、14日目)。
+    /// 自然発生(シード1・操作なし)の日へ差し替えた。</b><c>候補0件(知っている店が無い)</c> と
+    /// <c>候補は見つかるが現金上限(CashCap)で落ちる</c> を人為的な資金操作なしに判別するには、
+    /// CashCap が流動資金そのものではなく「用途に使える資金 ÷ 1日分の数量」(GDD02c §2.1)で
+    /// 決まることを利用し、1日分の数量が大きい日にたまたま資金不足になる自然な日を探した
+    /// (実測: 世帯Id2、17日目。<b>訂正後(A-1)の価値の式へ差し替えたことで、自然発生する日・
+    /// 世帯が動いた</b> ── 値そのものは仕様ではなく、実装が緑にできる自然な例でよい)。
     /// </remarks>
     [Fact]
     public void UnaffordableNecessityCountsOnlyTheFundsShortfall()
     {
         var definition = WorldDefinition.M0;
 
-        // 資金不足のケース(シード1・操作なし。世帯Id2、14日目に自然発生する。上のremarks参照)。
+        // 資金不足のケース(シード1・操作なし。世帯Id2、17日目に自然発生する。上のremarks参照)。
         {
             var world = WorldGenerator.Generate(definition, new RandomSource(1));
             var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(1));
 
-            scheduler.Advance(world, ticks: 13 * 24); // 13日目まで。
+            scheduler.Advance(world, ticks: 16 * 24); // 16日目まで。
             Assert.Equal(0, world.Households[2].UnaffordableNecessityCount);
 
-            scheduler.Advance(world, ticks: 24); // 14日目。資金不足が1件自然発生する。
+            scheduler.Advance(world, ticks: 24); // 17日目。資金不足が1件自然発生する。
             Assert.Equal(1, world.Households[2].UnaffordableNecessityCount);
 
-            scheduler.Advance(world, ticks: 24); // 15日目。毎日上書きする(GDD02 §6.2.2)ので0に戻る。
+            scheduler.Advance(world, ticks: 24); // 18日目。毎日上書きする(GDD02 §6.2.2)ので0に戻る。
             Assert.Equal(0, world.Households[2].UnaffordableNecessityCount);
         }
 
@@ -381,20 +383,19 @@ public sealed class TradePipelineTests
             Assert.Equal(0, world.Households[0].UnaffordableNecessityCount);
         }
 
-        // 嗜好が買えなくても0のまま。素のM0世界の1日目、世帯Id3はビールを一度も買わないが
-        // (実測、シード1。W2-07で世帯Id1の前提が崩れたので世帯Id3へ差し替えた ──
-        // 校正の変更で1日目の供給・価格が変わり、世帯Id1は1日目のうちにビールを買うようになった)、
-        // UnaffordableNecessityCountは用途がNecessityの行しか数えないので0のままである
-        // (GDD02 §6.2.1)。
+        // 嗜好が買えなくても0のまま。素のM0世界の1日目、世帯Id1はビールを一度も買わないが
+        // (実測、シード1。W2-09で価値の式(A-1)が変わり、1日目にビールを買わない世帯が
+        // 世帯Id3から世帯Id1へ動いた)、UnaffordableNecessityCountは用途がNecessityの行しか
+        // 数えないので0のままである(GDD02 §6.2.1)。
         {
             var world = WorldGenerator.Generate(definition, new RandomSource(1));
             var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(1));
             scheduler.Advance(world, ticks: 24);
 
-            bool boughtBeer = world.Ledgers[3].Any(
+            bool boughtBeer = world.Ledgers[1].Any(
                 entry => entry.Direction == LedgerDirection.Purchase && entry.ItemId == Item.Beer);
             Assert.False(boughtBeer);
-            Assert.Equal(0, world.Households[3].UnaffordableNecessityCount);
+            Assert.Equal(0, world.Households[1].UnaffordableNecessityCount);
         }
     }
 

@@ -60,9 +60,12 @@ public sealed class ErrandPlanner
         // 落としても無限に回らない、GDD06 §3)。
         while (true)
         {
-            // このラウンドの基準(自区画 ∪ ここまでに行くと決めた区画)における各行の余剰を
-            // 先に固定する(候補区画ごとに毎回同じ値なので、ラウンドの頭で1回だけ求める)。
-            var baselineSurplusByLine = new int[lines.Count];
+            // このラウンドの基準(自区画 ∪ ここまでに行くと決めた区画)における各行の
+            // 「見積もり価格」と「余剰」を先に固定する(候補区画ごとに毎回同じ値なので、
+            // ラウンドの頭で1回だけ求める)。
+            var baselineHasPriceByLine = new bool[lines.Count];
+            var baselinePriceByLine = new int[lines.Count];
+            var baselineSurplusByLine = new long[lines.Count];
 
             for (int i = 0; i < lines.Count; i++)
             {
@@ -71,6 +74,8 @@ public sealed class ErrandPlanner
                     districtId => districtId == buyer.DistrictId || visitedDistrictIds.Contains(districtId),
                     out int price);
 
+                baselineHasPriceByLine[i] = hasPrice;
+                baselinePriceByLine[i] = price;
                 baselineSurplusByLine[i] = SurplusFor(lines[i], hasPrice, price);
             }
 
@@ -98,13 +103,26 @@ public sealed class ErrandPlanner
                 for (int i = 0; i < lines.Count; i++)
                 {
                     int candidateDistrictId = districtId;
-                    bool hasPrice = TryCheapestEstimate(
+                    bool hasCandidatePrice = TryCheapestEstimate(
                         world, buyer, lines[i].ItemId,
                         d => d == candidateDistrictId,
-                        out int price);
+                        out int candidatePrice);
 
-                    int candidateSurplus = SurplusFor(lines[i], hasPrice, price);
-                    gain += candidateSurplus - baselineSurplusByLine[i];
+                    // 集合の和は価格のminで取れる(5.4)。両側とも「既に居る区画」を含む
+                    // (既に居る区画 ∪ {d})の最安見積もりで余剰を数える ── {d}単独ではない
+                    // (A-1: 単独で取ると、選んだ区画を含む比較になる2周目以降の価値が
+                    // 構造的に負になり、2回目の外出が起きなくなる)。
+                    bool combinedHasPrice = baselineHasPriceByLine[i] || hasCandidatePrice;
+                    int combinedPrice = (baselineHasPriceByLine[i], hasCandidatePrice) switch
+                    {
+                        (true, true) => Math.Min(baselinePriceByLine[i], candidatePrice),
+                        (true, false) => baselinePriceByLine[i],
+                        (false, true) => candidatePrice,
+                        _ => 0,
+                    };
+
+                    long combinedSurplus = SurplusFor(lines[i], combinedHasPrice, combinedPrice);
+                    gain += combinedSurplus - baselineSurplusByLine[i];
                 }
 
                 long value = gain - Errand.Cost(travelHours, errand.CostPerHour);
@@ -141,7 +159,7 @@ public sealed class ErrandPlanner
     }
 
     /// <summary>余剰(5.5)。見積もり価格が「無い」なら0。</summary>
-    private static int SurplusFor(in DemandLine line, bool hasPrice, int price)
+    private static long SurplusFor(in DemandLine line, bool hasPrice, int price)
     {
         if (!hasPrice)
         {
