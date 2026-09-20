@@ -18,21 +18,67 @@
     生ログは `.pipeline/<issue>-<phase>-<時刻>.jsonl`(Git 管理外)。1イベント1行の JSONL で、
     **走っている間ずっと伸びる。** 停止したときに最初に読む場所である。
 
+    **起動時に 5 時間枠の残りを読み、足りなければ起動しない**(終了コード 4。#132)。
+    途中で枠が切れたパイプラインはその場で死に、使った分が消える(#36 で $16、#37 で $30)。
+
 .EXAMPLE
     pwsh scripts/pipeline.ps1 -Issue 35
     pwsh scripts/pipeline.ps1 -Issue 35 -From wrap   # フェーズ3 だけやり直す
+    pwsh scripts/pipeline.ps1 -Issue 35 -MinRemaining 0   # 枠の検査をしない(プローブも打たない)
 #>
 [CmdletBinding(DefaultParameterSetName = 'Run')]
 param(
     [Parameter(Mandatory = $true, ParameterSetName = 'Run')][int]$Issue,
     [Parameter(ParameterSetName = 'Run')][ValidateSet('impl', 'wrap')][string]$From = 'impl',
+    # 起動に要求する枠の残り(0〜1)。**未指定なら $From から既定を採る。**
+    # **0 は「検査しない」を兼ねる** — プローブ自身も打たないので $0.11 も枠の 0.05% も使わない。
+    [Parameter(ParameterSetName = 'Run')][ValidateRange(0.0, 1.0)][double]$MinRemaining,
     [Parameter(ParameterSetName = 'Run')][switch]$DryRun,
+    # **DryRun で枠ガードを壊して確かめるための口**(process/03-corrections 規則1)。
+    # 閾値を跨ぐ実測は作れない(枠の残りは選べない)ので、プローブの出力だけを差し替える。
+    [Parameter(ParameterSetName = 'Run')][ValidateSet('ok', 'short', 'near-reset', 'fail')][string]$DryRunProbe = 'ok',
     [Parameter(Mandatory = $true, ParameterSetName = 'Status')][switch]$Status
 )
 
 $ErrorActionPreference = 'Stop'
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $LogDir = Join-Path $RepoRoot '.pipeline'
+
+# === 起動時の枠ガードの定数(#132 決定1)===================================
+#
+# **単位は「枠の残り比」(0〜1)。** 0.40 = 残り 40%。
+#
+# 出所は [04「枠」](../docs/process/04-issue-driven.md) 規則2。**40% は「パイプライン中央値 +
+# 対話 1 本」から置かれた値である**(#122 決定1)。現在のレートで組み直すと:
+#
+#   中央値どうし   14 + 4〜8  = 18〜22%
+#   上限どうし     28 + 21    = 49%      <- **40% を超える**
+#
+# **上限どうしの組み合わせは元々守っていない。** 21 は 04 の「実装のフェーズ1(opus)」行
+# (3〜21)で、fable 以外の対話でいちばん重い。40% はこの 2 つの間にある値である。
+#
+# **`wrap` 単独だけ別の値を持つ。** 実測 $1.07〜1.41 / 2〜5 分 = 枠の 0.16〜0.21%
+# (P_sonnet の LOO 下限で悲観して 1.0%)に、併走する対話 1 本(8%)を足して丸めた。
+# `-From wrap` は停止則の後の**再開路**であり、枠切れで死んだ直後がこの入口になる。
+# ここを 40% にすると、0.2% の仕事のために再開がリセットまで一律に塞がる。
+#
+# **04 の表を動かしたらここも動かす。** 一致は機械が見ていない([#139](https://github.com/stama72/visionary/issues/139))。
+$DefaultMinRemaining = @{ impl = 0.40; wrap = 0.10 }
+
+# パイプラインの消費レートの実測上限。**単位は 枠の %/分**(0.64 = 1 分あたり枠の 0.64%)。
+#
+# 4 走行の実測 0.17〜0.64 %/分 の上限(#112 impl が util 0.11 -> 0.34 / 36 分)。生ログの
+# `rate_limit_event` の系列から直に測った値で、**口座全体のレートなので併走する対話
+# セッションを含む**(含んだままが安全側。併走が増えれば上振れする)。
+#
+# 使い道は1つ — **リセットが近ければ、枠全体が収まらなくても起動してよい。** 枠切れで死ぬ
+# 条件は「消費が残りに達する**前に**リセットが来るか」なので、リセットまで T 分なら
+# この枠で使うのは高々 `rate * T` である(#132 決定1 論点7)。
+$PipelineBurnPercentPerMinute = 0.64
+
+# プローブが返らないときの上限。haiku 1 呼び出しは実測で 5〜15 秒。
+# **ハングしたプローブが通知も出さずに居座るほうが高くつく**ので、切って fail-closed に落とす。
+$ProbeTimeoutSec = 180
 
 # ロックの読み書きは pipeline-guard.ps1(PreToolUse フック)と共有する。
 . (Join-Path $PSScriptRoot 'pipeline-lock.ps1')
@@ -275,6 +321,178 @@ function Get-DryRunStream {
     )
 }
 
+function Get-DryRunProbeStream {
+    <#
+        DryRun 用の作り物のプローブ出力。**差し替えるのはプローブの取得だけ**で、読み取り・
+        判定・表示・終了コードは本番と同じ関数を通る(`Get-DryRunStream` と同じ作り)。
+
+        **閾値を跨ぐ実測は作れない** — 枠の残りは選べないからである。それでも
+        「機械が守っている」と書く前に壊して確かめる必要がある(process/03-corrections 規則1)。
+        4つの口はそれぞれ次を踏ませる:
+
+          ok         残り 90%                          -> 通る
+          short      残り 5% / リセットまで 5 時間      -> 拒否される
+          near-reset 残り 10% / リセットまで 10 分      -> **通る**(論点7。閾値が 6.4% に下がる)
+          fail       rate_limit_event が無い            -> fail-closed で拒否される
+    #>
+    param([string]$Case)
+
+    $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    $spec = switch ($Case) {
+        'short' { @{ util = 0.95; resets = $now + (5 * 3600) } }
+        'near-reset' { @{ util = 0.90; resets = $now + (10 * 60) } }
+        default { @{ util = 0.10; resets = $now + (5 * 3600) } }
+    }
+
+    $lines = @('{"type":"system","subtype":"init"}')
+    if ($Case -ne 'fail') {
+        # 週次も入れてある — **表示の経路まで DryRun で通す**ため(判定には使わない)。
+        $lines += '{{"type":"rate_limit_event","rate_limit_info":{{"status":"allowed","unifiedWindows":{{"five_hour":{{"utilization":{0},"resetsAt":{1}}},"seven_day":{{"utilization":0.58,"resetsAt":{1}}}}}}}}}' -f $spec.util, $spec.resets
+    }
+    return $lines + @('{"type":"result","subtype":"success","is_error":false,"result":"OK"}')
+}
+
+function Read-UsageWindows {
+    <#
+        プローブの出力(JSONL)から枠の観測点を取り出す。**5 時間枠が読めなければ `$null` を返し、
+        呼び出し側の fail-closed に落ちる。**
+
+        `type` は**トップレベルで `rate_limit_event`** である(`system` / `subtype` ではない)。
+        `unifiedWindows.five_hour` が無い形(API キー運用など)も `$null` に倒す。
+
+        **週次(`seven_day`)は読むが、判定には使わない。** 論点7 の緩和の前提(リセットで
+        utilization が 0 に戻る)は週次には成り立たず、しかも緩和がいちばん効く局面は週次も
+        高い局面である。それでも閾値を置かないのは根拠が無いためで、**表示して開発者の目に
+        入れるところまでにしてある**([#141](https://github.com/stama72/visionary/issues/141)。
+        校正は [#123](https://github.com/stama72/visionary/issues/123))。
+    #>
+    param([string[]]$Lines)
+
+    $last = @($Lines) | Where-Object { $_ -like '*"type":"rate_limit_event"*' } | Select-Object -Last 1
+    if (-not $last) { return $null }
+
+    $ev = try { $last | ConvertFrom-Json -ErrorAction Stop } catch { $null }
+    $w = $ev.rate_limit_info.unifiedWindows.five_hour
+    if (-not $w -or $null -eq $w.utilization -or $null -eq $w.resetsAt) { return $null }
+
+    return [pscustomobject]@{
+        Utilization        = [double]$w.utilization
+        ResetsAt           = [long]$w.resetsAt
+        # 無ければ $null。**表示専用なので、欠けても判定は変えない。**
+        SevenDayUtilization = $ev.rate_limit_info.unifiedWindows.seven_day.utilization
+    }
+}
+
+function Get-UsageWindows {
+    <#
+        haiku を 1 回呼んで 5 時間枠の観測点を取る。**`/usage` は CLI の UI なので読めないが、
+        同じ値が `rate_limit_event` に乗る**(実測 2026-09-20、$0.11 = 枠の 0.05%)。
+
+        返らないときは `$ProbeTimeoutSec` で切る。**プローブがハングしたまま居座ると、
+        パイプラインは起動も通知もしないまま消える** — 停止則が拾えない死に方になる。
+    #>
+    if ($DryRun) { return Read-UsageWindows -Lines (Get-DryRunProbeStream -Case $DryRunProbe) }
+
+    $job = Start-Job -ScriptBlock {
+        & claude -p --model haiku --output-format stream-json --verbose 'OK' 2>&1
+    }
+    try {
+        if (-not (Wait-Job -Job $job -Timeout $ProbeTimeoutSec)) {
+            Write-Warning "枠のプローブが $ProbeTimeoutSec 秒で返りませんでした。"
+            return $null
+        }
+        return Read-UsageWindows -Lines @(Receive-Job -Job $job | ForEach-Object { [string]$_ })
+    } catch {
+        Write-Warning "枠のプローブに失敗しました: $_"
+        return $null
+    } finally {
+        Stop-Job -Job $job -ErrorAction SilentlyContinue
+        Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Get-EffectiveMinRemaining {
+    <#
+        **リセットが近ければ閾値を下げる**(#132 決定1 論点7)。
+
+        枠切れで死ぬ条件は「消費が残りに達する**前に**リセットが来るか」である。リセットまで
+        T 分なら、この枠で使うのは高々 `rate * T` なので、要求すべき残りも `rate * T` でよい。
+        リセットをまたいだぶんは**次の枠から**出る(前提: リセットで utilization が 0 に戻る)。
+
+        交点は約 63 分 — 実質「**リセットまで 1 時間を切ったときだけ下がる**」規則である。
+        観測が古くて T が負になる場合は下げない(安全側)。
+    #>
+    param([double]$Base, [long]$ResetsAt)
+
+    $minutes = ($ResetsAt - [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) / 60.0
+    if ($minutes -le 0) { return $Base }
+
+    $byReset = ($PipelineBurnPercentPerMinute * $minutes) / 100.0
+    return [Math]::Min($Base, $byReset)
+}
+
+function Format-ResetsAtJst {
+    param([long]$ResetsAt)
+    $utc = [DateTimeOffset]::FromUnixTimeSeconds($ResetsAt).UtcDateTime
+    try {
+        $tz = [TimeZoneInfo]::FindSystemTimeZoneById('Tokyo Standard Time')
+        return '{0} JST' -f [TimeZoneInfo]::ConvertTimeFromUtc($utc, $tz).ToString('MM/dd HH:mm')
+    } catch {
+        return '{0} (ローカル)' -f $utc.ToLocalTime().ToString('MM/dd HH:mm')
+    }
+}
+
+function Test-BudgetGate {
+    <#
+        **起動してよいかを枠の残りで判定する。** 通れば `$true`、拒否なら `$false`。
+
+        **読めなければ拒否する(fail-closed)。** `pipeline-guard.ps1` が例外を素通しに倒して
+        いるのと逆だが、あちらは**止まると開発が死ぬ**フックであるのに対し、こちらは打ち直せば
+        よい。読めないまま起動するのは「守る側が静かに壊れる」形そのものである。
+    #>
+    param([double]$Required)
+
+    Write-Host ""
+    Write-Host "=== 5 時間枠の確認(要求: 残り $([int]($Required * 100))% 以上)===" -ForegroundColor Cyan
+
+    $w = Get-UsageWindows
+    if (-not $w) {
+        Write-Host "!!! 枠の残りを読めませんでした。起動しません(fail-closed)。" -ForegroundColor Red
+        Write-Host "    検査を外して打つなら -MinRemaining 0 です。"
+        Send-DesktopNotification -Title "Visionary #$Issue — 起動しませんでした" `
+            -Text "5 時間枠の残りを読めませんでした(fail-closed)。" -Level 'Warning'
+        return $false
+    }
+
+    $remaining = 1.0 - $w.Utilization
+    $effective = Get-EffectiveMinRemaining -Base $Required -ResetsAt $w.ResetsAt
+    $resetText = Format-ResetsAtJst -ResetsAt $w.ResetsAt
+
+    # **週次は表示だけで、判定には使わない**(#141)。単位を 5 時間枠と揃えて「残り」で出す
+    # — 片方が残り・片方が使用率だと読み違える。
+    $weekly = if ($null -ne $w.SevenDayUtilization) {
+        '  /  週次 残り {0}%(判定には使わない)' -f [int]((1.0 - [double]$w.SevenDayUtilization) * 100)
+    } else { '' }
+    Write-Host ("    残り {0}% / リセット {1}{2}" -f [int]($remaining * 100), $resetText, $weekly)
+    if ($effective -lt $Required) {
+        Write-Host ("    リセットが近いので要求を {0}% まで下げます(#132 論点7)" -f [Math]::Round($effective * 100, 1)) -ForegroundColor DarkGray
+    }
+
+    if ($remaining -lt $effective) {
+        $text = "5 時間枠の残りが {0}% で、要求 {1}% に足りません。リセットは {2} です。" -f `
+            [int]($remaining * 100), [Math]::Round($effective * 100, 1), $resetText
+        Write-Host ""
+        Write-Host "!!! 枠が足りないので起動しません。$text" -ForegroundColor Yellow
+        Write-Host "    リセットを待つか、-MinRemaining で閾値を変えてください。"
+        Send-DesktopNotification -Title "Visionary #$Issue — 枠が足りず起動しませんでした" `
+            -Text $text -Level 'Warning'
+        return $false
+    }
+
+    Write-Host "    起動します。" -ForegroundColor Green
+    return $true
+}
+
 function Invoke-Phase {
     param([string]$Command)
 
@@ -397,6 +615,14 @@ if (-not $lockPath) {
 $env:VISIONARY_PIPELINE_ISSUE = [string]$Issue
 
 try {
+    # **枠が足りなければ起動しない**(#132)。ロックを取った後に置くのは、二重起動の拒否
+    # (終了コード 3)が先に出るべきだからである — 走行中と分かっているのにプローブへ
+    # $0.11 を払う理由が無い。拒否しても `finally` がロックを外す。
+    #
+    # **`-MinRemaining 0` は検査しない。** プローブも打たないので $0.11 も枠の 0.05% も使わない。
+    if (-not $PSBoundParameters.ContainsKey('MinRemaining')) { $MinRemaining = $DefaultMinRemaining[$From] }
+    if ($MinRemaining -gt 0 -and -not (Test-BudgetGate -Required $MinRemaining)) { exit 4 }
+
     $phases = if ($From -eq 'wrap') { @('wrap') } else { @('impl', 'wrap') }
 
     foreach ($phase in $phases) {
