@@ -56,7 +56,7 @@ dotnet format Visionary.sln               # CIのフォーマット検証を通�
 
 | フェーズ | 起動 | モデル | 成果物 |
 | -------- | ---- | ------ | ------ |
-| 1 設計 | 既定のセッション | `~/.claude/settings.json` の既定(2026-09-20 時点で fable) | タスク仕様の凍結 |
+| 1 設計 | 既定のセッション | `~/.claude/settings.json` の既定(**opus**) | タスク仕様の凍結 |
 | 2 実装とレビュー | **フェーズ1 が背景起動した** `pwsh scripts/pipeline.ps1 -Issue <番号>` が `/impl` を開く | Opus(実装は Sonnet の implementer) | 緑のコードとコミット |
 | 3 文書更新と PR | 同じパイプラインが続けて `/wrap` を開く | Sonnet | PR と切り出した issue |
 
@@ -72,7 +72,7 @@ dotnet format Visionary.sln               # CIのフォーマット検証を通�
 - **各フェーズは成果物を出したら `PIPELINE: DONE` か `PIPELINE: HALT <コード>` を出して止まる。** 自分で次のフェーズを開かない。**どちらも出さずに終わると停止扱いになる**
 - 引き継ぎメモ `docs/tasks/W*.handoff.md` は**フェーズをまたいで消える5件だけ**を持つ(却下した設計案 / implementer の件数 / 直さないと決めた指摘 / 巡ごとの件数 / `mutator` の件数)。既にコミット本文や doc コメントに残るものは書かない。フェーズ3 で PR 説明へ転記して削除する
 - **設計・プロセス・文書のみの変更はこの3フェーズに乗らない。** `/design <issue番号>` で開く設計セッションが**束**(決めて書いてコミットするまで)ごとに回し、決定は issue のコメントに決めたその場で残す。引き継ぎメモは書かない。運用の正は [docs/process/06-design-sessions.md](docs/process/06-design-sessions.md)
-- **モデルはセッションではなく仕事で決める。** `docs/` の設計(コンセプト・企画書・世界観・GDD・TDD・ADR・process)= fable、参照の付け替えなど機械的な波及 = Sonnet のサブエージェント。**実装タスクのフェーズ1 は settings の既定(2026-09-20 時点で fable)で走っており、opus に落とすかは実測してから決める**
+- **対話セッションのモデルは既定(opus)である**([ADR-0014](docs/adr/0014-interactive-sessions-follow-the-default-model.md))。設計もフェーズ1 もこれに従う。**コマンドの `model:` frontmatter は対話セッションでは効かない** — 仕事別に振り分けられるのは機構がある場所だけで、機械的な波及 = Sonnet のサブエージェント、フェーズ2・3 = パイプラインの `--model` である。**例外は fable で、大規模な既存コンテキストの修復・洗い直しにだけ開発者が起動時に手で選ぶ**(運用の正は [06](docs/process/06-design-sessions.md)「モデル」)
 
 ## ドキュメント運用
 

@@ -1,7 +1,6 @@
 ---
 description: 設計セッションとして枠づけする(docs/ の規則・仕様・設定を書き換えるタスク。コンセプト・企画書・世界観・GDD・TDD・ADR・process)。束ごとに決めて書き、決定は issue に残す
 argument-hint: <issue番号>
-model: fable
 ---
 
 このセッションは **設計セッション** です(運用は [docs/process/06-design-sessions.md](../../docs/process/06-design-sessions.md))。

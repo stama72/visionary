@@ -12,7 +12,7 @@
 | | フェーズ1 設計 | フェーズ2 実装とレビュー | フェーズ3 文書更新と PR |
 | --- | --- | --- | --- |
 | 起動 | 既定のメインセッション | [`/impl`](../../.claude/commands/impl.md) | [`/wrap`](../../.claude/commands/wrap.md) |
-| モデル | `~/.claude/settings.json` の既定(2026-09-20 時点で fable。opus に落とすかは [06](06-design-sessions.md) の検証条件) | Opus(実装は Sonnet の implementer) | **Sonnet**([`wrap.md`](../../.claude/commands/wrap.md) の `model:` とパイプラインの `--model` が握る) |
+| モデル | `~/.claude/settings.json` の既定(**opus**。[ADR-0014](../adr/0014-interactive-sessions-follow-the-default-model.md) / [06](06-design-sessions.md)「モデル」) | Opus(実装は Sonnet の implementer) | **Sonnet**(**パイプラインの `--model` が握る**。[`wrap.md`](../../.claude/commands/wrap.md) 側には何も無い) |
 | 成果物 | タスク仕様の凍結 | 緑のコードとコミット | PR と切り出した issue |
 | 終わり方 | 引き継ぎメモを書き、**パイプラインを背景起動して止まる** | 引き継ぎメモに追記し `PIPELINE: DONE` | PR を作り `PIPELINE: DONE` |
 
@@ -128,6 +128,7 @@ W2-04 と #68(世界観と正式タイトル)が 21:12〜21:16 に重なった�
 | 止まらないもの | なぜ |
 | -------------- | ---- |
 | **相対パスで本体へ届く `Bash` / `PowerShell`** — `git -C ../../.. checkout` / `dotnet --project ../..` | `Edit` / `Write` は対象ファイルを見るが、**シェルは cwd と「コマンドに現れる本体の絶対パス」しか見ていない。** 抜け道は無限にあるので、機械を厚くせず境界を書く側に倒した |
+| **Git Bash 形式の絶対パス** — `cat > /c/Users/stama/game_dev/visionary/...` | 照合しているのは `C:\...` と `C:/...` の 2 形だけで、`/c/...` は一致しない。**上の行と違い、これは意図した境界ではない**([#138](https://github.com/stama72/visionary/issues/138))。2026-09-21 に実際に素通しした — 本体の `.claude/commands/` へ untracked を 1 本置き、`DONE` 時の汚れ検査(下記)に引っかかる状態を作った |
 | **フックを承認していないセッション** | フックは**開発者が1回承認するまで動かない。** 承認は設定の内容にひもづくので、`.claude/settings.json` を1文字変えると未承認に戻りうる |
 | **判定に失敗したとき** | フックは例外をすべて素通しに倒す(判定の失敗で開発が止まるほうが高くつく)。**黙って素通しはしない** — `.pipeline/guard-failures.log` に1行残る。`exit 0` のフックの標準出力は transcript(ctrl+o)にしか出ないので、画面だけに頼ると守る側が静かに壊れる |
 | **Claude のセッション以外** | 素のターミナルや他のエディタからの書き込みはフックを通らない |
@@ -204,6 +205,8 @@ pwsh scripts/pipeline.ps1 -Status
 停止則に当たった後の再開や、パイプラインを使わない場合は、**開発者が `/clear` してから** `/impl <issue番号>` `/wrap <issue番号>` を開く。フェーズ3 だけやり直すなら `pwsh scripts/pipeline.ps1 -Issue 35 -From wrap`。
 
 **`/clear` は機械で守れない。** 忘れても何も壊れないが、節約も起きない。パイプラインを通す限りこれは起きない — 境界がプロセス境界になるためである。
+
+**モデルも自分で選ぶ。上の表の Sonnet を握っているのはパイプラインの `--model` だけである** — 手で開けば `/impl` も `/wrap` も既定(opus)で走る。`wrap.md` に `model:` を置いても対話では効かないので、[ADR-0014](../adr/0014-interactive-sessions-follow-the-default-model.md) で外した。**フェーズ3 を sonnet で回したいなら、開くときに自分で選ぶ。**
 
 ## 何が「実装タスク」か
 
