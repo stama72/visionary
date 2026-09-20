@@ -211,14 +211,23 @@ public sealed class ObservationsTests
     /// 空のうちに空振りし、2日目の観測は「まだ書き換えていない1日目の価格」を<b>2日目の日付で</b>
     /// 記録するため、2日目の<see cref="MarketReference.TrySeller"/>が読む時点で dayDifference=0
     /// となり除外される(観測が実質1日遅延し、GDD06 §3.1「観測するのは当日の提示価格」が崩れる
-    /// 経路)。変異を戻して緑に復帰させた。
+    /// 経路)。変異を戻して緑に復帰させた。<b>この赤の確認は、旧来の <c>Assert.NotEqual(floorPrice,
+    /// world.Market[key0])</c> と、帳簿へ <c>Sale</c> の行を差し込む前の構成、§1.1 の頭打ちが入る
+    /// <b>前</b>の経済に対するものだった。</b>W2-11 は本テストの構成(帳簿へ <c>Sale</c> 行を置く)と
+    /// assert(<c>Assert.Equal(ApplyPermille(床, 1400), …)</c>)の両方を変えており、現本体に対する
+    /// 判別力が保たれている証拠はここには無い。<b>再実測は変異 M-5 として行う</b>
+    /// (実測値はまだここに書かない ── <c>mutator</c> が測った後、その結果を転記する)。
     /// </remarks>
     /// <remarks>
     /// <b>W2-11 追随。</b><c>household.Ledgers[0]</c> へ <c>Sale</c> の行を直接置く理由は
-    /// GDD02c §1.1 の頭打ちを外すためである ── 約定が無い売り手は相場基準が立っても床より上へ
-    /// 出ない(頭打ちが無ければ構成の前提が崩れる。相場基準は household1 の前日の提示価格
-    /// (=床)だけになり、係数1000‰で提示価格が床のままになってしまい、旧来の
-    /// <c>Assert.NotEqual</c> が偽になる)。
+    /// GDD02c §1.1 の頭打ちを外すためである ── 約定が無い売り手は<b>相場基準より上へ</b>出ない
+    /// (頭打ちが無ければ構成の前提が崩れる)。<b>この構成では</b>相場基準 = <c>CeilDiv(床+床,2)</c>
+    /// = 床(household1 は1日目に相場基準が立たず床のまま提示しているため)なので、頭打ちが外れれば
+    /// 提示価格が床のままになってしまい、旧来の <c>Assert.NotEqual</c> が偽になる。<b>一般則として
+    /// 「床へ引き戻される」と読んではならない</b> ── 相場基準 &gt; 床 の売り手は相場基準そのもので
+    /// 並ぶ(反例: <see cref="TradeSystemTests.UnsoldSellerIsCappedAtTheReferenceInThePipeline"/>、
+    /// 床10・相場基準200の売れていない売り手が200を提示する)。GDD02c §1.2 の囲み(「ラチェットの
+    /// 停止であって復元力ではない。止まる水準は経路依存である」)のとおり。
     /// </remarks>
     [Fact]
     public void ObservationBecomesUsableOnTheNextDayNotToday()
