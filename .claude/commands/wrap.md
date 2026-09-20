@@ -1,7 +1,6 @@
 ---
 description: フェーズ3(文書更新とPR)として枠づけする。コードは触らない
 argument-hint: <issue番号>
-model: sonnet
 ---
 
 このセッションは **フェーズ3 — 文書更新と PR** です([ADR-0009](../../docs/adr/0009-phase-scoped-sessions.md) / 運用は [docs/process/05-phase-sessions.md](../../docs/process/05-phase-sessions.md))。

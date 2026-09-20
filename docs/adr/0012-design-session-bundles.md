@@ -88,7 +88,7 @@
 
 ## 論点3: モデルをどう配分するか
 
-> ステータス: 承認
+> ステータス: 承認 / **[ADR-0014](0014-interactive-sessions-follow-the-default-model.md) で覆る** — 対話セッションは既定(opus)に従い、fable は大規模な洗い直しにだけ手で選ぶ
 
 ### 検討した選択肢
 

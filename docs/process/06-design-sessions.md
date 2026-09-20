@@ -18,7 +18,7 @@
 | **ADR** | 選択肢と理由。層ではなく、上のどの層の決定にも付く | 波及節が持つ | — |
 | **process** | `docs/process/` と `.claude/` | 運用。次のタスクで回して確かめる | — |
 
-**実装タスクのフェーズ1(凍った GDD からタスク仕様を書く)は本書の対象ではない。** そちらは [05](05-phase-sessions.md) が持ち、既定のセッション(モデルは `~/.claude/settings.json` の既定。2026-09-20 時点で fable)で回す。境界は「**却下する選択肢があるか**」([ADR の切り分け](../adr/README.md)の問い1 と同じ基準)である。
+**実装タスクのフェーズ1(凍った GDD からタスク仕様を書く)は本書の対象ではない。** そちらは [05](05-phase-sessions.md) が持ち、既定のセッション(モデルは下の「モデル」のとおり opus)で回す。境界は「**却下する選択肢があるか**」([ADR の切り分け](../adr/README.md)の問い1 と同じ基準)である。
 
 - 選択肢が無い — 実装が要る決定の追記、節番号の追随、実態合わせ — はフェーズ1 の中で GDD / TDD を直してよい(05 が「フェーズ1 が仕様を凍らせるときに GDD を直すのは正当な仕事」と書いている範囲)
 - **選択肢がある — 規則の反転・削除・新設 — は設計タスクである。** フェーズ1 の途中で出たら、issue を分けて `/design` で回す([#28](https://github.com/stama72/visionary/issues/28) が実例)
@@ -116,19 +116,22 @@ implementer と同じ2種に分ける([`implementer.md`](../../.claude/agents/im
 
 **候補と判定を分ける。** 追随表の候補列挙は出してよいが、「現行の規則に従っているか」の一致判定は設計セッションが読む。上位の層の規則を書き換えた束では、**追随表を束の終わりに書く**(閉じる条件。[04-issue-driven](04-issue-driven.md)「上位文書を書き換える設計 issue」)。向きは上の層の表のとおり — **docs 直下なら「変えた規則 → 追随する GDD / TDD の節 → 引き取る design issue」、GDD / TDD なら「変えた規則 → 実装している既存コード → 引き取る impl issue」**。
 
-## モデル — 仕事で決める
+## モデル
 
-**セッションではなく仕事でモデルを決める。** 理由は [ADR-0012](../adr/0012-design-session-bundles.md) 論点3。
+**対話セッションは既定に従う。既定は opus。** 理由は [ADR-0014](../adr/0014-interactive-sessions-follow-the-default-model.md)。
 
 | 仕事 | モデル | 機構 |
 | ---- | ------ | ---- |
-| 設計セッション(仕事 1〜5。`docs/` の全層) | **fable** | いまは `~/.claude/settings.json` の既定(`claude-fable-5-1[1m]`)がそのまま効いている。[`/design`](../../.claude/commands/design.md) の `model: fable` は既定が変わったときの保険。**`claude -p` では frontmatter が settings の既定に勝つ(実測)。対話セッションでは未実測** |
-| 実装タスクのフェーズ1(凍った GDD → タスク仕様) | **現状 fable**(settings の既定) | opus に落とす機構は無い。落とすかは ADR-0012 帰結の検証条件で決める |
-| 機械的な波及 | sonnet | サブエージェントの `model` |
+| 設計セッション(仕事 1〜5。`docs/` の全層) | **opus** | `~/.claude/settings.json` の `"model"`(と GUI の選択)。**コマンドの `model:` frontmatter は対話セッションでは効かない**([ADR-0014](../adr/0014-interactive-sessions-follow-the-default-model.md) 背景の実測2。このため `design.md` と `wrap.md` から `model:` を外した) |
+| **大規模な既存コンテキストの修復・洗い直し** | **fable** | **無い。開発者が起動時に手で選ぶ**([ADR-0014](../adr/0014-interactive-sessions-follow-the-default-model.md) 論点2)。既に書かれた文書やコードの山を横断して読み直し、食い違いを見つける仕事がこれに当たる([#85](https://github.com/stama72/visionary/issues/85) の GDD02 洗い直し、[#101](https://github.com/stama72/visionary/issues/101) の追随表)。**新しく決める仕事は通常の設計束であり、opus で回す** |
+| 実装タスクのフェーズ1(凍った GDD → タスク仕様) | **opus** | 同じく既定。対話セッションなので上と同じ経路である |
+| 機械的な波及 | sonnet | サブエージェントの `model`(**効く**) |
 | `/advise` と専門家アドバイザー | [#105](https://github.com/stama72/visionary/issues/105) が決める | — |
-| フェーズ2・3 | 05 のまま(opus / implementer は sonnet / `/wrap` は sonnet) | 変えない |
+| フェーズ2・3 | 05 のまま(opus / implementer は sonnet / `/wrap` は sonnet) | パイプラインの `--model`(**効く**) |
 
-**設計 = fable が覆る条件は [#123](https://github.com/stama72/visionary/issues/123) が持つ。** 反証になるのは枠の重みだけである — **Max プランで制約なのは枠であって API 等価コストではない。** モデル別のレートの実測は [04「枠」](04-issue-driven.md)、確認が外れたときの打ち手は #123 にある。
+**fable を選んだら、枠の免除は外れる。** fable の対話は 1 本で枠の 29〜103% を食う([04「枠」](04-issue-driven.md) 規則3 と見込み表)。**5 時間枠 1 つを明け渡す前提で走らせる。**
+
+**レートは [#123](https://github.com/stama72/visionary/issues/123) の確認で動くが、動いても ADR-0014 論点1 の根拠は動かない** — 根拠はレートの値ではなく、ADR-0012 決定3 の却下理由が立っていた軸(API 等価コスト)が制約の軸(枠)ではなかったことだからである。
 
 ## 検証条件の記録先
 
