@@ -307,8 +307,8 @@ public sealed class BuyerDemandTests
     /// <c>MarketReference.TryBuyer</c> から <c>MarketReference.TrySeller</c> に変える変異
     /// (<c>hasOwnSettledPrice: true, ownSettledPrice: 0</c> を渡す)を当てたところ、
     /// <c>Assert.Equal(35, line.MarketTerm)</c>(許容乖離1000‰なので相場基準そのもの)が
-    /// 実際値25(買い手側の値のまま)で失敗した(赤を確認、GDD02c §1.2 の天井が消える経路)。
-    /// 変異を戻して緑に復帰させた。
+    /// 実際値25(買い手側の値のまま)で失敗した(赤を確認、公比の上限(GDD02c §1.2、1.173/日)が
+    /// 消える経路)。変異を戻して緑に復帰させた。
     /// </remarks>
     [Fact]
     public void DemandUsesBuyerReferenceNotSeller()

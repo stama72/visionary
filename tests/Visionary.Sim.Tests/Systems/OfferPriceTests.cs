@@ -63,19 +63,71 @@ public sealed class OfferPriceTests
     public void OfferPriceFloorIsExternalBuyPrice()
     {
         // 在庫比2000(在庫20/目標10)→係数500‰→ApplyPermille(100,500)=50。
+        // hasSettledYesterday: true(頭打ちが効かない配置で床の分岐だけを見る)。
         Assert.Equal(
             80,
             OfferPrice.Calculate(
-                floorPrice: 80, marketReference: 100, sellableStock: 20, shipmentTargetStock: 10, isBankrupt: 0));
+                floorPrice: 80, marketReference: 100, sellableStock: 20, shipmentTargetStock: 10, isBankrupt: 0,
+                hasSettledYesterday: true));
         Assert.Equal(
             50,
             OfferPrice.Calculate(
-                floorPrice: 30, marketReference: 100, sellableStock: 20, shipmentTargetStock: 10, isBankrupt: 0));
+                floorPrice: 30, marketReference: 100, sellableStock: 20, shipmentTargetStock: 10, isBankrupt: 0,
+                hasSettledYesterday: true));
     }
 
     /// <summary>
-    /// 【核心】タスク仕様テスト表 #8。破産中=1・相場基準100・販売在庫0(健全なら係数1500‰=150)
-    /// → 50。床30のとき50、床80のとき80(床は破らない)。
+    /// 【核心】タスク仕様テスト表 #1。床30・相場基準100・在庫0・目標10(係数1500‰)。
+    /// hasSettledYesterday: false → 100(1000‰で頭打ち)。true → 150。
+    /// </summary>
+    [Fact]
+    public void UnsoldSellerDoesNotRaiseAboveTheReference()
+    {
+        Assert.Equal(
+            100,
+            OfferPrice.Calculate(
+                floorPrice: 30, marketReference: 100, sellableStock: 0, shipmentTargetStock: 10, isBankrupt: 0,
+                hasSettledYesterday: false));
+        Assert.Equal(
+            150,
+            OfferPrice.Calculate(
+                floorPrice: 30, marketReference: 100, sellableStock: 0, shipmentTargetStock: 10, isBankrupt: 0,
+                hasSettledYesterday: true));
+    }
+
+    /// <summary>
+    /// 【核心】タスク仕様テスト表 #2。床30・相場基準100・在庫20・目標10(係数500‰)。
+    /// hasSettledYesterday: false → 50(値下げ側には効かない。GDD02c §1.1)。
+    /// </summary>
+    [Fact]
+    public void UnsoldCapDoesNotLiftTheDiscount()
+    {
+        Assert.Equal(
+            50,
+            OfferPrice.Calculate(
+                floorPrice: 30, marketReference: 100, sellableStock: 20, shipmentTargetStock: 10, isBankrupt: 0,
+                hasSettledYesterday: false));
+    }
+
+    /// <summary>
+    /// タスク仕様テスト表 #3。床120・相場基準100・在庫0・目標10。hasSettledYesterday: false でも
+    /// 床(120)を下回らない ── 頭打ちは係数に掛かり、床の <c>Math.Max</c> はそれより後に効く。
+    /// </summary>
+    [Fact]
+    public void UnsoldCapKeepsTheFloor()
+    {
+        Assert.Equal(
+            120,
+            OfferPrice.Calculate(
+                floorPrice: 120, marketReference: 100, sellableStock: 0, shipmentTargetStock: 10, isBankrupt: 0,
+                hasSettledYesterday: false));
+    }
+
+    /// <summary>
+    /// 【核心】タスク仕様テスト表 #4。破産中=1・相場基準100・販売在庫0(健全なら係数1500‰=150)
+    /// → 50。床30のとき50、床80のとき80(床は破らない)。hasSettledYesterday が true でも
+    /// false でも 50(破産中は500‰固定が§1.1の頭打ちより先に効くので、この規則は何もしない。
+    /// GDD02c §1.1)。
     /// </summary>
     /// <remarks>
     /// <b>変異の実測(2026-09-19)。</b>破産中の枝で先に <c>StockRatioPermille</c> /
@@ -89,14 +141,19 @@ public sealed class OfferPriceTests
     {
         // shipmentTargetStock=0は「在庫比を評価しない」ことを確かめるための罠 ──
         // 評価すればArgumentOutOfRangeExceptionが飛ぶ。
-        Assert.Equal(
-            50,
-            OfferPrice.Calculate(
-                floorPrice: 30, marketReference: 100, sellableStock: 0, shipmentTargetStock: 0, isBankrupt: 1));
-        Assert.Equal(
-            80,
-            OfferPrice.Calculate(
-                floorPrice: 80, marketReference: 100, sellableStock: 0, shipmentTargetStock: 0, isBankrupt: 1));
+        foreach (bool hasSettledYesterday in new[] { false, true })
+        {
+            Assert.Equal(
+                50,
+                OfferPrice.Calculate(
+                    floorPrice: 30, marketReference: 100, sellableStock: 0, shipmentTargetStock: 0, isBankrupt: 1,
+                    hasSettledYesterday));
+            Assert.Equal(
+                80,
+                OfferPrice.Calculate(
+                    floorPrice: 80, marketReference: 100, sellableStock: 0, shipmentTargetStock: 0, isBankrupt: 1,
+                    hasSettledYesterday));
+        }
     }
 
     /// <summary>isBankrupt = 2 / -1 で ArgumentOutOfRangeException。</summary>
@@ -106,7 +163,8 @@ public sealed class OfferPriceTests
     public void CalculateRejectsFlagsOutsideZeroAndOne(int isBankrupt)
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => OfferPrice.Calculate(
-            floorPrice: 100, marketReference: 100, sellableStock: 5, shipmentTargetStock: 5, isBankrupt));
+            floorPrice: 100, marketReference: 100, sellableStock: 5, shipmentTargetStock: 5, isBankrupt,
+            hasSettledYesterday: true));
     }
 
     /// <summary>

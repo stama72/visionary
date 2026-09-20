@@ -122,7 +122,7 @@ public sealed class BuyerDemand
             }
 
             // TryBuyer(遅い側)を呼ぶ。TrySeller は呼んではならない ── 買い手が速くなると
-            // GDD02c §1.2 の天井が消える。
+            // 公比の上限(GDD02c §1.2、1.173/日)が消える。
             hasReference[itemId] = MarketReference.TryBuyer(
                 headObservations, itemId, household.Id, world.Now,
                 definition.ObservationRetentionDays,

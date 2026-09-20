@@ -35,7 +35,7 @@ public sealed class MarketReferenceTests
     /// <c>Assert.Equal(25, buyerReference)</c> が実際値35(35 = CeilDiv(60+10,2)、売り手側の値と
     /// 一致してしまう)で失敗した(赤を確認)。逆に <c>TrySeller</c> を全件平均に変える変異では
     /// <c>Assert.Equal(35, sellerReference)</c> が実際値25で失敗した。どちらも
-    /// GDD02c §1.2 の「複利発散の歯止め」が壊れる経路であり、変異を戻して緑に復帰させた。
+    /// GDD02c §1.2 の売り手と買い手の速さの区別が壊れる経路であり、変異を戻して緑に復帰させた。
     /// </remarks>
     [Fact]
     public void BuyerReferenceAveragesEveryValidObservation()

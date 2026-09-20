@@ -1,3 +1,4 @@
+using Visionary.Sim.Numerics;
 using Visionary.Sim.Systems;
 using Visionary.Sim.Time;
 
@@ -212,6 +213,13 @@ public sealed class ObservationsTests
     /// となり除外される(観測が実質1日遅延し、GDD06 §3.1「観測するのは当日の提示価格」が崩れる
     /// 経路)。変異を戻して緑に復帰させた。
     /// </remarks>
+    /// <remarks>
+    /// <b>W2-11 追随。</b><c>household.Ledgers[0]</c> へ <c>Sale</c> の行を直接置く理由は
+    /// GDD02c §1.1 の頭打ちを外すためである ── 約定が無い売り手は相場基準が立っても床より上へ
+    /// 出ない(頭打ちが無ければ構成の前提が崩れる。相場基準は household1 の前日の提示価格
+    /// (=床)だけになり、係数1000‰で提示価格が床のままになってしまい、旧来の
+    /// <c>Assert.NotEqual</c> が偽になる)。
+    /// </remarks>
     [Fact]
     public void ObservationBecomesUsableOnTheNextDayNotToday()
     {
@@ -242,10 +250,27 @@ public sealed class ObservationsTests
         int floorPrice = definition.ExternalBuyPrice(Item.Flour);
         Assert.Equal(floorPrice, world.Market[key0]); // 相場基準が立たない(床のまま)
 
+        // household0は1日目に売れていない(hasSettled=false)ので、§1.1の頭打ちを受ける ──
+        // 頭打ちを入れないと相場基準はhousehold1の前日の提示価格(=床)だけになり、係数1000‰で
+        // 提示価格が床のまま2日目のAssert.NotEqualが崩れる(「構成の前提が崩れた」、本タスク仕様)。
+        // household0自身の約定を帳簿へ直接置き、hasSettled=trueにして頭打ちを外す。
+        world.Ledgers[0].Add(new LedgerEntry
+        {
+            ItemId = Item.Flour,
+            Quantity = 1,
+            UnitPrice = floorPrice,
+            OccurredAt = Tick.Zero,
+            Direction = LedgerDirection.Sale,
+            CounterpartyId = 1,
+            Terms = LedgerTerms.Cash,
+        });
+
         EconomySystemTestFixtures.RunDays(world, system, days: 1); // 2日目
 
         // 1日目に生まれた観測(household1の売り注文)が前日の記憶として使える。household0は
-        // 在庫比‰ が1000からずれているので、相場基準が立てば床とは異なる値になる。
-        Assert.NotEqual(floorPrice, world.Market[key0]);
+        // 在庫比‰ が1000からずれている(1/5 → 在庫比200‰ → 係数1400‰)ので、頭打ちが外れれば
+        // 床とは異なる値になる。相場基準 = CeilDiv(床+床,2) = 床(household1は1日目に相場基準が
+        // 立たず床のまま提示しているので、他の売り手の観測も自分の約定単価も床と同じ)。
+        Assert.Equal(IntegerMath.ApplyPermille(floorPrice, 1400), world.Market[key0]);
     }
 }

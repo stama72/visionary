@@ -197,6 +197,69 @@ public sealed class TradePipelineTests
     }
 
     /// <summary>
+    /// 【核心】W2-11 タスク仕様テスト表 #6。M0・シード1・60日。<b>毎日</b>、<c>world.Market</c> の
+    /// 全件が <c>床 × BandMultiplier</c> 以下(GDD02c §1.1 の頭打ちが提示価格の帯を保つ)。
+    /// </summary>
+    /// <remarks>
+    /// <b>帯の定数(20倍)の根拠。</b>本実装での実測(2026-09-20、M0・60日・シード1/2/3)で
+    /// 頭打ちを入れたときの最大はシード1のパン500(床54の9.26倍、12日目)、シード2はパン435
+    /// (床54の8.06倍、14日目)。<b>シード3はタスク仕様「設計の前提」の記載(工具444・1.53倍)と
+    /// 食い違い、実際にはシード1・2と同じくパンが最大になる(パン195、床54の3.61倍、11日目。
+    /// 工具444・1.53倍は15日目以降パンが市場から消えた後に定常する値であり、60日全体の最大では
+    /// ない)。</b>いずれにせよ20倍を超えないので帯の定数そのものは動かさない。20倍は
+    /// 頭打ちを外す変異(M-1)に対して判別力を持ち、実測(最大9.26倍)に対して2倍強の余裕がある。
+    /// </remarks>
+    /// <remarks>
+    /// <b>パンの9.26倍は不具合ではない。</b>パン屋は毎日売れている(約定がある)ので§1.1の頭打ちを
+    /// 受けず、完売枝のラチェットで上がる。§1.1は「約定が無い日は上げない」であって水準の復元力
+    /// ではない(GDD02c §1.2の囲み)。帯の定数がパンで決まっているのはこのためで、他4品目には緩い。
+    /// </remarks>
+    /// <remarks>
+    /// <b>毎日見る形を doc コメントで固定する。</b>15日目以降は売り注文が2件(工具)に落ち、
+    /// パン・ビールは市場から消えるので、<b>最終日だけ見ると発散した品目を見ずに緑になりうる</b>
+    /// (この変異は最終日だけ見る形では落ちない)。<b>毎日</b>、その時点の <c>world.Market</c> の
+    /// 全件を確かめること。
+    /// </remarks>
+    /// <remarks>
+    /// <b>この検出器が緑であることは「帯が保たれる経済」を意味しない。</b>
+    /// <see href="https://github.com/stama72/visionary/issues/38">#38</see>(都市外市場の窓口)が
+    /// 無い世界では生産0/日・約定0/日・売り注文2件で平らになるので、緑が保証するのは式の代数
+    /// だけである。本テストは TDD01 §5.2 の発散・硬直の判定関数ではない(あちらは約定価格の
+    /// 中央値・120日窓で <see href="https://github.com/stama72/visionary/issues/41">#41</see> が
+    /// 持つ)。<b>GDD02 §8-1 を満たしたことにはならない。</b>
+    /// </remarks>
+    [Fact]
+    public void OfferPricesStayWithinTheBandOverSixtyDays()
+    {
+        const int BandMultiplier = 20; // 倍。床に対する提示価格の帯の上限(このテストの検出器の閾値)。
+
+        var definition = WorldDefinition.M0;
+        var world = WorldGenerator.Generate(definition, new RandomSource(1));
+
+        var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(1));
+
+        for (int day = 1; day <= 60; day++)
+        {
+            scheduler.Advance(world, ticks: 24);
+
+            // 1次産品は市場に載らない(TradeSystem段1が出力品目だけをMarketへ書く構造的な
+            // 保証。WorldDefinition.ExternalBuyPriceは1次産品に対して例外を投げるので、
+            // ここでitemIdの種別を分岐する必要は無い)。
+            foreach (var entry in world.Market)
+            {
+                int floorPrice = definition.ExternalBuyPrice(entry.Key.ItemId);
+                int bandUpperBound = floorPrice * BandMultiplier;
+
+                Assert.True(
+                    entry.Value <= bandUpperBound,
+                    $"day={day} itemId={entry.Key.ItemId} sellerId={entry.Key.SellerId} "
+                        + $"price={entry.Value} floor={floorPrice} band<= {bandUpperBound}"
+                        + "(GDD02c §1.1の頭打ちが提示価格の帯を保っていない)。");
+            }
+        }
+    }
+
+    /// <summary>
     /// テスト表 #24。60日回した後、<c>Knowledge</c> の総件数が
     /// NPC数 × (世帯数 − 1) × (保持期間 + 1) 以下。
     /// </summary>
@@ -208,18 +271,20 @@ public sealed class TradePipelineTests
     /// 生まれる」という前提に立っていた)は本タスクの再設計で狭すぎる値になった。
     /// </remarks>
     /// <remarks>
-    /// <b>本テストは <see cref="World.Knowledge"/> の件数の上界しか見ない。</b>同じ60日走行で
-    /// 提示価格が6桁へ発散し売り注文が2件へ枯れることを、本テストは検出しない
-    /// (別表B-2・B-3。<see href="https://github.com/stama72/visionary/issues/120">#120</see>)。
-    /// <c>Errand.Surplus</c> を<see cref="long"/>にしたことで60日走行は緑に戻るが、それは型が
-    /// 広いあいだ通るだけであり、値付け(GDD02c §1)の発散そのものを止めたわけではない。
+    /// <b>本テストは <see cref="World.Knowledge"/> の件数の上界しか見ない。</b>価格の側は
+    /// <see cref="OfferPricesStayWithinTheBandOverSixtyDays"/>(W2-11)が見るようになった。
+    /// <b>売り注文が2件へ枯れることは引き続き本テストは検出しない</b>
+    /// (<see href="https://github.com/stama72/visionary/issues/38">#38</see> の窓口が入った後に
+    /// #120 が締める)。<c>Errand.Surplus</c> を<see cref="long"/>にしたことで60日走行は緑に戻るが、
+    /// それは型が広いあいだ通るだけであり、値付け(GDD02c §1)の発散そのものを止めたわけではない。
     /// </remarks>
     /// <remarks>
-    /// <b>実測値は <see href="https://github.com/stama72/visionary/issues/120">#120</see> が
-    /// 直れば動く</b>(別表D-2)。<c>upperBound</c> の式自体は構造(NPC数・世帯数・保持期間)だけで
+    /// <b>実測値(2026-09-20、W2-11の実装での再実測)。</b>M0・シード1・60日で
+    /// <c>totalKnowledge</c> = 210。<c>upperBound</c> の式自体は構造(NPC数・世帯数・保持期間)だけで
     /// 決まり価格には依らないが、<c>totalKnowledge</c>(60日走行の実測値)は「売り注文が2件へ
-    /// 枯れる」現行の発散に従属している。値付けが直って枯れ方が変われば <c>totalKnowledge</c> は
-    /// 動きうる(<c>upperBound</c> を超えないことは構造上保たれる)。
+    /// 枯れる」現行の経済に従属している。<see href="https://github.com/stama72/visionary/issues/38">#38</see>
+    /// が入って売り注文が枯れなくなれば <c>totalKnowledge</c> は再び動きうる
+    /// (<c>upperBound</c> を超えないことは構造上保たれる)。
     /// </remarks>
     [Fact]
     public void ObservationsDoNotGrowWithoutBound()
@@ -251,18 +316,18 @@ public sealed class TradePipelineTests
     /// 対照で確かめる ── 同じ世帯の初期資金だけを増やした世界で嗜好の約定が成立すること。
     /// </summary>
     /// <remarks>
-    /// <b>W2-09 追随(2026-09-20)。移動費の割り戻しから外出の固定費(GDD06 §2・§3)へ
-    /// 置き換わったことで、資金の絞り方・観察に要する日数を実測し直した</b>
-    /// (シード1・世帯Id0=Brewer・区画4)。
+    /// <b>W2-11 追随(2026-09-20)。§1.1 の頭打ちが入って値付けが直ったことで、資金の絞り方・
+    /// 観察に要する日数を実測し直した</b>(シード1・世帯Id0=Brewer・区画4)。
     /// <list type="bullet">
-    /// <item>絞った資金(100): 1日目のうちに薪が約定する(初期28→34)。3日目までビールは
-    /// 一度も約定しない。</item>
-    /// <item>潤沢な資金(100000): 薪は2日目までに約定する。ビールは3日目に初めて約定する
-    /// (1000では3日目までに一度も約定しない)。</item>
+    /// <item>絞った資金(100): 1日目のうちに薪が約定する。3日目までビールは一度も約定しない
+    /// (変わらず)。</item>
+    /// <item>潤沢な資金(100,000): 薪もビールも1日目に約定する(1,000でも同じ)。</item>
     /// </list>
-    /// <b>これらの実測値は <see href="https://github.com/stama72/visionary/issues/120">#120</see> が
-    /// 直れば動く</b>(別表D-2)。相場基準が発散する経済の中で「何日目に約定するか」を測った値
-    /// であり、値付けが直れば同じ日数で成立しなくなりうる。
+    /// <b><c>ScarceLiquidFunds</c> / <c>AmpleLiquidFunds</c> / 観察日数(3日)は動かさない。</b>
+    /// 潤沢な側は1,000でも1日目にビールが約定するようになったが、
+    /// <see href="https://github.com/stama72/visionary/issues/81">#81</see> の検出器の再校正は
+    /// 判別力の再実測を伴う契約変更であり、本タスクでは実測値だけを書き換える
+    /// (判別力は変異M-4で測り直す)。
     /// </remarks>
     /// <remarks>
     /// <b>変異の再実測(2026-09-20、持ち越し指摘)。</b><c>[#81](https://github.com/stama72/visionary/issues/81)</c>
@@ -350,11 +415,15 @@ public sealed class TradePipelineTests
     /// <c>候補は見つかるが現金上限(CashCap)で落ちる</c> を人為的な資金操作なしに判別するには、
     /// CashCap が流動資金そのものではなく「用途に使える資金 ÷ 1日分の数量」(GDD02c §2.1)で
     /// 決まることを利用し、1日分の数量が大きい日にたまたま資金不足になる自然な日を探した
-    /// (実測: 世帯Id2、17日目。<b>訂正後(A-1)の価値の式へ差し替えたことで、自然発生する日・
-    /// 世帯が動いた</b> ── 値そのものは仕様ではなく、実装が緑にできる自然な例でよい)。
-    /// <b>この実測値は <see href="https://github.com/stama72/visionary/issues/120">#120</see> が
-    /// 直れば動く</b>(別表D-2)。相場基準が発散する経済の中で「17日目に自然発生する」日である
-    /// ため、値付けが直った瞬間に別の日・別の世帯へ動く。
+    /// (値そのものは仕様ではなく、実装が緑にできる自然な例でよい)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>W2-11 追随(2026-09-20)。§1.1 の頭打ちが入って値付けが直ったことで、自然発生する日・
+    /// 世帯が動いた</b>(実測: 世帯Id3、10日目。60日間の走行で
+    /// <c>UnaffordableNecessityCount &gt; 0</c> になる(世帯, 日)はこの1件だけ)。
+    /// <b>この実測値は <see href="https://github.com/stama72/visionary/issues/38">#38</see>
+    /// (都市外市場の窓口)が入れば動く。</b>売り注文が枯れる経済の中の自然発生日であることは
+    /// 変わらないため、窓口が入って経済の形が変われば別の日・別の世帯へ動く。
     /// </remarks>
     /// <remarks>
     /// <b>別表D-1(2026-09-20)。用途フィルタ(<c>Purpose == Necessity &amp;&amp;</c>)の判別力は、
@@ -378,19 +447,19 @@ public sealed class TradePipelineTests
     {
         var definition = WorldDefinition.M0;
 
-        // 資金不足のケース(シード1・操作なし。世帯Id2、17日目に自然発生する。上のremarks参照)。
+        // 資金不足のケース(シード1・操作なし。世帯Id3、10日目に自然発生する。上のremarks参照)。
         {
             var world = WorldGenerator.Generate(definition, new RandomSource(1));
             var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(1));
 
-            scheduler.Advance(world, ticks: 16 * 24); // 16日目まで。
-            Assert.Equal(0, world.Households[2].UnaffordableNecessityCount);
+            scheduler.Advance(world, ticks: 9 * 24); // 9日目まで。
+            Assert.Equal(0, world.Households[3].UnaffordableNecessityCount);
 
-            scheduler.Advance(world, ticks: 24); // 17日目。資金不足が1件自然発生する。
-            Assert.Equal(1, world.Households[2].UnaffordableNecessityCount);
+            scheduler.Advance(world, ticks: 24); // 10日目。資金不足が1件自然発生する。
+            Assert.Equal(1, world.Households[3].UnaffordableNecessityCount);
 
-            scheduler.Advance(world, ticks: 24); // 18日目。毎日上書きする(GDD02b §3.3)ので0に戻る。
-            Assert.Equal(0, world.Households[2].UnaffordableNecessityCount);
+            scheduler.Advance(world, ticks: 24); // 11日目。毎日上書きする(GDD02b §3.3)ので0に戻る。
+            Assert.Equal(0, world.Households[3].UnaffordableNecessityCount);
         }
 
         // 在庫切れのケース。木工2戸の薪(工房在庫)と入力の木材(工房在庫)を0にして生産による

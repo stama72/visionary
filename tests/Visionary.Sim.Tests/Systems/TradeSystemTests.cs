@@ -51,7 +51,8 @@ public sealed class TradeSystemTests
         int[]? necessityTargetStockDays = null,
         int[]? preferenceTargetStockDays = null,
         int tolerancePermille = 1200,
-        int minimumMarginPermille = 0)
+        int minimumMarginPermille = 0,
+        int shipmentDays = 1)
     {
         var externalBuyPrice = new int[Item.Count];
         externalBuyPrice[Item.Bread] = breadFloor;
@@ -67,7 +68,7 @@ public sealed class TradeSystemTests
             opportunityCostBaseByOccupation: new[] { 1, 1, 1, 1, 1 },
             rankCoefficientPermille: new[] { 1000, 1000, 1000 },
             travelHoursPerDistrict: 1,
-            shipmentDays: 1,
+            shipmentDays: shipmentDays,
             inputBufferDays: 1,
             externalBuyPriceOverride: externalBuyPrice);
     }
@@ -295,6 +296,86 @@ public sealed class TradeSystemTests
         // 破産中は価格係数‰を500に固定する: ApplyPermille(200,500) = 100。
         // 健全なら在庫比1000‰(係数1000‰)で200になるはずなので、100はその半分である。
         Assert.Equal(100, world.Market[key]);
+    }
+
+    /// <summary>
+    /// 【核心】タスク仕様テスト表 #5。段1 が求めた <c>hasSettled</c> がそのまま
+    /// <c>OfferPrice.Calculate</c> の第6引数まで届くこと(TDD01 §3.2)。パン屋(世帯0)に在庫1
+    /// (出荷目標在庫2 → 在庫比500‰ → 係数1250‰)を持たせ、買い手を置かずに1日目・2日目を回す。
+    /// 2日目は頭打ちで200(1250‰なら250)。<b>対照</b>: 2日目を回す前に1日目の帳簿へ自分の
+    /// 約定(Sale)を直接置くと hasSettled=true になり、頭打ちが外れて132になる。
+    /// </summary>
+    [Fact]
+    public void UnsoldSellerIsCappedAtTheReferenceInThePipeline()
+    {
+        const int OtherSellerId = 999;
+
+        // shipmentDays=2で出荷目標在庫2(生産能力1×出力数量1×出荷日数2)にする ──
+        // 在庫1/目標2 → 在庫比500‰ → 係数1250‰(1000‰の頭打ちと区別できる値)。
+        var definition = BuildShoppingDefinition(breadFloor: 10, shipmentDays: 2);
+
+        void SeedOtherSellersObservation(World world)
+        {
+            world.Knowledge[0].Add(new PriceObservation
+            {
+                ItemId = Item.Bread,
+                LocationId = 0,
+                Price = 200,
+                SellerId = OtherSellerId,
+                ObservedAt = Tick.Zero,
+                Source = ObservationSource.Direct,
+            });
+        }
+
+        // 本体: 1日目は誰も買わないので売れ残る(hasSettled=false)。
+        {
+            var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+            AddHousehold(world, id: 0, districtId: 4, Occupation.Miller);
+            world.Households[0].WorkshopInventory[Item.Bread] = 1;
+
+            var system = new TradeSystem(definition);
+            var key = new MarketKey(Item.Bread, 0);
+
+            EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目: 床のまま
+            Assert.Equal(10, world.Market[key]);
+
+            SeedOtherSellersObservation(world);
+            EconomySystemTestFixtures.RunDays(world, system, days: 1); // 2日目
+
+            // hasSettled=falseなので係数はmin(1250,1000)=1000: ApplyPermille(200,1000)=200。
+            Assert.Equal(200, world.Market[key]);
+        }
+
+        // 対照: 2日目を回す前に自分の約定(Sale)を帳簿へ直接置く。
+        {
+            var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+            AddHousehold(world, id: 0, districtId: 4, Occupation.Miller);
+            world.Households[0].WorkshopInventory[Item.Bread] = 1;
+
+            var system = new TradeSystem(definition);
+            var key = new MarketKey(Item.Bread, 0);
+
+            EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目
+            Assert.Equal(10, world.Market[key]);
+
+            SeedOtherSellersObservation(world);
+            world.Ledgers[0].Add(new LedgerEntry
+            {
+                CounterpartyId = 1,
+                ItemId = Item.Bread,
+                Quantity = 1,
+                UnitPrice = 10,
+                OccurredAt = Tick.Zero,
+                Terms = LedgerTerms.Cash,
+                Direction = LedgerDirection.Sale,
+            });
+
+            EconomySystemTestFixtures.RunDays(world, system, days: 1); // 2日目
+
+            // hasSettled=trueなので頭打ちが外れる。相場基準 = CeilDiv(200+10,2) = 105、
+            // 係数1250‰: ApplyPermille(105,1250) = CeilDiv(131250,1000) = 132。
+            Assert.Equal(132, world.Market[key]);
+        }
     }
 
     /// <summary>
