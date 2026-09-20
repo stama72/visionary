@@ -128,6 +128,8 @@ implementer と同じ2種に分ける([`implementer.md`](../../.claude/agents/im
 | `/advise` と専門家アドバイザー | [#105](https://github.com/stama72/visionary/issues/105) が決める | — |
 | フェーズ2・3 | 05 のまま(opus / implementer は sonnet / `/wrap` は sonnet) | 変えない |
 
+**設計 = fable が覆る条件は [#123](https://github.com/stama72/visionary/issues/123) が持つ。** 反証になるのは枠の重みだけである — **Max プランで制約なのは枠であって API 等価コストではない。** モデル別のレートの実測は [04「枠」](04-issue-driven.md)、確認が外れたときの打ち手は #123 にある。
+
 ## 検証条件の記録先
 
 **本書の運用は仮説である。検証条件は [ADR-0012](../adr/0012-design-session-bundles.md) の帰結が持つ。** 記録先は次の設計タスクの PR 説明で、0 件でも「0 件」と書く。
