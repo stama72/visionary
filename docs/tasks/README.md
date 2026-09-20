@@ -43,7 +43,7 @@
 
 `W<段階>-<連番>-<スラッグ>.handoff.md` — タスク仕様と同じ名前に `.handoff` を挟む。
 
-**フェーズをまたいで消える4件だけを持つ**([ADR-0009](../adr/0009-phase-scoped-sessions.md) 論点2)。何を書き、何を書かないかは [docs/process/05-phase-sessions.md](../process/05-phase-sessions.md) が持つ。
+**フェーズをまたいで消える5件だけを持つ**([ADR-0009](../adr/0009-phase-scoped-sessions.md) 論点2)。何を書き、何を書かないかは [docs/process/05-phase-sessions.md](../process/05-phase-sessions.md) が持つ。
 
 **使い捨て層。フェーズ3 で PR 説明へ転記し、同じブランチの最後のコミットで削除する。**
 
@@ -74,6 +74,10 @@
 | -- | -------- | ----- | ------ | ---- |
 
 打ち切ったなら理由を1行。
+
+## `mutator` の件数(フェーズ2)
+
+- 当てた変異: N 件 / 期待と食い違った数: M 件
 ```
 
 ## テンプレート

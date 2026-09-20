@@ -118,6 +118,8 @@ public sealed class TradeSystem : ISimSystem
             int floorPrice = _definition.ExternalBuyPrice(outputItemId);
 
             // 売り手の自分の錨は前日の提示価格ではなく前日の約定単価(帳簿、輸出を含む)。
+            // hasSettledは錨(§1.2)と頭打ち(§1.1)の両方に使う。母数は同じ(帳簿のSale、
+            // 品目で絞る、輸出を含む)。
             bool hasSettled = MarketReference.TryPreviousDaySettledPrice(
                 world.Ledgers[household.Id], outputItemId, world.Now, out int settledPrice);
 
@@ -139,7 +141,8 @@ public sealed class TradeSystem : ISimSystem
 
             int price = hasReference
                 ? OfferPrice.Calculate(
-                    floorPrice, marketReference, sellableStock, shipmentTargetStock, household.IsBankrupt)
+                    floorPrice, marketReference, sellableStock, shipmentTargetStock, household.IsBankrupt,
+                    hasSettled)
                 : floorPrice; // 相場基準が立たない(GDD02c §1)
 
             newOffers.Add((new MarketKey(outputItemId, household.Id), price));

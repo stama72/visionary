@@ -1,3 +1,4 @@
+using Visionary.Sim.Numerics;
 using Visionary.Sim.Systems;
 using Visionary.Sim.Time;
 
@@ -210,7 +211,33 @@ public sealed class ObservationsTests
     /// 空のうちに空振りし、2日目の観測は「まだ書き換えていない1日目の価格」を<b>2日目の日付で</b>
     /// 記録するため、2日目の<see cref="MarketReference.TrySeller"/>が読む時点で dayDifference=0
     /// となり除外される(観測が実質1日遅延し、GDD06 §3.1「観測するのは当日の提示価格」が崩れる
-    /// 経路)。変異を戻して緑に復帰させた。
+    /// 経路)。変異を戻して緑に復帰させた。<b>この赤の確認は、旧来の <c>Assert.NotEqual(floorPrice,
+    /// world.Market[key0])</c> と、帳簿へ <c>Sale</c> の行を差し込む前の構成、§1.1 の頭打ちが入る
+    /// <b>前</b>の経済(2026-09-16)に対するものだった。</b>
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の再実測(2026-09-20、<c>mutator</c> による測定、対象コミット <c>87d4837</c>、
+    /// 変異M-5)。</b>現本体(帳簿へ <c>Sale</c> 行を置く構成、
+    /// <c>Assert.Equal(ApplyPermille(床, 1400), …)</c>)に対して、観測の段(段6
+    /// <c>Observations.CollectAndShare</c>)を値付けの段(段1)より前へ移す変異を当てた。
+    /// 段6は本来段5aが確定する <c>visitedDistrictIds</c> に依存するため、文字どおり段1より前へ
+    /// 移すと訪問区画がまだ決まっていない ── <c>mutator</c> は <c>visitedDistrictIds</c> に
+    /// 空配列を渡す形で移設した。2日目に相場基準が立たず床に落ち、本テストが赤になった
+    /// (判別力を確認)。訪問区画に基づく観測を検証する他のテスト(たとえば
+    /// <c>ObservationsCoverEveryVisitedDistrictEvenWithoutAPurchase</c>)も巻き添えで赤に
+    /// なったが、これは空配列という当て方の副作用であり、本テストの判別力の証拠ではない。
+    /// </remarks>
+    /// <remarks>
+    /// <b>W2-11 追随。</b><c>household.Ledgers[0]</c> へ <c>Sale</c> の行を直接置く理由は
+    /// GDD02c §1.1 の頭打ちを外すためである ── 約定が無い売り手は<b>相場基準より上へ</b>出ない
+    /// (頭打ちが無ければ構成の前提が崩れる)。<b>この構成では</b>相場基準 = <c>CeilDiv(床+床,2)</c>
+    /// = 床(household1 は1日目に相場基準が立たず床のまま提示しているため)なので、頭打ちが掛かると
+    /// (<c>Sale</c> の行を置かないと)提示価格が床のままになってしまい、旧来の <c>Assert.NotEqual</c>
+    /// が偽になる。<b>一般則として
+    /// 「床へ引き戻される」と読んではならない</b> ── 相場基準 &gt; 床 の売り手は相場基準そのもので
+    /// 並ぶ(反例: <see cref="TradeSystemTests.UnsoldSellerIsCappedAtTheReferenceInThePipeline"/>、
+    /// 床10・相場基準200の売れていない売り手が200を提示する)。GDD02c §1.2 の囲み(「ラチェットの
+    /// 停止であって復元力ではない。止まる水準は経路依存である」)のとおり。
     /// </remarks>
     [Fact]
     public void ObservationBecomesUsableOnTheNextDayNotToday()
@@ -242,10 +269,29 @@ public sealed class ObservationsTests
         int floorPrice = definition.ExternalBuyPrice(Item.Flour);
         Assert.Equal(floorPrice, world.Market[key0]); // 相場基準が立たない(床のまま)
 
+        // household0は1日目に売れていない(hasSettled=false)ので、§1.1の頭打ちを受ける ──
+        // Saleの行を置かないとhasSettledYesterdayがfalseのままになり、頭打ちで係数が1000‰に
+        // なって提示価格が床のままになり、2日目のAssert.NotEqualが崩れる(「構成の前提が崩れた」、
+        // 本タスク仕様)。相場基準の材料(自分の錨を含むか)を決めるのはSaleの行であって頭打ちでは
+        // ない(§1.2)。この構成ではhousehold1の前日の提示価格も床なので、相場基準はどちらにせよ
+        // 床のままである。household0自身の約定を帳簿へ直接置き、hasSettled=trueにして頭打ちを外す。
+        world.Ledgers[0].Add(new LedgerEntry
+        {
+            ItemId = Item.Flour,
+            Quantity = 1,
+            UnitPrice = floorPrice,
+            OccurredAt = Tick.Zero,
+            Direction = LedgerDirection.Sale,
+            CounterpartyId = 1,
+            Terms = LedgerTerms.Cash,
+        });
+
         EconomySystemTestFixtures.RunDays(world, system, days: 1); // 2日目
 
         // 1日目に生まれた観測(household1の売り注文)が前日の記憶として使える。household0は
-        // 在庫比‰ が1000からずれているので、相場基準が立てば床とは異なる値になる。
-        Assert.NotEqual(floorPrice, world.Market[key0]);
+        // 在庫比‰ が1000からずれている(1/5 → 在庫比200‰ → 係数1400‰)ので、頭打ちが外れれば
+        // 床とは異なる値になる。相場基準 = CeilDiv(床+床,2) = 床(household1は1日目に相場基準が
+        // 立たず床のまま提示しているので、他の売り手の観測も自分の約定単価も床と同じ)。
+        Assert.Equal(IntegerMath.ApplyPermille(floorPrice, 1400), world.Market[key0]);
     }
 }

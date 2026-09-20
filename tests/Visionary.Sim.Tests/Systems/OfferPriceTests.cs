@@ -63,19 +63,99 @@ public sealed class OfferPriceTests
     public void OfferPriceFloorIsExternalBuyPrice()
     {
         // 在庫比2000(在庫20/目標10)→係数500‰→ApplyPermille(100,500)=50。
+        // hasSettledYesterday: true(頭打ちが効かない配置で床の分岐だけを見る)。
         Assert.Equal(
             80,
             OfferPrice.Calculate(
-                floorPrice: 80, marketReference: 100, sellableStock: 20, shipmentTargetStock: 10, isBankrupt: 0));
+                floorPrice: 80, marketReference: 100, sellableStock: 20, shipmentTargetStock: 10, isBankrupt: 0,
+                hasSettledYesterday: true));
         Assert.Equal(
             50,
             OfferPrice.Calculate(
-                floorPrice: 30, marketReference: 100, sellableStock: 20, shipmentTargetStock: 10, isBankrupt: 0));
+                floorPrice: 30, marketReference: 100, sellableStock: 20, shipmentTargetStock: 10, isBankrupt: 0,
+                hasSettledYesterday: true));
     }
 
     /// <summary>
-    /// 【核心】タスク仕様テスト表 #8。破産中=1・相場基準100・販売在庫0(健全なら係数1500‰=150)
-    /// → 50。床30のとき50、床80のとき80(床は破らない)。
+    /// 【核心】タスク仕様テスト表 #1。床30・相場基準100・在庫0・目標10(係数1500‰)。
+    /// hasSettledYesterday: false → 100(1000‰で頭打ち)。true → 150。
+    /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-20、<c>mutator</c> による測定、対象コミット <c>87d4837</c>)。</b>
+    /// <c>OfferPrice.Calculate</c> の §1.1 の頭打ち
+    /// (<c>coefficientPermille = Math.Min(coefficientPermille, UnsoldCapPermille);</c>)を削除する
+    /// 変異(M-1)を当てたところ、<c>hasSettledYesterday: false</c> 側の
+    /// <c>Assert.Equal(100, ...)</c> が期待100/実際150で失敗した(赤を確認)。
+    /// <c>TradeSystem</c> 段1が <c>OfferPrice.Calculate</c> の第6引数(<c>hasSettledYesterday</c>)を
+    /// <c>true</c> 定数に固定する変異(M-2)では<b>緑のまま</b>(本テストは配線を経由せず
+    /// <c>OfferPrice.Calculate</c> を直接呼ぶので、配線だけが切れている経路を踏まない)。
+    /// <c>Math.Min(coefficientPermille, UnsoldCapPermille)</c> を
+    /// <c>coefficientPermille = UnsoldCapPermille;</c> の代入に変える変異(M-3)でも<b>緑のまま</b>
+    /// (1500‰→1000‰は <c>min</c> でも代入でも結果が同じため)。
+    /// </remarks>
+    [Fact]
+    public void UnsoldSellerDoesNotRaiseAboveTheReference()
+    {
+        Assert.Equal(
+            100,
+            OfferPrice.Calculate(
+                floorPrice: 30, marketReference: 100, sellableStock: 0, shipmentTargetStock: 10, isBankrupt: 0,
+                hasSettledYesterday: false));
+        Assert.Equal(
+            150,
+            OfferPrice.Calculate(
+                floorPrice: 30, marketReference: 100, sellableStock: 0, shipmentTargetStock: 10, isBankrupt: 0,
+                hasSettledYesterday: true));
+    }
+
+    /// <summary>
+    /// 【核心】タスク仕様テスト表 #2。床30・相場基準100・在庫20・目標10(係数500‰)。
+    /// hasSettledYesterday: false → 50(値下げ側には効かない。GDD02c §1.1)。
+    /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-20、<c>mutator</c> による測定、対象コミット <c>87d4837</c>)。</b>
+    /// <c>Math.Min(coefficientPermille, UnsoldCapPermille)</c> を
+    /// <c>coefficientPermille = UnsoldCapPermille;</c> の代入に変える変異(M-3)を当てたところ、
+    /// <c>Assert.Equal(50, ...)</c> が期待50/実際100で失敗した(赤を確認 ── 値下げ側でも
+    /// 頭打ちの値を無条件に採ってしまう)。§1.1 の頭打ちそのものを削除する変異(M-1)では
+    /// <b>緑のまま</b>(頭打ちが無くても500‰は500‰のまま ── このテストが押さえているのは
+    /// <c>Math.Min</c> の向きだけである)。
+    /// </remarks>
+    [Fact]
+    public void UnsoldCapDoesNotLiftTheDiscount()
+    {
+        Assert.Equal(
+            50,
+            OfferPrice.Calculate(
+                floorPrice: 30, marketReference: 100, sellableStock: 20, shipmentTargetStock: 10, isBankrupt: 0,
+                hasSettledYesterday: false));
+    }
+
+    /// <summary>
+    /// タスク仕様テスト表 #3。床120・相場基準100・在庫0・目標10。hasSettledYesterday: false でも
+    /// 床(120)を下回らない ── 頭打ちは係数に掛かり、床の <c>Math.Max</c> はそれより後に効く。
+    /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-20、<c>mutator</c> による測定、対象コミット <c>87d4837</c>)。</b>
+    /// §1.1 の頭打ち(<c>coefficientPermille = Math.Min(coefficientPermille, UnsoldCapPermille);</c>)
+    /// を削除する変異(M-1)を当てたところ、<c>Assert.Equal(120, ...)</c> が期待120/実際150で
+    /// 失敗した(赤を確認)。
+    /// </remarks>
+    [Fact]
+    public void UnsoldCapKeepsTheFloor()
+    {
+        Assert.Equal(
+            120,
+            OfferPrice.Calculate(
+                floorPrice: 120, marketReference: 100, sellableStock: 0, shipmentTargetStock: 10, isBankrupt: 0,
+                hasSettledYesterday: false));
+    }
+
+    /// <summary>
+    /// 【核心】タスク仕様テスト表 #4。破産中=1・相場基準100・販売在庫0(健全なら係数1500‰=150)
+    /// → 50。床30のとき50、床80のとき80(床は破らない)。hasSettledYesterday が true でも
+    /// false でも 50(破産中は500‰固定が§1.1の頭打ちより先に効くので、この規則は何もしない。
+    /// GDD02c §1.1)。
     /// </summary>
     /// <remarks>
     /// <b>変異の実測(2026-09-19)。</b>破産中の枝で先に <c>StockRatioPermille</c> /
@@ -89,14 +169,19 @@ public sealed class OfferPriceTests
     {
         // shipmentTargetStock=0は「在庫比を評価しない」ことを確かめるための罠 ──
         // 評価すればArgumentOutOfRangeExceptionが飛ぶ。
-        Assert.Equal(
-            50,
-            OfferPrice.Calculate(
-                floorPrice: 30, marketReference: 100, sellableStock: 0, shipmentTargetStock: 0, isBankrupt: 1));
-        Assert.Equal(
-            80,
-            OfferPrice.Calculate(
-                floorPrice: 80, marketReference: 100, sellableStock: 0, shipmentTargetStock: 0, isBankrupt: 1));
+        foreach (bool hasSettledYesterday in new[] { false, true })
+        {
+            Assert.Equal(
+                50,
+                OfferPrice.Calculate(
+                    floorPrice: 30, marketReference: 100, sellableStock: 0, shipmentTargetStock: 0, isBankrupt: 1,
+                    hasSettledYesterday));
+            Assert.Equal(
+                80,
+                OfferPrice.Calculate(
+                    floorPrice: 80, marketReference: 100, sellableStock: 0, shipmentTargetStock: 0, isBankrupt: 1,
+                    hasSettledYesterday));
+        }
     }
 
     /// <summary>isBankrupt = 2 / -1 で ArgumentOutOfRangeException。</summary>
@@ -106,7 +191,8 @@ public sealed class OfferPriceTests
     public void CalculateRejectsFlagsOutsideZeroAndOne(int isBankrupt)
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => OfferPrice.Calculate(
-            floorPrice: 100, marketReference: 100, sellableStock: 5, shipmentTargetStock: 5, isBankrupt));
+            floorPrice: 100, marketReference: 100, sellableStock: 5, shipmentTargetStock: 5, isBankrupt,
+            hasSettledYesterday: true));
     }
 
     /// <summary>
