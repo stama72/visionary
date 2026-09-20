@@ -99,6 +99,13 @@ pwsh scripts/pipeline.ps1 -Issue 35
 
 - **パイプライン実行中、本体の `visionary/` は触らない。** 並行して進める別タスクは **worktree を分ける**
 - 本体で待つのが自然なのは、パイプラインを起動したフェーズ1 のセッション自身だけである(完了で起こされ、build / test / format と PR を独立に確認する)
+- **起動するフェーズ1 のセッションが、打つ前に 5 時間枠の残りを読む。残り 40% 未満なら打たず、リセット時刻を開発者に報告して止まる**([04「枠」](04-issue-driven.md))。`/usage` は CLI の UI なのでセッションからは読めないが、haiku の 1 呼び出し($0.1)で同じ値が取れる(実測 2026-09-20)。[#132](https://github.com/stama72/visionary/issues/132) で `pipeline.ps1` が読むようになるまでは、この 1 行で読む:
+
+  ```
+  claude -p --model haiku --output-format stream-json --verbose "OK" | grep -o '"five_hour":{"utilization":[0-9.]*,"resetsAt":[0-9]*' | tail -1
+  ```
+
+  `utilization` が 0.60 を超えていれば残り 40% 未満。`resetsAt` は Unix 秒
 
 W2-04 と #68(世界観と正式タイトル)が 21:12〜21:16 に重なったが、#68 が `.claude/worktrees/` にいたため衝突しなかった。**成立したのは worktree が分かれていたからで、WIP の数え方が守ったのではない。**
 
