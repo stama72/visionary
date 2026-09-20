@@ -86,9 +86,13 @@ if [ "${#target_files[@]}" -eq 0 ]; then
     exit 0
 fi
 
-# gawk の文字単位の substr/match は、マルチバイトロケール(UTF-8)を前提にしている。
-# Git Bash と ubuntu-latest はいずれも既定で UTF-8 ロケールなので、ここでは明示的な
-# LC_ALL の設定はしていない(決めて報告)。
+# 決めて報告: LC_ALL を固定する代わりに「§ の長さぶんだけ読み飛ばす」形にした。
+# gawk の length()/substr() は、単バイトロケール(C など)では "§"(UTF-8で2バイト)を
+# 2文字として、UTF-8ロケールでは1文字として数える。旧実装は「§の次の1文字から番号」と
+# 決め打ちしており、単バイトロケールでは §のバイトの片割れを番号に巻き込んで誤報していた
+# (実測: 2026-09-20、詳細はタスク仕様「訂正」節)。length("§") をその場で測って読み飛ばす
+# 長さに使えば、length()/substr() が同じロケールの下で常に整合するので、
+# LC_ALL の値やロケールの存在有無に依存しない。
 awk -v headings_file="$headings_file" '
     BEGIN {
         while ((getline h < headings_file) > 0) {
@@ -97,6 +101,7 @@ awk -v headings_file="$headings_file" '
         close(headings_file)
         stale_count = 0
         unresolved_count = 0
+        section_mark_len = length("§")
     }
     index($0, "§") == 0 { next }
     {
@@ -107,12 +112,14 @@ awk -v headings_file="$headings_file" '
             tail = substr(line, idx)
 
             if (!match(tail, /^§[0-9]+(\.[0-9]+)*/)) {
-                # "§" の直後が数字でない(節番号ではない用法)。1文字だけ進めて続行する。
-                line = substr(line, idx + 1)
+                # "§" の直後が数字でない(節番号ではない用法)。"§" 自体の長さぶん進めて続行する
+                # (idx + 1 だと単バイトロケールで § の後半バイトが残り、次周回の index() が
+                # ずれる)。
+                line = substr(line, idx + section_mark_len)
                 continue
             }
 
-            numtoken = substr(tail, 2, RLENGTH - 1)
+            numtoken = substr(tail, section_mark_len + 1, RLENGTH - section_mark_len)
             rest = substr(tail, RLENGTH + 1)
 
             if (match(prefix, /(GDD|TDD)[0-9][0-9][a-d]?[ \t]*$/)) {
