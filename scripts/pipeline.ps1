@@ -37,16 +37,19 @@ $LogDir = Join-Path $RepoRoot '.pipeline'
 # ロックの読み書きは pipeline-guard.ps1(PreToolUse フック)と共有する。
 . (Join-Path $PSScriptRoot 'pipeline-lock.ps1')
 
-# **サブエージェントの取り込み待ちの上限。** 既定は 600 秒で、超えると印刷モードは
-# 背景タスクを**打ち切って**終わる。W2-07(#96)の2回目はこれを踏んだ:
+# **サブエージェントの取り込み待ちの上限。** 非対話モード(`claude -p`)は、サブエージェントや
+# ワークフローを背景で走らせている間は終了せずに待つが、**待ちがアイドルのまま 10 分続くと
+# 走っているものを止め、部分結果を捨てる**(公式ドキュメント「Claude Code をプログラムで
+# 実行する — 終了時のバックグラウンドタスク」)。W2-07(#96)の2回目はこれを踏んだ:
 # `Background tasks still running after 600s; terminating.` の直後に implementer の
 # ツール実行が拒否の形で返り、オーケストレータの最後の発話「implementer が…処理中です。
 # 完了通知を待ちます。」がそのまま最終 result になって `NO-SENTINEL` で止まった
 # ([#100](https://github.com/stama72/visionary/issues/100))。
-# **implementer の1巡は 10 分を普通に超える**ので、既定のままでは実装の途中で切られる。
 #
 # 0(無限待ち)にしないのは、ハングしたフェーズが**通知も出さずに永久に居座る**ほうが
 # 高くつくため。1時間で切れば、少なくとも NO-SENTINEL として通知が飛ぶ。
+# **これは打ち切りを遅らせるだけで、ハングを見分けてはいない。** 実行基盤ごと替えれば
+# 要らなくなる可能性があり、そのときに見直す(#106 に申し送り済み)。
 $env:CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS = '3600000'
 
 # 無人実行の権限面。**対話セッションには一切影響しない** — ここで渡した範囲だけが
@@ -206,7 +209,7 @@ function Get-NoSentinelDetail {
 
     $lines = Get-Content -LiteralPath $Log -Encoding UTF8
 
-    # 1. 背景タスクの打ち切り。印刷モードが自分で書き出す1行。
+    # 1. 背景タスクの打ち切り。非対話モード(`claude -p`)が自分で書き出す1行。
     $bg = $lines | Where-Object { $_ -match 'Background tasks still running after .* terminating' } | Select-Object -First 1
     if ($bg) {
         return "サブエージェントを待ち切れずに打ち切られた(CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS)。合図を出す前に終わっている: $($bg.Trim())"
