@@ -1817,6 +1817,12 @@ public sealed class TradeSystemTests
         EconomySystemTestFixtures.RunDays(world, system, days: 1); // 2日目
 
         // 前提: household0が実際に工具を1個買っている(段5b、耐久)。
+        //
+        // レビュー3巡目: このQuantity == 1は、本テストの主題(段1の相場基準の位置)とは
+        // 別に、BuyerBudget.QuantityInUnits(耐久の換算)も拘束している。この換算を守って
+        // いるテストは他に無いため、この行をQuantity >= 1へ緩めると換算の崩れ(1 → 50個)を
+        // 検出できなくなる ── R-6の主題からは妥当な整理に見えるため気付きにくい。意図した
+        // 設計ではなく、3巡目のレビューが見つけた偶然の拘束である。
         Assert.Contains(
             world.Ledgers[0],
             entry => entry.Direction == LedgerDirection.Purchase
