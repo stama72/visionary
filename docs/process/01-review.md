@@ -21,6 +21,7 @@
 | 工程 | 誰が見るか |
 | ---- | ---------- |
 | **実装**(コードとテスト) | [レビュアーエージェント](../../.claude/agents/reviewer.md) → 開発者 |
+| **テストの判別力**(変異が落ちるか) | [`mutator`](../../.claude/agents/mutator.md) が実測する([ADR-0013](../adr/0013-mutation-measurement-separated.md)) |
 | **設計・プロセス・文書のみ** | [`/advise`](../../.claude/commands/advise.md)(任意)→ 開発者 |
 
 **レビュアーエージェントは実装工程にだけ使う。** 設計・プロセス工程には使わない([ADR-0008](../adr/0008-review-scope-narrowed-to-unnoticeable-defects.md) 論点3)。
@@ -44,7 +45,7 @@
 
 **憲章そのものの正は [`.claude/agents/reviewer.md`](../../.claude/agents/reviewer.md) である。** 本書はその本文を複製しない。理由は憲章が**実行される設定**だからである(詳細は [README「実行される仕様」](README.md#実行される仕様という位置づけ))。
 
-同じことが [`.claude/agents/implementer.md`](../../.claude/agents/implementer.md)、[`.claude/commands/learn.md`](../../.claude/commands/learn.md)、[`.claude/commands/advise.md`](../../.claude/commands/advise.md)、[`.claude/commands/impl.md`](../../.claude/commands/impl.md)、[`.claude/commands/wrap.md`](../../.claude/commands/wrap.md) にも当てはまる。
+同じことが [`.claude/agents/implementer.md`](../../.claude/agents/implementer.md)、[`.claude/agents/mutator.md`](../../.claude/agents/mutator.md)、[`.claude/commands/learn.md`](../../.claude/commands/learn.md)、[`.claude/commands/advise.md`](../../.claude/commands/advise.md)、[`.claude/commands/impl.md`](../../.claude/commands/impl.md)、[`.claude/commands/wrap.md`](../../.claude/commands/wrap.md) にも当てはまる。
 
 ADR-0004 決定(まとめ)にも憲章のリストがあるが、**あれは起案時点(2026-08-27)のスナップショット**である([ADR-0005](../adr/0005-reviewer-scope-includes-spec-defects.md))。
 
@@ -79,12 +80,14 @@ ADR-0004 決定(まとめ)にも憲章のリストがあるが、**あれは起�
 
 **欠陥の出所に列挙可能な境界が見えたら、探すのをやめて数え上げる。**
 
-渡し方は「`X` が外部とやりとりする全経路を列挙し、各経路の変異が既存テストで落ちるか判定せよ」の形にする。レビュアーは読んで見つけるのではなく、**有限のリストを埋める。**
+渡し方は「`X` が外部とやりとりする全経路を列挙し、各経路に当てるべき変異を書き出せ」の形にする。レビュアーは読んで見つけるのではなく、**有限のリストを埋める。**
+
+**列挙はレビュアー、実測は [`mutator`](../../.claude/agents/mutator.md) である**([ADR-0013](../adr/0013-mutation-measurement-separated.md))。レビュアーが出すのは**経路と、当てる変異と、期待**までで、当てない。**机上で「落ちるはず」と埋めさせない** — 外れても誰も気付かないことが、この巡が測っている対象そのものである。W2-08 では60件の実測をレビュアーに委託しており、変異作業のあいだ本体ツリーが汚れて並行走行の検出が鈍った([#109](https://github.com/stama72/visionary/issues/109) / [#110](https://github.com/stama72/visionary/issues/110))。
 
 - **起動条件は「列挙可能な境界が見えたこと」である。** 同一類型が続いたことではない。続いたことは境界に気付く**きっかけ**ではあるが、条件ではない
 - **境界が引けない対象へ出さない。** レビュアーは全体を読み直すだけになる
 - **巡を1つ消費する。** 網羅を出すなら、**探索の巡を1つ削って充てる。** 上限4も、巡ごとの減衰も動かさない
-- **減衰表はそのまま当たる。** 網羅が出す「この経路の変異が落ちない」は定義上 I-a(緑のまま壊れる)なので、3巡目でも通る。**充てられるのは2巡目か3巡目である** — 1巡目は境界がまだ見えず、4巡目は打ち切りのままだからである
+- **減衰表はそのまま当たる。** 実測が出す「この経路の変異が落ちない」は定義上 I-a(緑のまま壊れる)なので、3巡目でも通る。**充てられるのは2巡目か3巡目である** — 1巡目は境界がまだ見えず、4巡目は打ち切りのままだからである
 
 **実測(W2-05)**: 探索の1〜3巡で計6件。**上限を1つ超えた4回目**を網羅へ切り替えたところ、同じ類型を10件まとめて出した。10件は全件に変異を当てて283件が緑のまま通ることを確認しており、直さずに [#37](https://github.com/stama72/visionary/issues/37) へ引き継いだ(`d9f380e`)。
 
