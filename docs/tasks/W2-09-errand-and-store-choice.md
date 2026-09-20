@@ -551,6 +551,39 @@ public static int QuantityInUnits(DemandPurpose purpose, int quantity, int durab
 
 - `TradePipelineTests.NecessityIsSettledBeforePreference` の **`Lines` 逆順変異で赤になるかの再実測**。[#81](https://github.com/stama72/visionary/issues/81) の検出器の判別力が、`AmpleLiquidFunds` を 1000 → 100,000 に広げたことで吸収されている可能性がある
 
+## 別表 D: 4 回目の差し戻しの裁定(フェーズ1、2026-09-20)
+
+**4 回目は `IMPL-BLOCKED`。ただし性質が前 3 回と違う — コードは緑(358 件)で、止まったのはテスト設計の選択である。** 別表 C は入り切り、変異 5 件も赤を実測済み。
+
+**晴れた疑いが 2 件ある(先に記録する)。**
+
+- `NecessityIsSettledBeforePreference` の判別力は**維持されていた**。`Lines` 逆順変異で赤を実測。別表 A が疑った「`AmpleLiquidFunds` を 40 倍に広げたことで走査順の変異を吸収している」は**否定された**
+- 3 回目の「疑い」(`ErrandPlanner` が `DemandPurpose` を見ない)は C-1 の一本化で**根治**した
+
+### D-1. 用途フィルタは単体テストで押さえ、パイプラインテストには求めない
+
+**報告された事実**: `UnaffordableNecessityCountsOnlyTheFundsShortfall` の手順9 から `Purpose == Necessity &&` を外す変異が、現本体の自然発生シナリオ(世帯 Id 2・17 日目)で**赤にならない**。その日は `Necessity` 以外の行が `fundsCap == 0` を踏まない。
+
+**なぜ踏みにくいかは構造で説明が付く。** 手順9 に到達するには段4 のゲート(`実効価格 ≤ 現金上限`)を通っている必要があり、`現金上限 ≤ 用途に使える資金 ≤ 流動資金` なので、**本来なら `fundsCap ≥ 1` である。** 踏むのは、**同じ世帯の先行する行が約定して `LiquidFunds` を減らした後だけ** — 段4 の `CashCap` が古くなることが唯一の経路である。
+
+したがって**非必需の行が手順9 で `fundsCap == 0` を踏むには、必需の行(走査が先)が先に資金を使い切っている必要がある。** 自然発生を待つ形では、その組み合わせが出る日を探すことになる。
+
+**裁定: 探さない。単体テストで構成する。**
+
+| | どうする |
+| -- | -------- |
+| **新設** | `TradeSystemTests` に **`NonNecessityFundsShortfallIsNotCounted`** を足す。必需の行で資金をほぼ使い切らせ、**嗜好の行が古い現金上限のゲートを通ってから `fundsCap == 0` に当たる**世帯を手で組む。**必需の側が `fundsCap == 0` を踏まない**ように置き、期待値は **0**。`Purpose == Necessity &&` を外す変異で **1** になる。**変異を当てて赤を実測すること**(変異 6 件目) |
+| **置き場所** | [W2-08](W2-08-offer-price-and-budget.md) のテスト #27(`NecessityShortfallIsCountedOnBothPaths`)・#29 の隣。**#27 は必需の 2 経路、#28 は理由コードを押さえており、「非必需が経路(2)で数えられないこと」はどちらも押さえていない** — ここが本当の穴である |
+| **パイプラインテスト** | **本体は変えない。doc コメントだけ直す。** 「本テストは用途フィルタを判別しない(押さえるのは `TradeSystemTests.NonNecessityFundsShortfallIsNotCounted`)」と明記し、**旧本体のまま残っている `<summary>`(「流動資金 0 の世帯」)と変異の実測 remarks(「2 → 3 で赤」)を現本体に合わせて書き直す**(3 回目のレビュー I-a) |
+
+**日/世帯を選び直さない理由がもう 1 つある。** 17 日目は [#120](https://github.com/stama72/visionary/issues/120) の発散する経済の中の 1 日である。**いま別の日を選び直しても、#120 が直れば同じ作業をもう一度することになる。** 自然発生のシナリオを固定値で持つ限り、この再導出は #120 のたびに起きる。
+
+> **パイプラインテストから判別力を取り上げるのは、格下げではなく置き場所の訂正である。** 用途フィルタは `RunOneHouseholdsShopping` の 1 行が持つ**単体の契約**であり、45 世帯 17 日の走行の中で偶然その組み合わせが出るのを待つ形は、**判別力が経済の状態に従属する。** [#81](https://github.com/stama72/visionary/issues/81) が「判別力が無い」と実測して立った issue であることを思い出すこと — 同じ形をもう一度作らない。
+
+### D-2. パイプラインテストの実測値は #120 で動く
+
+本タスクで触る 3 件(`UnaffordableNecessityCountsOnlyTheFundsShortfall` / `NecessityIsSettledBeforePreference` / `ObservationsDoNotGrowWithoutBound`)は、いずれも**発散する経済の中の実測値**を持っている。**doc コメントに「#120 が直れば動く」と 1 行ずつ書くこと。** 書かないと、#120 の PR がこの 3 件を壊したときに「#120 の実装バグ」と読まれる。
+
 ## 編集してよい文書
 
 worktree をまたいだ所有権の宣言。**ここに挙がっていない文書は触らない。**
@@ -572,7 +605,8 @@ worktree をまたいだ所有権の宣言。**ここに挙がっていない文
 ## 完了条件
 
 - [ ] 「落ちるべき条件」のテストが全て緑
-- [ ] **#14・#17・#21・#29・#30 に変異を当てて落ちることを確認し、当てた変異と結果を残した**
+- [ ] **#14・#17・#21・#29・#30 と `NonNecessityFundsShortfallIsNotCounted`(別表 D-1)に変異を当てて落ちることを確認し、当てた変異と結果を残した**
+- [ ] **パイプラインテスト3 件の doc コメントに「実測値は [#120](https://github.com/stama72/visionary/issues/120) が直れば動く」を書いた**(別表 D-2)
 - [ ] **`ErrandPlannerTests` が `DemandPurpose` を 4 種とも通している**(3 回目のレビュー I-1 は「耐久の行が 1 本も通っていない」ことに守られていた)
 - [ ] `dotnet build Visionary.sln -c Release` が警告0
 - [ ] `dotnet test Visionary.sln -c Release` が緑
