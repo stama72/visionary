@@ -93,9 +93,122 @@ public sealed class TradePipelineTests
     }
 
     /// <summary>
-    /// テスト表 #21。約定1日ぶんの前後で、各品目の(全世帯の世帯在庫 + 工房在庫)の合計が変わらない
-    /// (生産・消費を登録せず TradeSystem だけで回す)。
+    /// 【核心】テスト表 #17(#38)。M0・60日・シード1: Σ(流動資金の変化) ==
+    /// Σ(外部 <c>Sale</c> の額) − Σ(外部 <c>Purchase</c> の額)。GDD02d §4.1 の恒等式そのもの。
     /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>39e367a</c>、M-3)。</b><c>TradeSettlement.ExecuteExport</c> の記帳を落とす
+    /// (資金と在庫だけ動かす)変異は期待どおり赤になった。
+    /// </remarks>
+    [Fact]
+    public void MoneyChangesOnlyByTheExternalLedger()
+    {
+        var definition = WorldDefinition.M0;
+        var world = WorldGenerator.Generate(definition, new RandomSource(1));
+
+        long initialFundsTotal = 0;
+        foreach (var household in world.Households)
+        {
+            initialFundsTotal += household.LiquidFunds;
+        }
+
+        var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(1));
+        scheduler.Advance(world, ticks: 60 * 24);
+
+        long finalFundsTotal = 0;
+        foreach (var household in world.Households)
+        {
+            finalFundsTotal += household.LiquidFunds;
+        }
+
+        long externalSaleTotal = 0;
+        long externalPurchaseTotal = 0;
+        bool anyExternalEntry = false;
+
+        foreach (var household in world.Households)
+        {
+            foreach (var entry in world.Ledgers[household.Id])
+            {
+                if (entry.CounterpartyId != HouseholdState.ExternalMarketSellerId)
+                {
+                    continue;
+                }
+
+                anyExternalEntry = true;
+                long amount = (long)entry.Quantity * entry.UnitPrice;
+
+                if (entry.Direction == LedgerDirection.Sale)
+                {
+                    externalSaleTotal += amount;
+                }
+                else
+                {
+                    externalPurchaseTotal += amount;
+                }
+            }
+        }
+
+        Assert.Equal(finalFundsTotal - initialFundsTotal, externalSaleTotal - externalPurchaseTotal);
+        Assert.True(anyExternalEntry, "60日回しても外部の約定が1件も無い(値の問題の可能性)。");
+    }
+
+    /// <summary>
+    /// テスト表 #18(#38)。60日で外部 <c>Purchase</c> ≥ 1 かつ外部 <c>Sale</c> ≥ 1。
+    /// </summary>
+    /// <remarks>
+    /// <b>窓口の帳簿を世帯として持つ(相手Idが <c>int.MaxValue</c> 以外になる)実装ミス</b>では、
+    /// ここで相手Idを予約Idで絞る集計が0件のままになり本テストが落ちる(タスク仕様)。
+    /// </remarks>
+    [Fact]
+    public void ImportsAndExportsAreRecordedAgainstTheReservedId()
+    {
+        var definition = WorldDefinition.M0;
+        var world = WorldGenerator.Generate(definition, new RandomSource(1));
+
+        var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(1));
+        scheduler.Advance(world, ticks: 60 * 24);
+
+        int externalPurchaseCount = 0;
+        int externalSaleCount = 0;
+
+        foreach (var household in world.Households)
+        {
+            foreach (var entry in world.Ledgers[household.Id])
+            {
+                if (entry.CounterpartyId != HouseholdState.ExternalMarketSellerId)
+                {
+                    continue;
+                }
+
+                if (entry.Direction == LedgerDirection.Purchase)
+                {
+                    externalPurchaseCount++;
+                }
+                else
+                {
+                    externalSaleCount++;
+                }
+            }
+        }
+
+        Assert.True(externalPurchaseCount >= 1, "60日で外部Purchaseが1件も無い(値の問題の可能性)。");
+        Assert.True(externalSaleCount >= 1, "60日で外部Saleが1件も無い(値の問題の可能性)。");
+    }
+
+    /// <summary>
+    /// テスト表 #19(#38。既存テスト表 #21「TradeNeitherCreatesNorDestroysGoods」の書き直し)。
+    /// 約定1日ぶんの前後で、品目ごとに「都市の財の総量の変化 = 外部 <c>Purchase</c> の数量 −
+    /// 外部 <c>Sale</c> の数量」が成り立つ(生産・消費を登録せず <see cref="TradeSystem"/> だけで
+    /// 回す)。
+    /// </summary>
+    /// <remarks>
+    /// <b>#38 追随(2026-09-20)。</b>輸入が財を増やし輸出が減らすようになったため、
+    /// 「= 0」の不変条件は成り立たなくなった(実測: 穀物 156 → 312 など)。<b>世帯間の売買が
+    /// 財を作らないことは、この式の右辺に外部の行しか現れないことで守られる</b> ──
+    /// <see cref="TradeSettlement.Execute"/>(世帯間)は買い手・売り手の双方を動かし総量を
+    /// 変えないので、右辺の外部 <c>Purchase</c>/<c>Sale</c> だけが差分の全量を説明する。
+    /// </remarks>
     /// <remarks>
     /// <c>WorldGenerator</c> は各世帯の<b>出力品目</b>の工房在庫を初期化しない(生産の入力・工具
     /// だけを初期化する)ので、<c>TradeSystem</c> 単独では誰も売り注文を出せない。実際に約定が
@@ -103,7 +216,7 @@ public sealed class TradePipelineTests
     /// 対応は <see cref="WorldGenerator"/> が生成した実世界のままで、縮退させない。
     /// </remarks>
     [Fact]
-    public void TradeNeitherCreatesNorDestroysGoods()
+    public void GoodsChangeOnlyByTheExternalLedger()
     {
         var definition = WorldDefinition.M0;
         var world = WorldGenerator.Generate(definition, new RandomSource(1));
@@ -122,13 +235,56 @@ public sealed class TradePipelineTests
 
         var after = TotalGoodsByItem(world, definition.ItemCount);
 
-        Assert.Equal(before, after);
+        var externalPurchaseByItem = new long[definition.ItemCount];
+        var externalSaleByItem = new long[definition.ItemCount];
+        bool anyLedgerEntry = false;
+        long externalPurchaseQuantityTotal = 0;
+        long externalSaleQuantityTotal = 0;
+
+        foreach (var household in world.Households)
+        {
+            foreach (var entry in world.Ledgers[household.Id])
+            {
+                anyLedgerEntry = true;
+
+                if (entry.CounterpartyId != HouseholdState.ExternalMarketSellerId)
+                {
+                    // 世帯間の約定は移転であり、双方の行を合わせると財を作らない(下のremark参照)。
+                    continue;
+                }
+
+                if (entry.Direction == LedgerDirection.Purchase)
+                {
+                    externalPurchaseByItem[entry.ItemId] += entry.Quantity;
+                    externalPurchaseQuantityTotal += entry.Quantity;
+                }
+                else
+                {
+                    externalSaleByItem[entry.ItemId] += entry.Quantity;
+                    externalSaleQuantityTotal += entry.Quantity;
+                }
+            }
+        }
+
+        for (int itemId = 0; itemId < definition.ItemCount; itemId++)
+        {
+            long expectedDelta = externalPurchaseByItem[itemId] - externalSaleByItem[itemId];
+            Assert.Equal(expectedDelta, after[itemId] - before[itemId]);
+        }
 
         // 空振り防止。誰も約定していなければ、このテストは「生産も消費もしなければ壊れない」
         // という自明な主張しか検証していないことになる。
         Assert.True(
-            world.Ledgers.Any(entries => entries.Count > 0),
+            anyLedgerEntry,
             "1日回しても1件も約定していない(値の問題の可能性。止まって報告する対象)。");
+
+        // 別表(続き)R-7(レビュー2巡目)。上のanyLedgerEntryは世帯間の行でも真になるので、
+        // 不変条件を「=0」から「=外部Purchase-外部Sale」へ書き換えたのに旧テストの空振り防止を
+        // 持ち越すと、外部の約定が0件の日でも両辺とも0で緑になる(書き換え前の主張しか
+        // 検証していない)。外部の約定が実際に1件以上あることを別に確かめる。
+        Assert.True(
+            externalPurchaseQuantityTotal + externalSaleQuantityTotal >= 1,
+            "1日回しても外部の約定(Purchase/Sale)が1件も無い(値の問題の可能性)。");
     }
 
     /// <summary>
@@ -252,6 +408,18 @@ public sealed class TradePipelineTests
     /// (パン)が先に検出される。60日目の値(725,771)と、
     /// <see href="https://github.com/stama72/visionary/issues/38">#38</see> のフェーズ2が
     /// <c>BandMultiplier</c> を実測して動かしてよいことは変わらない。
+    /// </remarks>
+    /// <remarks>
+    /// <b><c>BandMultiplier = 20</c> が成り立つのはシード1だけである。</b>#38 の実測
+    /// (2026-09-20)でシード2は60日で67.20倍(37日目・薪・床10・価格672)。シードを足すと赤になる。
+    /// 歯止めは <see href="https://github.com/stama72/visionary/issues/120">#120</see>。
+    /// <b>定数とシードは動かさない。</b>
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>39e367a</c>)。</b>#38 の M-1・M-4・M-5・M-6・M-7 の5つすべてで本テストが赤になった。
+    /// 60日走行を毎日見る固定検出器は<b>どんな摂動でも赤になりうる</b> ──
+    /// 本テストが赤になったことを、特定の契約が壊れた証拠として読んではならない。
     /// </remarks>
     [Fact]
     public void OfferPricesStayWithinTheBandOverSixtyDays()
@@ -474,24 +642,38 @@ public sealed class TradePipelineTests
     /// ほぼ使い切らせてから嗜好の行が古い現金上限のゲートを通る世帯を手で組み、この変異に対する
     /// 判別力を持つ。
     /// </remarks>
+    /// <remarks>
+    /// <b>#38 追随(2026-09-20)。窓口が入って経済の形が変わり、自然発生する日・世帯が動いた</b>
+    /// (実測: 世帯Id2、12日目に自然発生する。10日目・世帯Id3ではもう自然発生しない)。
+    /// 60日間の走行で <c>UnaffordableNecessityCount &gt; 0</c> になる(世帯, 日)の組は多数に
+    /// 増えた(窓口の輸入・輸出が入り経済が枯れなくなったため) ── そのうち最初に現れるものを
+    /// 使う。この実測値も、輸出入の帯([#120](https://github.com/stama72/visionary/issues/120))が
+    /// 変われば動く。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>39e367a</c>)。</b>#38 の M-1・M-4・M-5・M-6・M-7 の5つすべてで本テストが赤になった。
+    /// 60日走行を毎日見る固定検出器は<b>どんな摂動でも赤になりうる</b> ──
+    /// 本テストが赤になったことを、特定の契約が壊れた証拠として読んではならない。
+    /// </remarks>
     [Fact]
     public void UnaffordableNecessityCountsOnlyTheFundsShortfall()
     {
         var definition = WorldDefinition.M0;
 
-        // 資金不足のケース(シード1・操作なし。世帯Id3、10日目に自然発生する。上のremarks参照)。
+        // 資金不足のケース(シード1・操作なし。世帯Id2、12日目に自然発生する。上のremarks参照)。
         {
             var world = WorldGenerator.Generate(definition, new RandomSource(1));
             var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(1));
 
-            scheduler.Advance(world, ticks: 9 * 24); // 9日目まで。
-            Assert.Equal(0, world.Households[3].UnaffordableNecessityCount);
+            scheduler.Advance(world, ticks: 11 * 24); // 11日目まで。
+            Assert.Equal(0, world.Households[2].UnaffordableNecessityCount);
 
-            scheduler.Advance(world, ticks: 24); // 10日目。資金不足が1件自然発生する。
-            Assert.Equal(1, world.Households[3].UnaffordableNecessityCount);
+            scheduler.Advance(world, ticks: 24); // 12日目。資金不足が1件自然発生する。
+            Assert.Equal(1, world.Households[2].UnaffordableNecessityCount);
 
-            scheduler.Advance(world, ticks: 24); // 11日目。毎日上書きする(GDD02b §3.3)ので0に戻る。
-            Assert.Equal(0, world.Households[3].UnaffordableNecessityCount);
+            scheduler.Advance(world, ticks: 24); // 13日目。毎日上書きする(GDD02b §3.3)ので0に戻る。
+            Assert.Equal(0, world.Households[2].UnaffordableNecessityCount);
         }
 
         // 在庫切れのケース。木工2戸の薪(工房在庫)と入力の木材(工房在庫)を0にして生産による
@@ -568,7 +750,14 @@ public sealed class TradePipelineTests
     /// 価格差を生んでいるかを見る。<b>閾値を置かない</b>(値の調整(#28)で揺れうるため)。
     /// </remarks>
     /// <remarks>
-    /// <b>この構成でも判別力は回復していない(3巡目の実測。seed 1・30日・全317件に対して
+    /// <b>以下は #37 当時(#98 の前)の実測であり、当てた先のコードは現行には無い。</b>
+    /// #98 が移動費を実効価格から外し(GDD06 §2「移動は外出ごとに1回払う。品目ごと・単位ごとには
+    /// 払わない」)、<c>TravelCostPerUnit</c> と <c>isKnown</c> はどちらも削除された。
+    /// <b>現行コードで何が本テストを拘束しているかは測っていない</b> ── 測り直しは
+    /// <see href="https://github.com/stama72/visionary/issues/145">#145</see>(#37 申し送り3 の引き取り)。
+    /// #38 で候補集合の構造が変わった(中心区画に窓口が常時1件ある)ので、交絡も当時とは違う。
+    ///
+    /// <b>この構成でも判別力は回復していない(#37 の3巡目の実測。seed 1・30日・全317件に対して
     /// フルスイートで測り直した)。</b>「実質コストから移動費を落とす」と「<c>realCost = price</c>」は
     /// <see cref="StoreChoice.TrySelect"/> の実質コスト算出箇所が1か所しか無いため、
     /// <b>同一のコード変更になる</b>(2巡目の表はこの2行に異なる結果を載せており誤っていた)。
@@ -585,12 +774,11 @@ public sealed class TradePipelineTests
     ///
     /// <b>W2 で残る価格差の主因は在庫枯渇の順序であって、空間の摩擦ではない。</b>買い手の区画が
     /// 店の選択から完全に消えても、売り切れの起き方が日ごと・区画ごとに違えば約定単価の集合は
-    /// 一致する保証が無い。<b>移動費と実質コストの argmin を守っているのは単体 #10
-    /// (<see cref="StoreChoiceTests.SelectsTheCheapestRealCostNotTheCheapestPrice"/>)である。</b>
+    /// 一致する保証が無い。<b>当時 argmin を守っていた単体テストは #98 で置き換わっており、
+    /// いまどのテストが守っているかは未確認である</b>(#145 が測る。狭い側に倒して
+    /// 名前を書かない ── 実在しないテスト名を「守っている」と書いた記述が #38 まで残っていた)。
     /// 本テストを「空間の摩擦の検出器」として読まないこと ── 本テストが主張できるのは
     /// 「統合系で区画ごとの約定単価が一致しない」という存在命題までであり、原因の分解ではない。
-    /// #38(都市外市場)で候補集合の構造が変われば交絡も変わるので、そのとき判別力を持たせ
-    /// られるかを測り直す(issue へ)。
     /// </remarks>
     [Fact]
     public void SpatialFrictionSurvives()
@@ -652,5 +840,99 @@ public sealed class TradePipelineTests
             "30日回しても、同一品目・同一日について区画ごとの約定単価の集合が常に一致した"
                 + "(存在命題が成立しなかった。値の問題の可能性。上記remark参照 ── この失敗は"
                 + "『空間の摩擦が消えた』ことを直接は意味しない)。");
+    }
+
+    private static Recipe TimberToFlourRecipe() =>
+        new(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = Item.Flour, Quantity = 1 } },
+            inputs: new[] { new ItemQuantity { ItemId = Item.Timber, Quantity = 2 } },
+            laborPermille: 1000);
+
+    /// <summary>
+    /// テスト表 #20(#38)。<c>IsExportEnabled = false</c> で60日回すと外部 <c>Sale</c> が0件。
+    /// 輸入は起き続ける。
+    /// </summary>
+    /// <remarks>
+    /// <b>M-2非対象(measure only)。</b>世帯は中心区画に住み、木材(1次産品)を入力に薪(都市生産品)
+    /// を作る ── 輸出も輸入も移動なしで毎日成立する配置にすることで、「輸出を切っても輸入まで
+    /// 止まっていない」ことを空間の摩擦抜きで確かめる。実験軸そのものが輸入まで止める(フラグを
+    /// 読んでいない)実装ミスで本テストが落ちる(タスク仕様)。<see cref="WorldDefinition.M0"/> は
+    /// 使わない ── <c>BuildM0</c> は <c>isExportEnabled</c> を明示的に渡さない(既定 <c>true</c>)
+    /// ため、M0を経由してこの軸を反転させる手段が無い(#38タスク仕様「決めたこと」)。
+    /// </remarks>
+    [Fact]
+    public void ExportCanBeTurnedOff()
+    {
+        var definition = EconomySystemTestFixtures.BuildDefinition(
+            TimberToFlourRecipe(),
+            opportunityCostBaseByOccupation: new[] { 1, 1, 1, 1, 1 },
+            rankCoefficientPermille: new[] { 1000, 1000, 1000 },
+            travelHoursPerDistrict: 1,
+            inputBufferDays: 1,
+            shipmentDays: 1,
+            equipmentPermilleWithoutTools: 1000, // 工具の有無を本テストの関心から外す。
+            isExportEnabled: false);
+
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+        world.Npcs[0].Rank = NpcRank.Master;
+        world.Households[0] = new HouseholdState(
+            id: 0, districtId: District.ExternalMarketDistrictId, headNpcId: 0,
+            memberNpcIds: new[] { 0 }, itemCount: Item.Count);
+        world.Households[0].Occupation = Occupation.Miller;
+        world.Households[0].LiquidFunds = 100_000;
+
+        var scheduler = new SimScheduler(
+            new ISimSystem[] { new ProductionSystem(definition), new TradeSystem(definition) },
+            new RandomSource(1));
+
+        scheduler.Advance(world, ticks: 60 * 24);
+
+        bool anyExternalSale = false;
+        bool anyExternalPurchase = false;
+
+        foreach (var entry in world.Ledgers[0])
+        {
+            if (entry.CounterpartyId != HouseholdState.ExternalMarketSellerId)
+            {
+                continue;
+            }
+
+            if (entry.Direction == LedgerDirection.Sale)
+            {
+                anyExternalSale = true;
+            }
+            else
+            {
+                anyExternalPurchase = true;
+            }
+        }
+
+        Assert.False(anyExternalSale, "IsExportEnabled=falseでも輸出(外部Sale)が起きた。");
+        Assert.True(anyExternalPurchase, "輸入(外部Purchase)まで止まった(フラグが輸入まで読んでいる可能性)。");
+    }
+
+    /// <summary>
+    /// テスト表 #21(#38)。60日で工具の <c>Purchase</c> が1件以上
+    /// (<a href="https://github.com/stama72/visionary/issues/38">#37</a> 申し送り2)。
+    /// </summary>
+    /// <remarks>
+    /// <b>本テストは #38 の検出器ではない。</b>実測(タスク仕様「設計の前提」)のとおり master
+    /// (<c>010afa0</c>)でも120日で工具の約定は4〜6件あり、#38 が無くても成り立つ。
+    /// <b>耐久の枝(段5b の <c>BuyerBudget.QuantityInUnits</c>)の回帰ガードである。</b>
+    /// </remarks>
+    [Fact]
+    public void ToolsAreTradedInThePipeline()
+    {
+        var definition = WorldDefinition.M0;
+        var world = WorldGenerator.Generate(definition, new RandomSource(1));
+
+        var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(1));
+        scheduler.Advance(world, ticks: 60 * 24);
+
+        bool anyToolPurchase = world.Ledgers.Any(entries => entries.Any(
+            entry => entry.Direction == LedgerDirection.Purchase && entry.ItemId == Item.Tools));
+
+        Assert.True(anyToolPurchase, "60日で工具のPurchaseが一度も成立しなかった(値の問題の可能性)。");
     }
 }

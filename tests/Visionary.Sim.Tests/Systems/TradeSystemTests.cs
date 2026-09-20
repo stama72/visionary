@@ -52,7 +52,8 @@ public sealed class TradeSystemTests
         int[]? preferenceTargetStockDays = null,
         int tolerancePermille = 1200,
         int minimumMarginPermille = 0,
-        int shipmentDays = 1)
+        int shipmentDays = 1,
+        bool isExportEnabled = true)
     {
         var externalBuyPrice = new int[Item.Count];
         externalBuyPrice[Item.Bread] = breadFloor;
@@ -70,7 +71,8 @@ public sealed class TradeSystemTests
             travelHoursPerDistrict: 1,
             shipmentDays: shipmentDays,
             inputBufferDays: 1,
-            externalBuyPriceOverride: externalBuyPrice);
+            externalBuyPriceOverride: externalBuyPrice,
+            isExportEnabled: isExportEnabled);
     }
 
     /// <summary>世帯を1戸、指定の区画・職業で作る(単独NPC世帯)。</summary>
@@ -260,12 +262,20 @@ public sealed class TradeSystemTests
     /// 健全時の係数のまま、<c>ApplyPermille(200,1000)=200</c>)で失敗した(赤を確認)。
     /// 変異を戻して緑に復帰させた。
     /// </remarks>
+    /// <remarks>
+    /// <b>#38 追随(2026-09-20)。</b><c>isExportEnabled: false</c> で構成し直す。輸出が入ると、
+    /// 破産中は閾在庫0(<see cref="ExternalMarket.ExportThresholdStock"/>)になり、1日目の夕方に
+    /// 販売在庫を全量窓口へ持ち込んでしまい、2日目の朝は売り注文が立たず
+    /// <c>world.Market[key]</c> が <c>KeyNotFoundException</c> になる(実測)。半値の枝そのものは
+    /// GDD02c §1.4 の規則であって輸出とは別である。輸出が入ると投げ売りが床へ吸収される論点は
+    /// GDD02c §1.4 が GDD02b へ送っている(<a href="https://github.com/stama72/visionary/issues/30">#30</a>)。
+    /// </remarks>
     [Fact]
     public void BankruptSellerPostsTheHalvedFloorInThePipeline()
     {
         const int OtherSellerId = 999;
 
-        var definition = BuildShoppingDefinition(breadFloor: 10);
+        var definition = BuildShoppingDefinition(breadFloor: 10, isExportEnabled: false);
         var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
         AddHousehold(world, id: 0, districtId: 4, Occupation.Miller);
         // 出荷目標在庫ちょうど(1)に合わせる ── 破産中でなければ在庫比1000‰(健全時の係数1000‰)に
@@ -521,6 +531,183 @@ public sealed class TradeSystemTests
         Assert.Throws<NotSupportedException>(() => new TradeSystem(manyOutputsDefinition));
     }
 
+    /// <summary>
+    /// 【核心】テスト表 #8(#38)。中心区画の世帯が1次産品(木材)を窓口から買う
+    /// (段5bをパイプラインで踏む)。
+    /// </summary>
+    /// <remarks>
+    /// <c>world.Households[store.SellerId]</c> を無条件に引くと <c>IndexOutOfRangeException</c>
+    /// (<c>store.SellerId</c> が <c>int.MaxValue</c> のとき)。在庫で切り詰めると窓口は無限在庫
+    /// なのに0個になる(タスク仕様)。
+    /// </remarks>
+    [Fact]
+    public void ImportDoesNotIndexTheHouseholdArray()
+    {
+        // MillerBreadRecipe(Bread←Timber)+UnusedRecipe(Grain←Timber)。Woodworkerの入力(木材)は
+        // 誰も出力しない1次産品(既定でBuildDefinitionが基準値1を与える)。
+        var definition = BuildShoppingDefinition();
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+        AddHousehold(
+            world, id: 0, districtId: District.ExternalMarketDistrictId, Occupation.Woodworker,
+            liquidFunds: 100_000);
+
+        var exception = Record.Exception(
+            () => EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1));
+
+        Assert.Null(exception);
+
+        Assert.True(world.Households[0].WorkshopInventory[Item.Timber] > 0);
+        Assert.Contains(
+            world.Ledgers[0],
+            entry => entry.Direction == LedgerDirection.Purchase
+                && entry.ItemId == Item.Timber
+                && entry.CounterpartyId == HouseholdState.ExternalMarketSellerId);
+    }
+
+    /// <summary>
+    /// #38タスク仕様のテスト表 #14〜16 が使う世界。世帯Id0(E、Occupation.Miller)は自分の出力
+    /// (パン)を窓口へ輸出する候補であり、同時に必需(穀物)を世帯Id1(Occupation.Baker、
+    /// UnusedRecipeの出力)から買う。距離と <paramref name="definition"/> の
+    /// <c>TravelHoursPerDistrict</c> の組み合わせで、段5aの買い物往復時間 + 段6の輸出往復時間の
+    /// 合計がTを超えるかどうかを作り分ける(<see cref="BuildExportAndShoppingDefinition"/>)。
+    /// </summary>
+    private static World BuildExportAndShoppingWorld(
+        WorldDefinition definition, int exporterDistrictId, int sellerDistrictId)
+    {
+        var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
+
+        AddHousehold(world, id: 0, districtId: exporterDistrictId, Occupation.Miller, liquidFunds: 1_000_000);
+        world.Households[0].WorkshopInventory[Item.Bread] = 100; // 輸出の対象(自分の出力)。
+        world.Households[0].WorkshopInventory[Item.Timber] = 100_000; // 自分の生産入力を中立化する。
+        world.Households[0].WorkshopInventory[Item.Tools] = 5; // 耐久の需要を中立化する。
+
+        AddHousehold(world, id: 1, districtId: sellerDistrictId, Occupation.Baker, liquidFunds: 0);
+        world.Households[1].WorkshopInventory[Item.Grain] = 100; // 世帯0が買う穀物。
+        world.Households[1].WorkshopInventory[Item.Timber] = 100_000;
+        world.Households[1].WorkshopInventory[Item.Tools] = 5;
+
+        return world;
+    }
+
+    private static WorldDefinition BuildExportAndShoppingDefinition(int travelHoursPerDistrict)
+    {
+        var necessityTargetStockDays = new int[Item.Count];
+        necessityTargetStockDays[Item.Grain] = 10;
+
+        return EconomySystemTestFixtures.BuildDefinition(
+            new Recipe(
+                Occupation.Miller,
+                outputs: new[] { new ItemQuantity { ItemId = Item.Bread, Quantity = 1 } },
+                inputs: new[] { new ItemQuantity { ItemId = Item.Timber, Quantity = 1 } },
+                laborPermille: 1000),
+            dailyConsumptionPerNpcByRank: GrainConsumptionTable(),
+            necessityTargetStockDays: necessityTargetStockDays,
+            tolerancePermille: 1200,
+            opportunityCostBaseByOccupation: new[] { 1, 1, 1, 1, 1 },
+            rankCoefficientPermille: new[] { 1000, 1000, 1000 },
+            travelHoursPerDistrict: travelHoursPerDistrict,
+            shipmentDays: 1,
+            inputBufferDays: 1,
+            disposableHours: 12);
+    }
+
+    /// <summary>
+    /// 【核心】テスト表 #14(#38)。GDD02d §2.3 の具体例。段5aの往復時間の合計 + 段6の輸出の
+    /// 往復時間がTを超える日は持ち込まない。超えない(Tちょうどを含む)日は持ち込む。
+    /// </summary>
+    /// <remarks>
+    /// M-7非対象。Tの検査が無い(1日12時間以上歩く)・比較を<c>&gt;=</c>にする(12時間ちょうどで
+    /// 持ち込まなくなる)、いずれの実装ミスでもケースA・ケースBの少なくとも一方が崩れる
+    /// (タスク仕様)。
+    /// </remarks>
+    [Fact]
+    public void ExportErrandIsSkippedWhenTheDayIsFull()
+    {
+        // ケースA: 段5a(買い物、往復8時間)+段6(輸出、往復8時間)=16>T(12) → 持ち込まない。
+        {
+            var definition = BuildExportAndShoppingDefinition(travelHoursPerDistrict: 2);
+            var world = BuildExportAndShoppingWorld(definition, exporterDistrictId: 0, sellerDistrictId: 2);
+
+            EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+
+            // 前提: 買い物は実際に成立している(穀物を買えた)。
+            Assert.True(world.Households[0].HouseholdInventory[Item.Grain] > 0);
+
+            // 輸出は起きない(在庫は減らず、外部Saleの帳簿も無い)。
+            Assert.Equal(100, world.Households[0].WorkshopInventory[Item.Bread]);
+            Assert.DoesNotContain(
+                world.Ledgers[0],
+                entry => entry.Direction == LedgerDirection.Sale
+                    && entry.CounterpartyId == HouseholdState.ExternalMarketSellerId);
+        }
+
+        // ケースB: 段5a(買い物、往復8時間)+段6(輸出、往復4時間)=12、Tちょうど(>12ではない)
+        // → 持ち込む。
+        {
+            var definition = BuildExportAndShoppingDefinition(travelHoursPerDistrict: 1);
+            var world = BuildExportAndShoppingWorld(definition, exporterDistrictId: 0, sellerDistrictId: 8);
+
+            EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+
+            Assert.True(world.Households[0].HouseholdInventory[Item.Grain] > 0);
+
+            Assert.True(world.Households[0].WorkshopInventory[Item.Bread] < 100);
+            Assert.Contains(
+                world.Ledgers[0],
+                entry => entry.Direction == LedgerDirection.Sale
+                    && entry.CounterpartyId == HouseholdState.ExternalMarketSellerId);
+        }
+    }
+
+    /// <summary>
+    /// テスト表 #15(#38)。中心へ買い物には行かずに輸出した世帯が、その日に窓口の観測を得る
+    /// (GDD02d §2.3 追記「持ち込んだ日は中心に居たことになる」)。
+    /// </summary>
+    [Fact]
+    public void ExportTripAddsTheCentreToTheObservedDistricts()
+    {
+        // ケースBと同じ配置(買い物は区画8、輸出は往復4時間でTに収まる)。
+        var definition = BuildExportAndShoppingDefinition(travelHoursPerDistrict: 1);
+        var world = BuildExportAndShoppingWorld(definition, exporterDistrictId: 0, sellerDistrictId: 8);
+
+        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+
+        // 前提: 輸出が実際に成立している。
+        Assert.True(world.Households[0].WorkshopInventory[Item.Bread] < 100);
+
+        // 中心へは買い物に行っていない(穀物の売り手は区画8)のに、窓口の観測が生まれる
+        // (段6が訪問区画へ中心を足したことの証拠)。
+        Assert.Contains(
+            world.Knowledge[world.Households[0].HeadNpcId],
+            o => o.SellerId == HouseholdState.ExternalMarketSellerId);
+    }
+
+    /// <summary>
+    /// テスト表 #16(#38)。既に外出している世帯の労働損失に足される(上書きされない)。
+    /// </summary>
+    [Fact]
+    public void ExportAddsToTheErrandLaborLoss()
+    {
+        // ケースBと同じ配置。
+        var definition = BuildExportAndShoppingDefinition(travelHoursPerDistrict: 1);
+        var world = BuildExportAndShoppingWorld(definition, exporterDistrictId: 0, sellerDistrictId: 8);
+
+        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+
+        // 前提: 輸出が実際に成立している。
+        Assert.True(world.Households[0].WorkshopInventory[Item.Bread] < 100);
+
+        int shoppingTravelHours = Errand.TravelHours(0, 8, hoursPerDistrict: 1); // 8。
+        int exportTravelHours = Errand.TravelHours(0, District.ExternalMarketDistrictId, hoursPerDistrict: 1); // 4。
+        const int LaborPermille = 1000; // Masterの労働力係数‰(既定)。
+
+        int expectedLoss = Errand.LaborLossPermille(LaborPermille, shoppingTravelHours, disposableHours: 12)
+            + Errand.LaborLossPermille(LaborPermille, exportTravelHours, disposableHours: 12);
+
+        // 段5aが書いた損失に段6が加算していること(`=`で上書きしていないこと)。
+        Assert.Equal(expectedLoss, world.Households[0].ErrandLaborLossPermille);
+    }
+
     /// <summary>テスト表 #32。同じシードで2回走らせると状態ハッシュが一致する。乱数を引かない。</summary>
     [Fact]
     public void TradePipelineStillRunsDeterministically()
@@ -720,6 +907,15 @@ public sealed class TradeSystemTests
     /// どちらが先に決済されるかで結果が変わる判別力を持つ。変異を戻して(製品コードの走査順を
     /// 必需→耐久→入力→嗜好のまま)緑に復帰させた。
     /// </remarks>
+    /// <remarks>
+    /// <b>#38 追随(2026-09-20)。</b>買い手(Woodworker)自身のレシピ(<c>UnusedRecipe</c>)が
+    /// 1次産品(木材)を入力に持つため、窓口が候補に足されたことで生産の入力(木材)が新たに
+    /// 約定するようになった(実測: <c>LiquidFunds</c> が期待5に対し実際3)。走査順
+    /// (必需→耐久→<b>生産の入力</b>→嗜好)では生産の入力が必需の後・嗜好の前に決済されるため、
+    /// <c>UnaffordableNecessityCount</c> と各品目の数量(パン1・穀物0)は変わらないが、
+    /// <c>LiquidFunds</c> だけが窓口での木材の代金ぶん動く。<see cref="BuildShoppingDefinition"/> の
+    /// 定数(流動資金15など)は動かさない。<b>判別力は変異M-5で測り直す</b>。
+    /// </remarks>
     [Fact]
     public void NecessityIsSettledBeforePreference()
     {
@@ -744,7 +940,8 @@ public sealed class TradeSystemTests
         Assert.Equal(0, buyer.UnaffordableNecessityCount);
         Assert.Equal(1, buyer.HouseholdInventory[Item.Bread]); // 必需は約定する
         Assert.Equal(0, buyer.HouseholdInventory[Item.Grain]); // 嗜好はFundsCapで0個
-        Assert.Equal(5, buyer.LiquidFunds); // 15 − 10(パンの代金)
+        // 15 − 10(パンの代金) − 窓口での木材(生産の入力)の代金(#38追随。上のremarks参照)。
+        Assert.Equal(3, buyer.LiquidFunds);
     }
 
     /// <summary>
@@ -894,6 +1091,14 @@ public sealed class TradeSystemTests
     /// <c>Assert.Equal(predictedQuantity(=2), world.Households[0].WorkshopInventory[Item.Tools])</c>
     /// が実際値0(計画側の余剰が750&lt;費用1000で行かない判定になり、区画2が訪問されず
     /// 約定自体が起きない)で失敗した(赤を確認)。変異を戻して緑に復帰させた。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>39e367a</c>、M-5)。</b><c>TradeSystem</c> 段5bで <c>BuyerBudget.QuantityInUnits</c> を
+    /// 外す変異を当てたところ本テストを含む5件が赤になった。<b>本テストは耐久の換算を
+    /// 直接見ている意図的な検出器であり、これが主たる守り手である</b>
+    /// (<see cref="SellerReferenceIsTakenBeforeTheSellableStockGate"/> の
+    /// 前提行が拾うのは副産物としての巻き添えにすぎない)。
     /// </remarks>
     [Fact]
     public void ErrandPlannerAndSettlementAgreeOnQuantity()
@@ -1281,6 +1486,402 @@ public sealed class TradeSystemTests
         int controlDay2Runs = world.Households[ControlId].ProductionRuns;
 
         Assert.True(travelerDay2Runs < controlDay2Runs);
+    }
+
+    /// <summary>
+    /// 【核心】テスト表 #22(<a href="https://github.com/stama72/visionary/issues/107">#107</a>、
+    /// #38 相乗り)。世帯A(Id0)が世帯B(Id1)から買い、その売上でBの<c>DemandLine.CashCap</c>が
+    /// 閾(穀物の床100)をまたぐ帯に置く。Bの予算はその日の朝の資金(95)から決まり、Aの支払いを
+    /// 受け取った後の資金では決まらない。
+    /// </summary>
+    /// <remarks>
+    /// <b>M-6(実測されたら書く)。</b>段4のループを消し、段5のループの先頭で
+    /// <c>_buyerDemand.Build</c> を呼ぶ変異(段4を段5へ畳む)を当てると、Aの支払いを受け取った
+    /// <b>後</b>のBの流動資金(105)でCashCapが計算され、Bの必需(穀物)のゲートが誤って開くことを
+    /// 期待する(タスク仕様)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>39e367a</c>、M-6)。</b>段4を段5の先頭へ畳む変異は期待どおり赤になった
+    /// (<a href="https://github.com/stama72/visionary/issues/107">#107</a> の閉じる条件の実測)。
+    /// </remarks>
+    [Fact]
+    public void DemandIsBuiltBeforeAnyHouseholdShops()
+    {
+        const int BreadFloor = 10;
+        const int GrainFloor = 100;
+
+        var necessityTargetStockDays = new int[Item.Count];
+        necessityTargetStockDays[Item.Bread] = 1;
+        necessityTargetStockDays[Item.Grain] = 1;
+
+        var dailyConsumptionRow = new int[Item.Count];
+        dailyConsumptionRow[Item.Bread] = 1;
+        dailyConsumptionRow[Item.Grain] = 1;
+        var dailyConsumptionPerNpcByRank = new[]
+        {
+            (int[])dailyConsumptionRow.Clone(),
+            (int[])dailyConsumptionRow.Clone(),
+            (int[])dailyConsumptionRow.Clone(),
+        };
+
+        var externalBuyPrice = new int[Item.Count];
+        externalBuyPrice[Item.Bread] = BreadFloor;
+        externalBuyPrice[Item.Grain] = GrainFloor;
+
+        var breadRecipe = new Recipe(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = Item.Bread, Quantity = 1 } },
+            inputs: Array.Empty<ItemQuantity>(),
+            laborPermille: 1000);
+
+        var definition = EconomySystemTestFixtures.BuildDefinition(
+            breadRecipe,
+            dailyConsumptionPerNpcByRank: dailyConsumptionPerNpcByRank,
+            necessityTargetStockDays: necessityTargetStockDays,
+            opportunityCostBaseByOccupation: new[] { 1, 1, 1, 1, 1 },
+            rankCoefficientPermille: new[] { 1000, 1000, 1000 },
+            travelHoursPerDistrict: 1,
+            inputBufferDays: 1,
+            shipmentDays: 1,
+            externalBuyPriceOverride: externalBuyPrice);
+
+        var world = new World(npcCount: 3, householdCount: 3, itemCount: Item.Count);
+
+        // A(Id0): 潤沢な資金でBからパンを買う(同区画。移動の摩擦は本テストの関心の外)。
+        AddHousehold(world, id: 0, districtId: 0, Occupation.Woodworker, liquidFunds: 1000);
+        world.Households[0].WorkshopInventory[Item.Timber] = 1_000_000; // 自分の入力を中立化。
+        world.Households[0].WorkshopInventory[Item.Tools] = 5; // 耐久の需要を中立化。
+
+        // B(Id1): パンの売り手。朝の資金95(穀物の床100未満) → ゲートが閉じるはず。
+        AddHousehold(world, id: 1, districtId: 0, Occupation.Miller, liquidFunds: 95);
+        world.Households[1].WorkshopInventory[Item.Bread] = 1000;
+
+        // C(Id2): 穀物の売り手(UnusedRecipe)。
+        AddHousehold(world, id: 2, districtId: 0, Occupation.Baker, liquidFunds: 0);
+        world.Households[2].WorkshopInventory[Item.Grain] = 1000;
+        world.Households[2].WorkshopInventory[Item.Timber] = 1_000_000;
+        world.Households[2].WorkshopInventory[Item.Tools] = 5;
+
+        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+
+        // 前提: Aが実際にBからパンを買い、Bの流動資金が朝の95から増えている。
+        Assert.True(world.Households[0].HouseholdInventory[Item.Bread] > 0);
+        Assert.True(world.Households[1].LiquidFunds > 95, "Bの流動資金が増えていない(Aの支払いが届いていない)。");
+
+        // Bの必需(穀物)は朝の資金95(床100未満)でゲートが閉じ、資金不足に数えられる。
+        Assert.Equal(1, world.Households[1].UnaffordableNecessityCount);
+        Assert.Equal(0, world.Households[1].HouseholdInventory[Item.Grain]);
+    }
+
+    /// <summary>
+    /// 【核心】テスト表 #23(<a href="https://github.com/stama72/visionary/issues/107">#107</a>、
+    /// #38 相乗り)。世帯A(Id0)に閾在庫を超える販売在庫を持たせ、世帯B(Id1)がその品目を買う。
+    /// BはAの在庫(輸出で減る前の全量)を買えている。
+    /// </summary>
+    /// <remarks>
+    /// <b>M-7(実測されたら書く)。</b>段6のループを消し、段5のループの末尾で
+    /// <c>RunOneHouseholdsExport</c> を呼ぶ変異(段6を段5へ畳む)を当てると、Aが自分の順番で
+    /// 閾在庫を残して即座に輸出してしまい、Bが着いたときには在庫が閾在庫(1)まで減っていることを
+    /// 期待する(タスク仕様)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>39e367a</c>、M-7)。</b>段6を段5の末尾へ畳む変異は期待どおり赤になった。
+    /// </remarks>
+    [Fact]
+    public void ExportRunsAfterEveryHouseholdHasShopped()
+    {
+        const int BreadFloor = 10;
+
+        var necessityTargetStockDays = new int[Item.Count];
+        necessityTargetStockDays[Item.Bread] = 50; // dailyConsumption=1なので目標在庫=50。
+
+        var dailyConsumptionRow = new int[Item.Count];
+        dailyConsumptionRow[Item.Bread] = 1;
+        var dailyConsumptionPerNpcByRank = new[]
+        {
+            (int[])dailyConsumptionRow.Clone(),
+            (int[])dailyConsumptionRow.Clone(),
+            (int[])dailyConsumptionRow.Clone(),
+        };
+
+        var externalBuyPrice = new int[Item.Count];
+        externalBuyPrice[Item.Bread] = BreadFloor;
+        externalBuyPrice[Item.Grain] = 1; // UnusedRecipe(Baker等)が出力する都市生産品。0だと構築時に投げる。
+
+        var breadRecipe = new Recipe(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = Item.Bread, Quantity = 1 } },
+            inputs: Array.Empty<ItemQuantity>(),
+            laborPermille: 1000);
+
+        var definition = EconomySystemTestFixtures.BuildDefinition(
+            breadRecipe,
+            dailyConsumptionPerNpcByRank: dailyConsumptionPerNpcByRank,
+            necessityTargetStockDays: necessityTargetStockDays,
+            opportunityCostBaseByOccupation: new[] { 1, 1, 1, 1, 1 },
+            rankCoefficientPermille: new[] { 1000, 1000, 1000 },
+            travelHoursPerDistrict: 1,
+            inputBufferDays: 1,
+            shipmentDays: 1,
+            externalBuyPriceOverride: externalBuyPrice);
+
+        var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
+
+        // A(Id0): パンの売り手。出荷目標在庫(閾在庫の代用、相場基準が無い初日)はごく小さい
+        // (生産能力1×出力数量1×出荷日数1=1)のに対し、実際の在庫は200(閾在庫を大きく超える)。
+        AddHousehold(world, id: 0, districtId: 0, Occupation.Miller, liquidFunds: 0);
+        world.Households[0].WorkshopInventory[Item.Bread] = 200;
+        world.Households[0].WorkshopInventory[Item.Tools] = 5; // 耐久の需要を中立化。
+
+        // B(Id1): パンの買い手(同区画。移動の摩擦は本テストの関心の外)。潤沢な資金。
+        AddHousehold(world, id: 1, districtId: 0, Occupation.Woodworker, liquidFunds: 1_000_000);
+        world.Households[1].WorkshopInventory[Item.Timber] = 1_000_000; // 自分の入力を中立化。
+        world.Households[1].WorkshopInventory[Item.Tools] = 5;
+
+        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+
+        // Bは閾在庫(1)ではなく、Aの全量(200)を前提にした量を買えている。
+        Assert.True(
+            world.Households[1].HouseholdInventory[Item.Bread] > 1,
+            $"Bの購入量が{world.Households[1].HouseholdInventory[Item.Bread]}個(閾在庫1個を超えない"
+                + "= 段6が段5へ畳まれ、Aが自分の順番で先に輸出してしまった可能性)。");
+
+        // 別表R-3(レビュー1巡目)。上の表明はBの在庫だけを見ており、Aが実際に輸出したことを
+        // 確かめていない ── 空振り防止(閾在庫の式・出荷目標在庫・Tの検査のいずれかが将来動いて
+        // 輸出そのものが起きなくなっても、上の表明だけでは緑のままになる)。
+        int externalSaleCount = world.Ledgers[0].Count(
+            entry => entry.Direction == LedgerDirection.Sale
+                && entry.CounterpartyId == HouseholdState.ExternalMarketSellerId);
+        Assert.True(externalSaleCount >= 1, "Aの外部Saleの行が1件も無い(輸出が実際には起きていない)。");
+    }
+
+    /// <summary>
+    /// 別表(続き)R-5(レビュー2巡目)。段6の閾在庫は<b>売り手側(速い側、
+    /// <see cref="MarketReference.TrySeller"/>)</b>の相場基準で決まり、買い手側(遅い側、
+    /// <see cref="MarketReference.TryBuyer"/>)を読み直してはならない(GDD02c §1.2末尾)。
+    /// 2日目に、他の売り手の観測(20)だけの平均(<c>TryBuyer</c>=20)と、それに自分の前日の
+    /// 約定単価(2)を混ぜた平均(<c>TrySeller</c>=<c>CeilDiv(22,2)</c>=11)が異なる値になる構成を
+    /// 作り、閾在庫を挟む位置(12〜20の間、15)に販売在庫を置く。
+    /// </summary>
+    /// <remarks>
+    /// <b>M-11(実測されたら書く)。</b>段6が<c>hasSellerReference</c>/<c>sellerReference</c>を
+    /// 捨てて<c>MarketReference.TryBuyer</c>を呼び直す変異(タスク仕様が名指し)を当てると、
+    /// 相場基準が20(買い手側)になり閾在庫が20(出荷目標在庫10の2倍・上限)へ跳ね上がる。
+    /// 販売在庫15はこの閾を超えないため輸出が起きなくなり、本テストの表明(在庫12・数量3の
+    /// 外部Sale)が崩れることを期待する。<b>取り違えても例外は出ない</b>
+    /// ([GDD02c §1.2](../../../docs/03-gdd/02c-price-and-budget.md)末尾)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>39e367a</c>、M-11)。</b>段6が<c>MarketReference.TryBuyer</c>を呼び直す変異は
+    /// 期待どおり赤になった。
+    /// </remarks>
+    [Fact]
+    public void ExportUsesTheSellerSideMarketReference()
+    {
+        const int OtherSellerId = 999;
+
+        var externalBuyPrice = new int[Item.Count];
+        externalBuyPrice[Item.Bread] = 10;
+        externalBuyPrice[Item.Grain] = 1; // UnusedRecipe(Baker等)が出力する都市生産品。0だと構築時に投げる。
+
+        var breadRecipe = new Recipe(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = Item.Bread, Quantity = 1 } },
+            inputs: Array.Empty<ItemQuantity>(),
+            laborPermille: 1000);
+
+        // shipmentDays=10 → 出荷目標在庫(生産能力1×出力数量1×出荷日数10)=10。
+        var definition = EconomySystemTestFixtures.BuildDefinition(
+            breadRecipe,
+            opportunityCostBaseByOccupation: new[] { 1, 1, 1, 1, 1 },
+            rankCoefficientPermille: new[] { 1000, 1000, 1000 },
+            travelHoursPerDistrict: 1,
+            inputBufferDays: 1,
+            shipmentDays: 10,
+            externalBuyPriceOverride: externalBuyPrice);
+
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+        // 中心区画に置く(段6のIsWithinReachを常に真にし、Tの検査を本テストの関心の外にする)。
+        AddHousehold(world, id: 0, districtId: District.ExternalMarketDistrictId, Occupation.Miller);
+
+        var system = new TradeSystem(definition);
+
+        EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目: 在庫0で何も起きない。
+
+        // 他の売り手の観測(20)を1件仕込む(前日=1日目の日付)。TryBuyerはこれだけを平均する。
+        world.Knowledge[0].Add(new PriceObservation
+        {
+            ItemId = Item.Bread,
+            LocationId = 0,
+            Price = 20,
+            SellerId = OtherSellerId,
+            ObservedAt = Tick.Zero,
+            Source = ObservationSource.Direct,
+        });
+
+        // 自分の前日の約定単価(2)を帳簿へ直接置く。TrySellerだけがこれを平均へ混ぜる
+        // (TryBuyerは帳簿を読まない)── 同じ観測集合から2つの異なる相場基準を作る一手。
+        world.Ledgers[0].Add(new LedgerEntry
+        {
+            CounterpartyId = HouseholdState.ExternalMarketSellerId,
+            ItemId = Item.Bread,
+            Quantity = 1,
+            UnitPrice = 2,
+            OccurredAt = Tick.Zero,
+            Terms = LedgerTerms.Cash,
+            Direction = LedgerDirection.Sale,
+        });
+
+        // 2日目の朝、閾在庫(売り手側12/買い手側20)の間に来る在庫(15)を直接与える
+        // (段5の買い物は本テストの関心の外)。
+        world.Households[0].WorkshopInventory[Item.Bread] = 15;
+
+        EconomySystemTestFixtures.RunDays(world, system, days: 1); // 2日目
+
+        // 売り手側の相場基準(11)を使えば閾在庫12・超過分3が輸出される。
+        Assert.Equal(12, world.Households[0].WorkshopInventory[Item.Bread]);
+        Assert.Contains(
+            world.Ledgers[0],
+            entry => entry.Direction == LedgerDirection.Sale
+                && entry.CounterpartyId == HouseholdState.ExternalMarketSellerId
+                && entry.ItemId == Item.Bread
+                && entry.Quantity == 3
+                && entry.UnitPrice == 10);
+    }
+
+    /// <summary>
+    /// 別表(続き)R-6(レビュー2巡目)。段1の相場基準(<see cref="MarketReference.TrySeller"/>)の
+    /// 算出は<c>sellableStock &lt;= 0</c>の<c>continue</c>より<b>上</b>にある(タスク仕様
+    /// 「決めたこと」)。段1時点で販売在庫0・有効な相場基準ありの世帯(工具を作るMiller)が、
+    /// 段5bで自分の出力品目(工具)を耐久として買い入れ(M0では工具を買った鍛冶が踏む経路)、
+    /// 段6の閾在庫が相場基準ベース(0)で決まることを、出荷目標在庫ベース(1、相場基準が
+    /// 無い日の代用)とは異なる結果(輸出の有無)で見る。
+    /// </summary>
+    /// <remarks>
+    /// <b>M-12(実測されたら書く)。</b><c>MarketReference.TrySeller</c>の呼び出しと2つの配列
+    /// (<c>hasSellerReference</c>/<c>sellerReference</c>)への代入を、<c>sellableStock &lt;= 0</c>の
+    /// <c>continue</c>の<b>下</b>へ戻す変異(タスク仕様が名指し)を当てると、段1時点で在庫0の
+    /// この世帯は控えを残せず(既定値<c>false</c>/<c>0</c>のまま)、段6が出荷目標在庫(1)を
+    /// 代用の閾在庫として使う。買い入れた工具はちょうど1個で、超過分は
+    /// <c>max(0, 1-1)=0</c>となり輸出が起きなくなることを期待する。戻しても提示価格は
+    /// 変わらない(<c>Market</c>への書き込みは<c>continue</c>の下のまま)ので、値付けのテストは
+    /// この実装ミスを検出しない。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>39e367a</c>、M-12)。</b>段1の相場基準の算出を<c>sellableStock &lt;= 0</c>の
+    /// <c>continue</c>の下へ戻す変異は期待どおり赤になった。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>39e367a</c>、M-5)。</b><c>BuyerBudget.QuantityInUnits</c>(耐久の換算)を外す変異は
+    /// 本テストを含む5件を赤にした。<b>耐久の換算を守っているテストは本テストだけではない</b> ──
+    /// <see cref="ErrandPlannerAndSettlementAgreeOnQuantity"/> が耐久の換算を直接見ている
+    /// 意図的な検出器であり、こちらが主たる守り手である(下の<c>Quantity == 1</c>に付けた
+    /// レビュー3巡目の注記は、R-6が段1の相場基準の位置を拘束しているという事実自体は
+    /// 実測どおりだが、「換算を守っているテストは他に無い」という前提は本実測で否定された)。
+    /// </remarks>
+    [Fact]
+    public void SellerReferenceIsTakenBeforeTheSellableStockGate()
+    {
+        const int OtherSellerId = 999;
+
+        var externalBuyPrice = new int[Item.Count];
+        externalBuyPrice[Item.Grain] = 1; // UnusedRecipe(Baker等)が出力する都市生産品。0だと構築時に投げる。
+        externalBuyPrice[Item.Tools] = 100;
+
+        var toolsRecipe = new Recipe(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = Item.Tools, Quantity = 1 } },
+            inputs: Array.Empty<ItemQuantity>(),
+            laborPermille: 1000);
+
+        // shipmentDays=1(既定) → 出荷目標在庫(生産能力1×出力数量1×出荷日数1)=1。
+        var definition = EconomySystemTestFixtures.BuildDefinition(
+            toolsRecipe,
+            externalBuyPriceOverride: externalBuyPrice);
+
+        var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
+
+        // household0: 工具を作るMiller。段1時点で工具在庫0(相場基準はあるが売り注文は無い)。
+        // 中心区画に置く(段6のIsWithinReachを常に真にし、Tの検査を本テストの関心の外にする)。
+        AddHousehold(
+            world, id: 0, districtId: District.ExternalMarketDistrictId, Occupation.Miller,
+            liquidFunds: 1_000_000);
+
+        // household1: 工具の売り手。1日目は在庫0(オファーを立てない)。
+        AddHousehold(world, id: 1, districtId: District.ExternalMarketDistrictId, Occupation.Miller);
+
+        var system = new TradeSystem(definition);
+
+        EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目: 双方とも工具在庫0。
+
+        // household0の売り手側の相場基準(TrySeller)だけに効く「自分の前日の約定単価」(1)を
+        // 帳簿へ直接置く。耐久の需要(TryBuyer、買い手側)は帳簿を見ないので、この一手で
+        // 「買い物に使う基準」(100)と「輸出の閾在庫に使う基準」(CeilDiv(100+1,2)=51)を
+        // 独立に動かせる。
+        world.Ledgers[0].Add(new LedgerEntry
+        {
+            CounterpartyId = HouseholdState.ExternalMarketSellerId,
+            ItemId = Item.Tools,
+            Quantity = 1,
+            UnitPrice = 1,
+            OccurredAt = Tick.Zero,
+            Terms = LedgerTerms.Cash,
+            Direction = LedgerDirection.Sale,
+        });
+
+        // 他の売り手の観測(100)を1件仕込む。耐久の需要(買い手側)と輸出の閾在庫(売り手側)の
+        // 両方がこれを読むが、平均の取り方が違う(上のLedgerが売り手側だけに混ざる)。
+        world.Knowledge[0].Add(new PriceObservation
+        {
+            ItemId = Item.Tools,
+            LocationId = 0,
+            Price = 100,
+            SellerId = OtherSellerId,
+            ObservedAt = Tick.Zero,
+            Source = ObservationSource.Direct,
+        });
+
+        // 2日目の朝、household1に工具在庫を持たせる(段1で相場基準の無いhousehold1は
+        // 床=100で出品する)。
+        world.Households[1].WorkshopInventory[Item.Tools] = 50;
+
+        EconomySystemTestFixtures.RunDays(world, system, days: 1); // 2日目
+
+        // 前提: household0が実際に工具を1個買っている(段5b、耐久)。
+        //
+        // レビュー3巡目: このQuantity == 1は、本テストの主題(段1の相場基準の位置)とは
+        // 別に、BuyerBudget.QuantityInUnits(耐久の換算)も拘束している。この行をQuantity >= 1へ
+        // 緩めると本テストからは換算の崩れ(1 → 50個)を検出できなくなる ── R-6の主題からは
+        // 妥当な整理に見えるため気付きにくい。意図した設計ではなく、3巡目のレビューが見つけた
+        // 偶然の拘束である。
+        //
+        // 訂正(2026-09-21、mutator の変異M-5の実測)。「この換算を守っているテストは他に無い」
+        // という前回の記述は実測で否定された ── ErrandPlannerAndSettlementAgreeOnQuantity が
+        // 耐久の換算を直接見ている意図的な検出器であり、そちらが主たる守り手である
+        // (M-5は本テストを含む5件を赤にした)。上のQuantity == 1がR-6の副産物として換算も
+        // 拘束しているという事実自体は変わらない。
+        Assert.Contains(
+            world.Ledgers[0],
+            entry => entry.Direction == LedgerDirection.Purchase
+                && entry.ItemId == Item.Tools
+                && entry.CounterpartyId == 1
+                && entry.Quantity == 1);
+
+        // 相場基準(51)を使えば閾在庫0・買った1個がそのまま輸出される
+        // (household0の工具在庫が0に戻る)。
+        Assert.Equal(0, world.Households[0].WorkshopInventory[Item.Tools]);
+        Assert.Contains(
+            world.Ledgers[0],
+            entry => entry.Direction == LedgerDirection.Sale
+                && entry.CounterpartyId == HouseholdState.ExternalMarketSellerId
+                && entry.ItemId == Item.Tools
+                && entry.Quantity == 1
+                && entry.UnitPrice == 100);
     }
 
     private static int[][] GrainConsumptionTable()

@@ -149,9 +149,17 @@ public sealed class HouseholdState
     /// <remarks>
     /// <b>上限(<see cref="WorldDefinition.NominalLaborPermille"/>)は型では守れない。</b>
     /// 超える値が来ても <see cref="Systems.ProductionSystem"/> が <c>max(0, …)</c> で0へ潰す
-    /// (GDD02a §2)。書き手は <see cref="Systems.TradeSystem"/> の段5a(<see cref="Systems.ErrandPlanner"/>)
-    /// であり、外出しない日も0を書く(毎日上書きする。書かない日があると前日の損失が
-    /// 翌日以降も効き続ける)。
+    /// (GDD02a §2)。
+    /// <para>
+    /// <b>書き手は2人であり、順序と意味が違う(#38)。</b>
+    /// <see cref="Systems.TradeSystem"/> の段5a(<see cref="Systems.ErrandPlanner"/>、買い物の外出)が
+    /// 当日の合計を<b>上書き</b>する(<c>=</c>) ── 外出しない日も0を書く(書かない日があると
+    /// 前日の損失が翌日以降も効き続ける)。続く段6(輸出。GDD06 §3「外出ごとに切り上げてから
+    /// 合計する」)は、段5aが書いたその日の値へ<b>加算</b>する(<c>+=</c>)。
+    /// <b>段6を <c>=</c> に直すと段5aの買い物の労働損失が消える</b>(タスク仕様W2-12。
+    /// 守っているのはテスト <c>ErrandPlannerTests</c> ではなく
+    /// <c>TradeSystemTests.ExportAddsToTheErrandLaborLoss</c> の1件だけである)。
+    /// </para>
     /// </remarks>
     public int ErrandLaborLossPermille
     {

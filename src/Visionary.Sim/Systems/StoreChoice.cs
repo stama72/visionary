@@ -105,6 +105,29 @@ public sealed class StoreChoice
             }
         }
 
+        // world.Marketの走査が終わったあとに窓口を1件だけ足す(GDD02d §2.1・§2.2)。
+        // 走査の後ろに置いたうえで`<`を使うことが「同値なら都市内の売り手が勝つ」の実体である
+        // ── `<=`にしない・走査の前に置かない。窓口は無限在庫(在庫の条件を適用しない)・
+        // 世帯ではない(world.Households[sellerId]を引く経路も自分から自分への除外も通らない)。
+        if (ExternalMarket.TryOfferPrice(_definition, world.Now, itemId, out int windowOfferPrice)
+            && ExternalMarket.IsWithinReach(buyer.DistrictId, visitedDistrictIds))
+        {
+            int windowEffectivePrice = EffectivePrice.Calculate(
+                windowOfferPrice, trust: 0, _definition.TrustDiscountPermille);
+
+            if (!found || windowEffectivePrice < bestPrice)
+            {
+                found = true;
+                bestPrice = windowEffectivePrice;
+                best = new StoreCandidate
+                {
+                    SellerId = HouseholdState.ExternalMarketSellerId,
+                    DistrictId = District.ExternalMarketDistrictId,
+                    UnitEffectivePrice = windowEffectivePrice,
+                };
+            }
+        }
+
         selected = best;
         return found;
     }

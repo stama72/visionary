@@ -191,6 +191,109 @@ public sealed class ObservationsTests
         Assert.Equal(expected, actual);
     }
 
+    /// <summary>
+    /// 【核心】テスト表 #12(#38)。中心が視界内の世帯の <c>Knowledge</c> に、1次産品(M0の穀物・
+    /// 木材・鉄鉱石・木炭の4件)が予約Id・区画4・当日価格で入る。世帯全員(親方・徒弟)に同じ
+    /// レコードが入る。
+    /// </summary>
+    /// <remarks>
+    /// 都市生産品も作る・<c>LocationId</c> を観測者の区画にする・世帯主だけに配る、
+    /// いずれの実装ミスでも本テストが落ちる(タスク仕様)。
+    /// </remarks>
+    [Fact]
+    public void WindowObservationIsBornForEveryPrimaryItem()
+    {
+        const int HeadNpcId = 0;
+        const int ApprenticeNpcId = 1;
+
+        var definition = WorldDefinition.M0;
+        var world = new World(npcCount: 2, householdCount: 1, itemCount: Item.Count);
+        world.Households[0] = new HouseholdState(
+            id: 0, districtId: District.ExternalMarketDistrictId, headNpcId: HeadNpcId,
+            memberNpcIds: new[] { HeadNpcId, ApprenticeNpcId }, itemCount: Item.Count);
+
+        // ObservedAtが当日と一致することを判別できるよう、既定値(Tick.Zero)から離す。
+        EconomySystemTestFixtures.AdvanceClockOnly(world, ticks: 5 * 24);
+
+        Observations.CollectWindow(definition, world, world.Households[0], Array.Empty<int>());
+
+        var expectedItems = new[] { Item.Grain, Item.Timber, Item.IronOre, Item.Charcoal };
+        var season = GameDate.FromTick(world.Now).Season;
+
+        foreach (int npcId in new[] { HeadNpcId, ApprenticeNpcId })
+        {
+            var observations = world.Knowledge[npcId];
+            Assert.Equal(expectedItems.Length, observations.Count);
+
+            for (int i = 0; i < expectedItems.Length; i++)
+            {
+                var observation = observations[i];
+                Assert.Equal(expectedItems[i], observation.ItemId);
+                Assert.Equal(HouseholdState.ExternalMarketSellerId, observation.SellerId);
+                Assert.Equal(District.ExternalMarketDistrictId, observation.LocationId);
+                Assert.Equal(world.Now, observation.ObservedAt);
+                Assert.Equal(ObservationSource.Direct, observation.Source);
+                Assert.Equal(
+                    definition.ExternalSellPrice(observation.ItemId, season), observation.Price);
+            }
+        }
+
+        Assert.Equal(world.Knowledge[HeadNpcId], world.Knowledge[ApprenticeNpcId]);
+    }
+
+    /// <summary>
+    /// 別表R-1(レビュー1巡目)。#12(<see cref="WindowObservationIsBornForEveryPrimaryItem"/>)の
+    /// 補強。中心区画<b>以外</b>に居て、かつ中心が視界内の世帯が得た窓口の観測の
+    /// <c>LocationId</c> が観測者の区画ではなく <see cref="District.ExternalMarketDistrictId"/> で
+    /// あることを確かめる。
+    /// </summary>
+    /// <remarks>
+    /// <b>#12 は観測者を中心区画(4)に置いているので、この検出器にならない。</b>
+    /// <c>LocationId</c> を観測者の区画に取り違える実装ミスを入れても、#12 では
+    /// <c>household.DistrictId == District.ExternalMarketDistrictId</c> のため両者が同値になり、
+    /// 緑のまま通ってしまう。<b>本テストがその取り違えの検出器である。</b>
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>39e367a</c>、M-8)。</b><c>LocationId</c> を観測者の区画へ取り違える変異は期待どおり
+    /// 赤になった。落ちたのはこの1件だけ(#12 は緑のまま) ── 1巡目の指摘が実測で裏付けられた。
+    /// </remarks>
+    [Fact]
+    public void WindowObservationRecordsTheCentreNotTheObserversDistrict()
+    {
+        const int ObserverDistrictId = 1; // 距離1(District.Distance(1,4)=1 ≤ VisionRadius)。中心そのものではない。
+
+        var definition = WorldDefinition.M0;
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+        world.Households[0] = new HouseholdState(
+            id: 0, districtId: ObserverDistrictId, headNpcId: 0, memberNpcIds: new[] { 0 },
+            itemCount: Item.Count);
+
+        Observations.CollectWindow(definition, world, world.Households[0], Array.Empty<int>());
+
+        Assert.NotEmpty(world.Knowledge[0]); // 前提(中心が視界内で観測が実際に生まれている)。
+        Assert.All(
+            world.Knowledge[0],
+            observation => Assert.Equal(District.ExternalMarketDistrictId, observation.LocationId));
+    }
+
+    /// <summary>
+    /// テスト表 #13(#38)。中心から距離2以上で、その日中心へ行っていない世帯には窓口の観測が
+    /// 生まれない(視界半径の例外は置かない。GDD02d §2.2)。
+    /// </summary>
+    [Fact]
+    public void WindowObservationIsNotBornOutOfSight()
+    {
+        var definition = WorldDefinition.M0;
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+        world.Households[0] = new HouseholdState(
+            id: 0, districtId: 0, headNpcId: 0, memberNpcIds: new[] { 0 }, itemCount: Item.Count); // 距離2
+
+        Observations.CollectWindow(definition, world, world.Households[0], Array.Empty<int>());
+
+        Assert.Empty(world.Knowledge[0]);
+    }
+
     private static Recipe MillerRecipe() =>
         new(
             Occupation.Miller,

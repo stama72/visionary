@@ -149,6 +149,13 @@ public sealed class WorldDefinition
     /// </summary>
     public int TrustDiscountPermille { get; }
 
+    /// <summary>
+    /// 輸出を行うか。<a href="https://github.com/stama72/visionary/issues/29">issue #29</a> の実験軸。
+    /// <b>状態ではない</b>ので <see cref="World"/> の区分も決定論ハッシュの行も増えない
+    /// (TDD01 §3.8)。外部価格と同じく「設定と暦から決まる定数」である(GDD02d §2.1)。
+    /// </summary>
+    public bool IsExportEnabled { get; }
+
     /// <summary>職業数。<see cref="Recipes"/> の長さから導く。</summary>
     public int OccupationCount => Recipes.Length;
 
@@ -212,7 +219,8 @@ public sealed class WorldDefinition
         int toolLifeLaborDays,
         int equipmentPermilleWithoutTools,
         int disposableHours,
-        int trustDiscountPermille)
+        int trustDiscountPermille,
+        bool isExportEnabled = true)
     {
         ArgumentNullException.ThrowIfNull(recipes);
         ArgumentNullException.ThrowIfNull(initialAcquisitionCost);
@@ -506,8 +514,8 @@ public sealed class WorldDefinition
             }
         }
 
-        // 0はGDD06 §3.1の囲みが挙げるR=0と同じ構造の破壊 ── 実質コストの第2項(移動費)が
-        // 全区画で消える。
+        // 0はGDD06 §3.1の囲みが挙げるR=0と同じ構造の破壊 ── 外出の費用と労働損失(GDD06 §2)が
+        // 全区画で0になり、空間の摩擦が消える。
         if (travelHoursPerDistrict < 1)
         {
             throw new ArgumentOutOfRangeException(
@@ -753,6 +761,7 @@ public sealed class WorldDefinition
         EquipmentPermilleWithoutTools = equipmentPermilleWithoutTools;
         DisposableHours = disposableHours;
         TrustDiscountPermille = trustDiscountPermille;
+        IsExportEnabled = isExportEnabled;
 
         // 導出値。状態ではなく、すべてここまでの引数から決まる(タスク仕様)。
         NominalLaborPermille = laborPermilleByRank[(int)NpcRank.Master] + laborPermilleByRank[(int)NpcRank.Apprentice];
