@@ -32,7 +32,7 @@ public sealed class WorldDefinition
     /// <summary>初期の手元資金。単位: 貨幣。</summary>
     public int InitialLiquidFunds { get; }
 
-    /// <summary>初期の仕入れ移動平均単価。添字 = itemId。単位: 貨幣/1単位(GDD02 §8.1)。</summary>
+    /// <summary>初期の仕入れ移動平均単価。添字 = itemId。単位: 貨幣/1単位(GDD02a §5.1)。</summary>
     public int[] InitialAcquisitionCost { get; }
 
     /// <summary>初期の世帯在庫(消費財)。添字 = itemId。単位: 個。</summary>
@@ -55,13 +55,13 @@ public sealed class WorldDefinition
     /// <summary>添字 = (int)NpcRank の初期熟練度。長さ3。単位: ‰。</summary>
     public int[] InitialSkillPermilleByRank { get; }
 
-    /// <summary>添字 = (int)NpcRank の労働力係数‰。長さ3(GDD02 §5.2)。</summary>
+    /// <summary>添字 = (int)NpcRank の労働力係数‰。長さ3(GDD02a §2)。</summary>
     public int[] LaborPermilleByRank { get; }
 
-    /// <summary>1人1日あたりの消費量。添字 = [(int)NpcRank][itemId]。長さ3 × itemCount(GDD02 §6.1)。</summary>
+    /// <summary>1人1日あたりの消費量。添字 = [(int)NpcRank][itemId]。長さ3 × itemCount(GDD02b §1)。</summary>
     public int[][] DailyConsumptionPerNpcByRank { get; }
 
-    /// <summary>添字 = (int)Season の薪の消費の季節係数‰。長さ4(GDD02 §9 / GDD03 §2.1)。</summary>
+    /// <summary>添字 = (int)Season の薪の消費の季節係数‰。長さ4(GDD02d §5 / GDD03 §2.1)。</summary>
     public int[] FirewoodConsumptionSeasonPermille { get; }
 
     /// <summary>最低利幅‰。利潤上限の許容原価合計(GDD02c §2.3)。値付けからは消えた。</summary>
@@ -70,13 +70,13 @@ public sealed class WorldDefinition
     /// <summary>相場観測の保持期間。単位: 日(GDD06 §3.1)。</summary>
     public int ObservationRetentionDays { get; }
 
-    /// <summary>必需の目標在庫の日数。添字 = itemId。単位: 日(GDD02 §8.2.1)。0 = 必需ではない。</summary>
+    /// <summary>必需の目標在庫の日数。添字 = itemId。単位: 日(GDD02b §2)。0 = 必需ではない。</summary>
     public int[] NecessityTargetStockDays { get; }
 
     /// <summary>嗜好・奢侈の目標在庫の日数。添字 = itemId。単位: 日(同)。0 = 嗜好ではない。</summary>
     public int[] PreferenceTargetStockDays { get; }
 
-    /// <summary>工具の目標在庫‰。1個あたりの耐久値に対する比率(GDD02 §8.2.1)。単位: ‰。</summary>
+    /// <summary>工具の目標在庫‰。1個あたりの耐久値に対する比率(GDD02b §2)。単位: ‰。</summary>
     public int ToolTargetStockPermille { get; }
 
     /// <summary>階層係数‰。添字 = (int)NpcRank。長さ3(GDD08 §9)。単位: ‰。</summary>
@@ -100,7 +100,7 @@ public sealed class WorldDefinition
     /// <summary>1区画あたりの移動時間。単位: 時間(GDD02 §4.3)。</summary>
     public int TravelHoursPerDistrict { get; }
 
-    /// <summary>仕入れ移動平均単価の平滑化係数‰(GDD02 §8.1.1)。単位: ‰。</summary>
+    /// <summary>仕入れ移動平均単価の平滑化係数‰(GDD02a §5.1)。単位: ‰。</summary>
     public int AcquisitionCostSmoothingPermille { get; }
 
     /// <summary>
@@ -270,11 +270,11 @@ public sealed class WorldDefinition
 
         foreach (int cost in initialAcquisitionCost)
         {
-            // 0を許すと初日の原価が0になり、GDD02 §8.1.1 の「0が恒久に固定される」経路を踏む。
+            // 0を許すと初日の原価が0になり、GDD02a §5.1 の「0が恒久に固定される」経路を踏む。
             if (cost < 1)
             {
                 throw new ArgumentOutOfRangeException(
-                    nameof(initialAcquisitionCost), cost, "取得原価は1以上(GDD02 §8.1)。");
+                    nameof(initialAcquisitionCost), cost, "取得原価は1以上(GDD02a §5.1)。");
             }
         }
 
@@ -300,7 +300,7 @@ public sealed class WorldDefinition
             }
         }
 
-        // 長さ3は NpcRank の階層数(InitialSkillPermilleByRank と同じ根拠、GDD02 §5.2)。
+        // 長さ3は NpcRank の階層数(InitialSkillPermilleByRank と同じ根拠、GDD02a §2)。
         if (laborPermilleByRank.Length != 3)
         {
             throw new ArgumentException(
@@ -316,7 +316,7 @@ public sealed class WorldDefinition
             }
         }
 
-        // 長さ3はNpcRankの階層数。行ごとに itemCount 一致を検査する(GDD02 §6.1)。
+        // 長さ3はNpcRankの階層数。行ごとに itemCount 一致を検査する(GDD02b §1)。
         if (dailyConsumptionPerNpcByRank.Length != 3)
         {
             throw new ArgumentException(
@@ -399,23 +399,23 @@ public sealed class WorldDefinition
             if (necessityDays < 0)
             {
                 throw new ArgumentOutOfRangeException(
-                    nameof(necessityTargetStockDays), necessityDays, "必需の目標在庫日数は非負(GDD02 §8.2.1)。");
+                    nameof(necessityTargetStockDays), necessityDays, "必需の目標在庫日数は非負(GDD02b §2)。");
             }
 
             if (preferenceDays < 0)
             {
                 throw new ArgumentOutOfRangeException(
-                    nameof(preferenceTargetStockDays), preferenceDays, "嗜好の目標在庫日数は非負(GDD02 §8.2.1)。");
+                    nameof(preferenceTargetStockDays), preferenceDays, "嗜好の目標在庫日数は非負(GDD02b §2)。");
             }
 
-            // GDD02 §8.2.1の表が用途を排他に定めている。両方に置くと同じ世帯在庫に対して
+            // GDD02b §2の表が用途を排他に定めている。両方に置くと同じ世帯在庫に対して
             // 2本の行が立ち、先に走査したほうが買った量を後の行が見ない(予想在庫は#37が
             // 約定するまで動かない)ので、目標在庫の2倍まで買う。
             if (necessityDays > 0 && preferenceDays > 0)
             {
                 throw new ArgumentException(
                     $"品目(itemId={itemId})を必需と嗜好の両方には置けない"
-                        + "(GDD02 §8.2.1、用途は排他)。",
+                        + "(GDD02b §2、用途は排他)。",
                     nameof(necessityTargetStockDays));
             }
 
@@ -424,17 +424,17 @@ public sealed class WorldDefinition
             if (itemId == Item.Tools && (necessityDays > 0 || preferenceDays > 0))
             {
                 throw new ArgumentException(
-                    "工具(Item.Tools)は必需・嗜好に置けない(耐久は単位が異なる。GDD02 §8.2.1)。",
+                    "工具(Item.Tools)は必需・嗜好に置けない(耐久は単位が異なる。GDD02b §2)。",
                     nameof(necessityTargetStockDays));
             }
         }
 
         // 1未満を拒むのは、目標在庫が0だとその品目が「耐久ではない」扱いに見えてしまうからである
-        // (工具の行は全世帯に常に立つ。GDD02 §8.2.1)。
+        // (工具の行は全世帯に常に立つ。GDD02b §2)。
         if (toolTargetStockPermille < 1)
         {
             throw new ArgumentOutOfRangeException(
-                nameof(toolTargetStockPermille), toolTargetStockPermille, "工具の目標在庫‰は1以上(GDD02 §8.2.1)。");
+                nameof(toolTargetStockPermille), toolTargetStockPermille, "工具の目標在庫‰は1以上(GDD02b §2)。");
         }
 
         // 長さ3はNpcRankの階層数(InitialSkillPermilleByRankと同じ根拠、GDD08 §9)。
@@ -446,11 +446,11 @@ public sealed class WorldDefinition
 
         foreach (int coefficient in rankCoefficientPermille)
         {
-            // 0だと、その階層が世帯主の世帯の工具の目標在庫が0になる(GDD02 §8.2.1)。
+            // 0だと、その階層が世帯主の世帯の工具の目標在庫が0になる(GDD02b §2)。
             if (coefficient < 1)
             {
                 throw new ArgumentOutOfRangeException(
-                    nameof(rankCoefficientPermille), coefficient, "階層係数‰は1以上(GDD02 §8.2.1)。");
+                    nameof(rankCoefficientPermille), coefficient, "階層係数‰は1以上(GDD02b §2)。");
             }
         }
 
@@ -474,7 +474,7 @@ public sealed class WorldDefinition
         if (initialToolStock < 1)
         {
             throw new ArgumentOutOfRangeException(
-                nameof(initialToolStock), initialToolStock, "初期工具在庫は1以上(GDD02 §5.3)。");
+                nameof(initialToolStock), initialToolStock, "初期工具在庫は1以上(GDD02a §3)。");
         }
 
         int householdCount = recipes.Length * householdsPerOccupation;
@@ -489,7 +489,7 @@ public sealed class WorldDefinition
         }
 
         // 長さ = 職業数(Recipes.Length)。全要素1以上 ── 0を許すと移動費が全区画で0になり、
-        // GDD08 §7.4「信用インフレを止める唯一の絞り」が恒偽になる(GDD02 §8.1.1)。
+        // GDD08 §7.4「信用インフレを止める唯一の絞り」が恒偽になる(GDD02c §2.4)。
         if (opportunityCostBaseByOccupation.Length != recipes.Length)
         {
             throw new ArgumentException(
@@ -502,7 +502,7 @@ public sealed class WorldDefinition
             if (baseValue < 1)
             {
                 throw new ArgumentOutOfRangeException(
-                    nameof(opportunityCostBaseByOccupation), baseValue, "機会費用の基準値は1以上(GDD02 §8.1.1)。");
+                    nameof(opportunityCostBaseByOccupation), baseValue, "機会費用の基準値は1以上(GDD02c §2.4)。");
             }
         }
 
@@ -515,12 +515,12 @@ public sealed class WorldDefinition
         }
 
         // 0は移動平均が初期値に凍る。1000超は「旧移動平均×(1000−β)」が負になり、
-        // 高値で仕入れるほど原価が下がる(GDD02 §8.1.1)。
+        // 高値で仕入れるほど原価が下がる(GDD02a §5.1)。
         if (acquisitionCostSmoothingPermille is < 1 or > 1000)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(acquisitionCostSmoothingPermille), acquisitionCostSmoothingPermille,
-                "仕入れ移動平均単価の平滑化係数‰は1〜1000(GDD02 §8.1.1)。");
+                "仕入れ移動平均単価の平滑化係数‰は1〜1000(GDD02a §5.1)。");
         }
 
         // 外部売値の基準値・外部買値の長さと符号(GDD02d §2.1・§4.4)。
@@ -959,7 +959,7 @@ public sealed class WorldDefinition
         // 添字 = (int)NpcRank(Master, Journeyman, Apprentice)。GDD02a §2。
         var laborPermilleByRank = new[] { 1000, 800, 300 }; // 単位: ‰
 
-        // 1人1日あたりの消費量。添字 = [(int)NpcRank][itemId]。GDD02 §6.1。
+        // 1人1日あたりの消費量。添字 = [(int)NpcRank][itemId]。GDD02b §1。
         // itemIdの並びはGrain, Timber, IronOre, Charcoal, Flour, Firewood, Bread, Beer, Tools。
         var dailyConsumptionPerNpcByRank = new[]
         {
@@ -974,9 +974,9 @@ public sealed class WorldDefinition
         const int MinimumMarginPermilleForM0 = 200; // ‰。20%
         const int ObservationRetentionDaysForM0 = 7; // 日(GDD06 §3.1)
 
-        // 必需・嗜好の目標在庫の日数。添字 = itemId。単位: 日(GDD02 §8.2.1 の表そのもの)。
+        // 必需・嗜好の目標在庫の日数。添字 = itemId。単位: 日(GDD02b §2 の表そのもの)。
         var necessityTargetStockDays = new int[Item.Count];
-        necessityTargetStockDays[Item.Firewood] = 7; // 薪: 1週間分(1日消費量は季節変動、GDD02 §9)
+        necessityTargetStockDays[Item.Firewood] = 7; // 薪: 1週間分(1日消費量は季節変動、GDD02d §5)
         necessityTargetStockDays[Item.Bread] = 3;    // パン: 3日分
 
         var preferenceTargetStockDays = new int[Item.Count];

@@ -20,7 +20,7 @@ public readonly record struct ItemQuantity
 /// </summary>
 /// <remarks>
 /// <b>入力0件を許すのは GDD02 §2.3 の決定である。</b>M0 の5職業はすべて財の投入を持つが、
-/// GDD11 の貿易商と GDD12 の農村職業が戻ったときに発火する分岐(GDD02 §8.1.1 の原価の
+/// GDD11 の貿易商と GDD12 の農村職業が戻ったときに発火する分岐(GDD02a §5 の原価の
 /// 2分岐)がこれに対応する。構造としては残すが、M0 で通る経路ではない。
 /// </remarks>
 public sealed class Recipe
@@ -34,7 +34,7 @@ public sealed class Recipe
     /// <summary>入力。0件を許す(GDD02 §2.3。M0 に該当する職業は無い)。</summary>
     public ItemQuantity[] Inputs { get; }
 
-    /// <summary>所要労働‰。1000‰ = 親方1人日相当(GDD02 §5.2)。</summary>
+    /// <summary>所要労働‰。1000‰ = 親方1人日相当(GDD02a §2)。</summary>
     public int LaborPermille { get; }
 
     public Recipe(Occupation occupation, ItemQuantity[] outputs, ItemQuantity[] inputs, int laborPermille)
@@ -55,7 +55,7 @@ public sealed class Recipe
         if (laborPermille < 1)
         {
             throw new ArgumentOutOfRangeException(
-                nameof(laborPermille), laborPermille, "所要労働‰は1以上(GDD02 §5.2)。");
+                nameof(laborPermille), laborPermille, "所要労働‰は1以上(GDD02a §2)。");
         }
 
         Occupation = occupation;
@@ -116,7 +116,7 @@ public sealed class Recipe
     /// 同じ <see cref="ItemQuantity.ItemId"/> が2度現れることを拒む。
     /// </summary>
     /// <remarks>
-    /// 「穀物2 + 穀物3 → …」が通ると、GDD02 §8.1.1 の原価 Σ_j(単価 × 数量_j) が
+    /// 「穀物2 + 穀物3 → …」が通ると、GDD02a §5 の原価 Σ_j(単価 × 数量_j) が
     /// 同じ品目を2度数えることになる。
     /// </remarks>
     private static void ValidateNoDuplicateItemIds(ItemQuantity[] items, string paramName)

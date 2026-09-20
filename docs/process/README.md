@@ -11,6 +11,7 @@
 | 03 | [訂正の作法](03-corrections.md) | 指摘を受けて**直すとき**の規則2つ(広い保証 / 却下理由の空洞化)。W1-04 の8件のうち、踏んでも気付けないものだけを残した |
 | 04 | [issue 運用](04-issue-driven.md) | 進行・スコープ・優先順位を issue が持つときの運用。切り分け・階層・ラベル・WIP・未決事項の仕分け・上位文書を書き換える設計 issue の追随表 |
 | 05 | [フェーズごとにセッションを切る](05-phase-sessions.md) | 1タスクを3フェーズに切る運用。引き継ぎメモに何を書き、何を書かないか |
+| 06 | [設計工程の進め方](06-design-sessions.md) | 設計タスク(`docs/` の規則・仕様・設定を書き換える。層の表)の運用。仕事の5分割と分担、決めて報告 / 止まって報告、決定ログ、束で切る、モデルは仕事で決める |
 
 関連:
 
@@ -18,6 +19,7 @@
 - [`.claude/agents/`](../../.claude/agents/) — 各エージェントの憲章(**実行される仕様**)
 - [`.claude/commands/learn.md`](../../.claude/commands/learn.md) — 学習セッションの枠づけ
 - [`.claude/commands/advise.md`](../../.claude/commands/advise.md) — 設計アドバイザーの枠づけ(設計・プロセス工程でレビュアーの代わりに使う)
+- [`.claude/commands/design.md`](../../.claude/commands/design.md) — 設計セッションの枠づけ(06 の実行される仕様)
 - [`.claude/commands/impl.md`](../../.claude/commands/impl.md) / [`.claude/commands/wrap.md`](../../.claude/commands/wrap.md) — フェーズ2・フェーズ3 の枠づけ
 
 ## 「実行される仕様」という位置づけ

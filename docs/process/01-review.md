@@ -21,7 +21,7 @@
 | 工程 | 誰が見るか |
 | ---- | ---------- |
 | **実装**(コードとテスト) | [レビュアーエージェント](../../.claude/agents/reviewer.md) → 開発者 |
-| **設計・プロセス・文書のみ** | [`/advise`](../../.claude/commands/advise.md)(任意)→ 開発者 |
+| **設計・プロセス・文書のみ** | [`/advise`](../../.claude/commands/advise.md)(任意)→ 開発者。束ごとに差分へかける([06-design-sessions](06-design-sessions.md)) |
 
 **レビュアーエージェントは実装工程にだけ使う。** 設計・プロセス工程には使わない([ADR-0008](../adr/0008-review-scope-narrowed-to-unnoticeable-defects.md) 論点3)。
 

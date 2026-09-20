@@ -43,6 +43,21 @@ model: sonnet
 4. **`gh pr create`。** 本文の末尾に `🤖 Generated with [Claude Code](https://claude.com/claude-code)` を付ける
 5. **issue の後始末。** `Closes #$ARGUMENTS` を本文に入れ、切り出した issue にラベルを付ける
 
+### ラベルは `gh` CLI で付け、付いたことを確かめる
+
+**手段を1つに固定します。** 毎回選び直すと、通らない経路を引いて**ラベルの無い issue が残ります**([#102](https://github.com/stama72/visionary/issues/102))。
+
+```
+gh issue edit <番号> --add-label "type:impl" --add-label "P2"
+gh issue view <番号> --json labels
+```
+
+- **`mcp__github__issue_write` を使わない。** 無人実行の許可一覧に無いので必ず弾かれます(同じ理由で、PR を読むのも `mcp__github__pull_request_read` ではなく `gh pr view` です — W2-07 の走行でここに 4 回払っています)
+- **ラベルは1つずつ `--add-label` で渡す。** コロンを含む名前(`type:process`)はそのまま引用符で通ります
+- **付けたら `gh issue view --json labels` で確かめる。** 確かめないと、静かに付かなかった場合に誰も気付きません
+
+型(`type:*`)と優先度(`P*`)の意味は [04-issue-driven](../../docs/process/04-issue-driven.md)。**自動付与はしません** — 静かに壊れる機械を増やさないという決定です。
+
 ## 「気付いたら直す」
 
 リンク切れ・表記揺れ・古い件数は、**見つけたらこのブランチで直します**。issue も別 PR も立てません(5分を超えるときだけ issue へ落とす)。[01-review](../../docs/process/01-review.md)

@@ -3,7 +3,7 @@ using Visionary.Sim.Systems;
 namespace Visionary.Sim.Tests.Systems;
 
 /// <summary>
-/// <see cref="TradeSettlement"/>(GDD02 §6.2・§6.2.1 / TDD01 §3.2、#37 タスク仕様のテスト表)の検査。
+/// <see cref="TradeSettlement"/>(GDD02b §3・§3.2 / TDD01 §3.2、#37 タスク仕様のテスト表)の検査。
 /// </summary>
 public sealed class TradeSettlementTests
 {

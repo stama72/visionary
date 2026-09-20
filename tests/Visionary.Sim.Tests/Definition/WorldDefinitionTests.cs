@@ -4,7 +4,7 @@ using Visionary.Sim.Time;
 
 namespace Visionary.Sim.Tests.Definition;
 
-/// <summary><see cref="WorldDefinition"/>(GDD02 §2.2・§2.4・§8.1、#96 タスク仕様のテスト表)の検査。</summary>
+/// <summary><see cref="WorldDefinition"/>(GDD02 §2.2・§2.4 / GDD02c §1、#96 タスク仕様のテスト表)の検査。</summary>
 public sealed class WorldDefinitionTests
 {
     /// <summary>
@@ -203,8 +203,8 @@ public sealed class WorldDefinitionTests
     }
 
     /// <summary>
-    /// 上流(GDD02 §10.2)の決定を写し間違える実装ミスを捕まえる(本タスクが実際に
-    /// 鉄鉱石を20と書いた誤りそのもの)。§10.2は「1次産品の仕入単価は外部売値に固定される」
+    /// 上流(GDD02d §2.2)の決定を写し間違える実装ミスを捕まえる(本タスクが実際に
+    /// 鉄鉱石を20と書いた誤りそのもの)。§2.2は「1次産品の仕入単価は外部売値に固定される」
     /// 「外部売値が1次産品の価格の天井になる」と決定しており、天井を超える取得原価は
     /// 都市内の誰も支払えない。
     /// </summary>

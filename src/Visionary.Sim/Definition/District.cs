@@ -21,12 +21,12 @@ public static class District
     /// <summary>区画数。</summary>
     public const int Count = GridSide * GridSide;
 
-    /// <summary>都市外市場は中心の区画に固定(GDD02 §4.3・§10)。</summary>
+    /// <summary>都市外市場は中心の区画に固定(GDD02 §4.3 / GDD02d §2.1)。</summary>
     public const int ExternalMarketDistrictId = 4;
 
     /// <summary>
     /// 視界半径 R(GDD06 §3.1)。単位: 区画。<see cref="WorldDefinition"/> に置かない
-    /// (GDD02 §13.2「視界半径 R は値ではなく構造」)。
+    /// (GDD02 §9.2「視界半径 R は値ではなく構造」)。
     /// </summary>
     /// <remarks>
     /// R=0 なら誰も他区画の店を知れず、R=2 なら中心の区画(4)の世帯が初日から全区画を

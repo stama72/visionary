@@ -294,7 +294,7 @@ public sealed class TradePipelineTests
             var household = world.Households[TargetHouseholdId];
 
             // 必需(薪)の約定が成立した ── TradeSettlement.Executeが用途で行き先を振り分けるので、
-            // 世帯在庫が増えていることが必需の約定の証拠になる(GDD02 §6.2.1)。初期の世帯在庫は
+            // 世帯在庫が増えていることが必需の約定の証拠になる(GDD02b §3.2)。初期の世帯在庫は
             // その日のうちにConsumptionSystemが使い切るので、値が残っていれば買い直した証拠になる。
             Assert.True(
                 household.HouseholdInventory[Item.Firewood] > 0,
@@ -389,13 +389,13 @@ public sealed class TradePipelineTests
             scheduler.Advance(world, ticks: 24); // 17日目。資金不足が1件自然発生する。
             Assert.Equal(1, world.Households[2].UnaffordableNecessityCount);
 
-            scheduler.Advance(world, ticks: 24); // 18日目。毎日上書きする(GDD02 §6.2.2)ので0に戻る。
+            scheduler.Advance(world, ticks: 24); // 18日目。毎日上書きする(GDD02b §3.3)ので0に戻る。
             Assert.Equal(0, world.Households[2].UnaffordableNecessityCount);
         }
 
         // 在庫切れのケース。木工2戸の薪(工房在庫)と入力の木材(工房在庫)を0にして生産による
         // 補充も止め、資金は潤沢にする ── 知っている店が0件になり(StoreChoiceの条件3)、
-        // 資金の項(fundsCap)へは到達しない(GDD02 §6.2.1「売り手の在庫が尽きたのは資金不足では
+        // 資金の項(fundsCap)へは到達しない(GDD02b §3.2「売り手の在庫が尽きたのは資金不足では
         // ない」)。
         {
             var world = WorldGenerator.Generate(definition, new RandomSource(1));
@@ -420,7 +420,7 @@ public sealed class TradePipelineTests
         // 嗜好が買えなくても0のまま。素のM0世界の1日目、世帯Id1はビールを一度も買わないが
         // (実測、シード1。W2-09で価値の式(A-1)が変わり、1日目にビールを買わない世帯が
         // 世帯Id3から世帯Id1へ動いた)、UnaffordableNecessityCountは用途がNecessityの行しか
-        // 数えないので0のままである(GDD02 §6.2.1)。
+        // 数えないので0のままである(GDD02b §3.2)。
         {
             var world = WorldGenerator.Generate(definition, new RandomSource(1));
             var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(1));

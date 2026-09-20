@@ -5,7 +5,7 @@ using Visionary.Sim.Systems;
 namespace Visionary.Sim.Tests.Systems;
 
 /// <summary>
-/// <see cref="ConsumptionSystem"/>(GDD02 §6.1・§9、#34 タスク仕様のテスト表)の検査。
+/// <see cref="ConsumptionSystem"/>(GDD02b §1 / GDD02d §5、#34 タスク仕様のテスト表)の検査。
 /// </summary>
 public sealed class ConsumptionSystemTests
 {
