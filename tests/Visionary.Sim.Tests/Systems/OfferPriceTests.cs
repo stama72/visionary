@@ -80,6 +80,19 @@ public sealed class OfferPriceTests
     /// 【核心】タスク仕様テスト表 #1。床30・相場基準100・在庫0・目標10(係数1500‰)。
     /// hasSettledYesterday: false → 100(1000‰で頭打ち)。true → 150。
     /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-20、<c>mutator</c> による測定、対象コミット <c>87d4837</c>)。</b>
+    /// <c>OfferPrice.Calculate</c> の §1.1 の頭打ち
+    /// (<c>coefficientPermille = Math.Min(coefficientPermille, UnsoldCapPermille);</c>)を削除する
+    /// 変異(M-1)を当てたところ、<c>hasSettledYesterday: false</c> 側の
+    /// <c>Assert.Equal(100, ...)</c> が期待100/実際150で失敗した(赤を確認)。
+    /// <c>TradeSystem</c> 段1が <c>OfferPrice.Calculate</c> の第6引数(<c>hasSettledYesterday</c>)を
+    /// <c>true</c> 定数に固定する変異(M-2)では<b>緑のまま</b>(本テストは配線を経由せず
+    /// <c>OfferPrice.Calculate</c> を直接呼ぶので、配線だけが切れている経路を踏まない)。
+    /// <c>Math.Min(coefficientPermille, UnsoldCapPermille)</c> を
+    /// <c>coefficientPermille = UnsoldCapPermille;</c> の代入に変える変異(M-3)でも<b>緑のまま</b>
+    /// (1500‰→1000‰は <c>min</c> でも代入でも結果が同じため)。
+    /// </remarks>
     [Fact]
     public void UnsoldSellerDoesNotRaiseAboveTheReference()
     {
@@ -99,6 +112,15 @@ public sealed class OfferPriceTests
     /// 【核心】タスク仕様テスト表 #2。床30・相場基準100・在庫20・目標10(係数500‰)。
     /// hasSettledYesterday: false → 50(値下げ側には効かない。GDD02c §1.1)。
     /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-20、<c>mutator</c> による測定、対象コミット <c>87d4837</c>)。</b>
+    /// <c>Math.Min(coefficientPermille, UnsoldCapPermille)</c> を
+    /// <c>coefficientPermille = UnsoldCapPermille;</c> の代入に変える変異(M-3)を当てたところ、
+    /// <c>Assert.Equal(50, ...)</c> が期待50/実際100で失敗した(赤を確認 ── 値下げ側でも
+    /// 頭打ちの値を無条件に採ってしまう)。§1.1 の頭打ちそのものを削除する変異(M-1)では
+    /// <b>緑のまま</b>(頭打ちが無くても500‰は500‰のまま ── このテストが押さえているのは
+    /// <c>Math.Min</c> の向きだけである)。
+    /// </remarks>
     [Fact]
     public void UnsoldCapDoesNotLiftTheDiscount()
     {
@@ -113,6 +135,12 @@ public sealed class OfferPriceTests
     /// タスク仕様テスト表 #3。床120・相場基準100・在庫0・目標10。hasSettledYesterday: false でも
     /// 床(120)を下回らない ── 頭打ちは係数に掛かり、床の <c>Math.Max</c> はそれより後に効く。
     /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-20、<c>mutator</c> による測定、対象コミット <c>87d4837</c>)。</b>
+    /// §1.1 の頭打ち(<c>coefficientPermille = Math.Min(coefficientPermille, UnsoldCapPermille);</c>)
+    /// を削除する変異(M-1)を当てたところ、<c>Assert.Equal(120, ...)</c> が期待120/実際150で
+    /// 失敗した(赤を確認)。
+    /// </remarks>
     [Fact]
     public void UnsoldCapKeepsTheFloor()
     {

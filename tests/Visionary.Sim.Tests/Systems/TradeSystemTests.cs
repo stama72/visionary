@@ -305,6 +305,16 @@ public sealed class TradeSystemTests
     /// 2日目は頭打ちで200(1250‰なら250)。<b>対照</b>: 2日目を回す前に1日目の帳簿へ自分の
     /// 約定(Sale)を直接置くと hasSettled=true になり、頭打ちが外れて132になる。
     /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-20、<c>mutator</c> による測定、対象コミット <c>87d4837</c>)。</b>
+    /// §1.1 の頭打ちを削除する変異(M-1)、<c>TradeSystem</c> 段1が <c>OfferPrice.Calculate</c> の
+    /// 第6引数(<c>hasSettledYesterday</c>)を <c>true</c> 定数に固定する変異(M-2)の両方で、
+    /// 本体の <c>Assert.Equal(200, world.Market[key])</c> が期待200/実際250で失敗した(赤を確認)。
+    /// <b>この2つを分けているのは <see cref="OfferPriceTests.UnsoldSellerDoesNotRaiseAboveTheReference"/>
+    /// が M-2 で緑のままであること</b> ── 段1が求めた <c>hasSettled</c> が
+    /// <c>OfferPrice.Calculate</c> まで届く配線の経路を踏んでいるのは本テストだけであり、単体テストは
+    /// 配線を経由せず <c>OfferPrice.Calculate</c> を直接呼ぶため、配線が切れる変異を検出しない。
+    /// </remarks>
     [Fact]
     public void UnsoldSellerIsCappedAtTheReferenceInThePipeline()
     {

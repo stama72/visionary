@@ -213,10 +213,19 @@ public sealed class ObservationsTests
     /// となり除外される(観測が実質1日遅延し、GDD06 §3.1「観測するのは当日の提示価格」が崩れる
     /// 経路)。変異を戻して緑に復帰させた。<b>この赤の確認は、旧来の <c>Assert.NotEqual(floorPrice,
     /// world.Market[key0])</c> と、帳簿へ <c>Sale</c> の行を差し込む前の構成、§1.1 の頭打ちが入る
-    /// <b>前</b>の経済に対するものだった。</b>W2-11 は本テストの構成(帳簿へ <c>Sale</c> 行を置く)と
-    /// assert(<c>Assert.Equal(ApplyPermille(床, 1400), …)</c>)の両方を変えており、現本体に対する
-    /// 判別力が保たれている証拠はここには無い。<b>再実測は変異 M-5 として行う</b>
-    /// (実測値はまだここに書かない ── <c>mutator</c> が測った後、その結果を転記する)。
+    /// <b>前</b>の経済(2026-09-16)に対するものだった。</b>
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の再実測(2026-09-20、<c>mutator</c> による測定、対象コミット <c>87d4837</c>、
+    /// 変異M-5)。</b>現本体(帳簿へ <c>Sale</c> 行を置く構成、
+    /// <c>Assert.Equal(ApplyPermille(床, 1400), …)</c>)に対して、観測の段(段6
+    /// <c>Observations.CollectAndShare</c>)を値付けの段(段1)より前へ移す変異を当てた。
+    /// 段6は本来段5aが確定する <c>visitedDistrictIds</c> に依存するため、文字どおり段1より前へ
+    /// 移すと訪問区画がまだ決まっていない ── <c>mutator</c> は <c>visitedDistrictIds</c> に
+    /// 空配列を渡す形で移設した。2日目に相場基準が立たず床に落ち、本テストが赤になった
+    /// (判別力を確認)。訪問区画に基づく観測を検証する他のテスト(たとえば
+    /// <c>ObservationsCoverEveryVisitedDistrictEvenWithoutAPurchase</c>)も巻き添えで赤に
+    /// なったが、これは空配列という当て方の副作用であり、本テストの判別力の証拠ではない。
     /// </remarks>
     /// <remarks>
     /// <b>W2-11 追随。</b><c>household.Ledgers[0]</c> へ <c>Sale</c> の行を直接置く理由は

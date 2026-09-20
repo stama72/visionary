@@ -241,6 +241,18 @@ public sealed class TradePipelineTests
     /// 中央値・120日窓で <see href="https://github.com/stama72/visionary/issues/41">#41</see> が
     /// 持つ)。<b>GDD02 §8-1 を満たしたことにはならない。</b>
     /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-20、<c>mutator</c> による測定、対象コミット <c>87d4837</c>)。</b>
+    /// §1.1 の頭打ちを削除する変異(M-1)、<c>TradeSystem</c> 段1が <c>OfferPrice.Calculate</c> の
+    /// 第6引数を <c>true</c> 定数に固定する変異(M-2)の両方で本体が赤になった。M-1 の
+    /// 失敗メッセージ: <c>day=15 itemId=6 sellerId=9 price=1162 floor=54 band&lt;= 1080
+    /// ratio=21.519</c>。<b>最初に帯を破ったのは床54の品目(パン)の15日目である</b>が、これは
+    /// 上の「帯の定数(20倍)の根拠 ── 赤側」に書いた「素の master はビールが20日目に床72の
+    /// 21.6倍」と矛盾しない ── <b>この検出器は最初の違反で止まる</b>ので、先に20倍へ届いた品目
+    /// (パン)が先に検出される。60日目の値(725,771)と、
+    /// <see href="https://github.com/stama72/visionary/issues/38">#38</see> のフェーズ2が
+    /// <c>BandMultiplier</c> を実測して動かしてよいことは変わらない。
+    /// </remarks>
     [Fact]
     public void OfferPricesStayWithinTheBandOverSixtyDays()
     {
@@ -346,16 +358,18 @@ public sealed class TradePipelineTests
     /// (判別力は変異M-4で測り直す)。
     /// </remarks>
     /// <remarks>
-    /// <b>変異の再実測(2026-09-20、持ち越し指摘)。</b><c>[#81](https://github.com/stama72/visionary/issues/81)</c>
+    /// <b>変異の実測(2026-09-20、<c>mutator</c> による測定、対象コミット <c>87d4837</c>、
+    /// 変異M-4)。</b><see href="https://github.com/stama72/visionary/issues/81">#81</see>
     /// の検出器としての判別力が、<c>AmpleLiquidFunds</c> を1000 → 100,000、観察日数を2日 → 3日へ
     /// 広げたことで吸収されていないかを確かめるため、<c>TradeSystem.RunOneHouseholdsShopping</c>
     /// の <c>demand.Lines</c> の走査を <c>.Reverse()</c> する変異(製品コードで用途の走査順を
-    /// 必需→耐久→入力→嗜好から逆順へ変える変異に相当)を当て直した。絞った世界(資金100)の
-    /// <c>Assert.False(boughtBeer, ...)</c> が実際値trueで失敗した(赤を確認: 嗜好が必需より先に
-    /// 決済され、流動資金が先に嗜好へ回って必需を圧迫する経路が再現する)。判別力は維持されている。
-    /// 変異を戻して緑に復帰させた。
-    /// <b>この赤の確認は #98(<c>13e9251</c>)のもので、W2-11 の頭打ち(GDD02c §1.1)が入る前の
-    /// 経済で測った。</b>頭打ち後の判別力は変異M-4で測り直す(上のremarks参照)。
+    /// 必需→耐久→入力→嗜好から逆順へ変える変異に相当)を当てた。絞った世界(資金100)の
+    /// <c>Assert.False(boughtBeer, ...)</c> が失敗した(赤を確認: 嗜好が必需より先に
+    /// 決済され、流動資金が先に嗜好へ回って必需を圧迫する経路が再現する)。
+    /// <b>W2-11 の頭打ち(GDD02c §1.1)が入った後の経済でも判別力が維持されている。</b>
+    /// <b>旧い記録(2026-09-17、#98・<c>13e9251</c>、頭打ちが入る<b>前</b>の経済で測ったもの)は
+    /// 参考として残す:</b>同じ変異で同じ <c>Assert.False(boughtBeer, ...)</c> が実際値trueで
+    /// 失敗していた(赤を確認)。<b>今回(<c>87d4837</c>)の実測がこれを置き換える。</b>
     /// </remarks>
     [Fact]
     public void NecessityIsSettledBeforePreference()
