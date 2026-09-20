@@ -86,6 +86,10 @@ $AllowedTools = @(
     'Bash(cd:*)', 'Bash(ls:*)', 'Bash(cat:*)', 'Bash(echo:*)',
     'Bash(grep:*)', 'Bash(sed:*)', 'Bash(find:*)',
     'Bash(head:*)', 'Bash(tail:*)', 'Bash(wc:*)',
+    # リポジトリ内の検査スクリプトは1本ずつ名指しで許す。`Bash(bash:*)` にすると
+    # 任意のスクリプトが無人で走るので広げない。W2-09(#112)は完了条件がこの
+    # スクリプトの実行結果そのものなので、許さないとフェーズ2 が構造的に完走できない。
+    'Bash(bash scripts/check-doc-citations.sh:*)',
     'PowerShell(dotnet:*)', 'PowerShell(git:*)', 'PowerShell(gh:*)',
     'mcp__github__issue_read', 'mcp__github-ro__issue_read'
 )

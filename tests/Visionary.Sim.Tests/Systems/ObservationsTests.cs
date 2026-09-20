@@ -43,7 +43,7 @@ public sealed class ObservationsTests
     /// <b>変異の実測(2026-09-16)。</b><c>IsWithinVisionRadius</c> を常に <c>true</c> を返す実装
     /// (距離を見ない変異)に変えたところ、<c>Assert.Equal(new[] { 1 }, observedSellers)</c> が
     /// 実際値 <c>[1, 2]</c>(区画0の売り手まで見えてしまう)で失敗した(赤を確認、
-    /// GDD02 §12-7「情報の摩擦」が構造として消える経路)。変異を戻して緑に復帰させた。
+    /// GDD02 §8-7「情報の摩擦」が構造として消える経路)。変異を戻して緑に復帰させた。
     /// </remarks>
     [Fact]
     public void ObservationsAreBornOnlyWithinTheVisionRadius()

@@ -161,7 +161,7 @@ public static class StateHasher
 
         // 配列の添字順 = 世帯Id 昇順(ADR-0002)。区画Id を含めるのは、不変だが初期配置の一部で
         // あり、シードから決まる世界の同一性に属するため(§3.8)。破産中フラグを含めるのは、
-        // GDD02 §6.2.2 の②(値付けで原価下限を 500‰ へ下げる)と④のゲートを駆動するため。
+        // GDD02b §3.3 の②(値付けで原価下限を 500‰ へ下げる)と④のゲートを駆動するため。
         WriteSectionHeader(hasher, buffer, Section.Households, world.Households.Length);
         foreach (var household in world.Households)
         {
@@ -180,7 +180,7 @@ public static class StateHasher
             WriteInt32(hasher, buffer, household.LiquidFunds);
 
             // 世帯在庫と工房在庫は別勘定である(TDD01 §3.2)。薪のように両方に現れる品目が
-            // あるため、2本を畳むと GDD02 §8.2.1 の目標在庫が一意に決まらない。
+            // あるため、2本を畳むと GDD02b §2 の目標在庫が一意に決まらない。
             WriteInt32Array(hasher, buffer, household.HouseholdInventory);
             WriteInt32Array(hasher, buffer, household.WorkshopInventory);
 

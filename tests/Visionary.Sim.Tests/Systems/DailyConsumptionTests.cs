@@ -4,7 +4,7 @@ using Visionary.Sim.Time;
 namespace Visionary.Sim.Tests.Systems;
 
 /// <summary>
-/// <see cref="DailyConsumption"/>(GDD02 §6.1・§8.2.1・§9、#36 タスク仕様のテスト表)の検査。
+/// <see cref="DailyConsumption"/>(GDD02b §1 / GDD02b §2 / GDD02d §5、#36 タスク仕様のテスト表)の検査。
 /// </summary>
 public sealed class DailyConsumptionTests
 {

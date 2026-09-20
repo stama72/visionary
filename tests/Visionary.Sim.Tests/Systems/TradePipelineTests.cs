@@ -300,7 +300,7 @@ public sealed class TradePipelineTests
             var household = world.Households[TargetHouseholdId];
 
             // 必需(薪)の約定が成立した ── TradeSettlement.Executeが用途で行き先を振り分けるので、
-            // 世帯在庫が増えていることが必需の約定の証拠になる(GDD02 §6.2.1)。初期の世帯在庫は
+            // 世帯在庫が増えていることが必需の約定の証拠になる(GDD02b §3.2)。初期の世帯在庫は
             // その日のうちにConsumptionSystemが使い切るので、値が残っていれば買い直した証拠になる。
             Assert.True(
                 household.HouseholdInventory[Item.Firewood] > 0,
@@ -360,8 +360,8 @@ public sealed class TradePipelineTests
     /// <b>W2-07 追随(2026-09-19)。日数を2 → 4日、期待値を2 → 1へ変える。</b>W2-07 の校正
     /// (Woodworker 108‰・12実行/日、Baker 216‰・6実行/日)は旧calibration(全職1実行/日)より
     /// 供給が6〜12倍速い。1日目は誰の相場基準も無いので必需の基礎値は流動資金の5%
-    /// (フォールバック、GDD02 §8.2.7)から作られ、豊富で安い薪に対して不釣り合いに大きい
-    /// ── 世帯Id0は1日目だけで目標在庫(28)の約2倍まで買い込み、在庫圧力(GDD02 §8.2.2)が
+    /// (フォールバック、GDD02c §2.1)から作られ、豊富で安い薪に対して不釣り合いに大きい
+    /// ── 世帯Id0は1日目だけで目標在庫(28)の約2倍まで買い込み、在庫圧力(GDD02b §5.1)が
     /// 2日目の薪の予算を底まで落とす(実測: 目標28・在庫50 → 予算2、実質コスト7で通らない)。
     /// この供給ショックは世帯Id0だけでなく世帯全体に及ぶ(1日目は全世帯が同時にフォールバック
     /// 予算で買うため、2日目は薪・パンとも全世帯で予算が実質コストへ届かない。実測で確認)。
@@ -390,8 +390,8 @@ public sealed class TradePipelineTests
         // 資金不足のケース。相場が定着するまで2日(1日目はフォールバック予算による供給ショック、
         // 2日目はその余波で薪・パンとも全世帯の予算が実質コストへ届かない。上のremarks参照)。
         // 3日目の直前に流動資金を0へ落とすと、パンの必需の予算(相場基準に基づく。流動資金に
-        // 依存しない、GDD02 §8.2.7)は実質コストへ届くが、実際の支払いは流動資金0で不可能になる
-        // ── UnaffordableNecessityCountが検出すべきずれそのものである(GDD02 §6.2.2)。
+        // 依存しない、GDD02c §2.1)は実質コストへ届くが、実際の支払いは流動資金0で不可能になる
+        // ── UnaffordableNecessityCountが検出すべきずれそのものである(GDD02b §3.3)。
         {
             var world = WorldGenerator.Generate(definition, new RandomSource(1));
             var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(1));
@@ -414,7 +414,7 @@ public sealed class TradePipelineTests
             Assert.Equal(
                 ExpectedUnaffordableNecessityCount, world.Households[0].UnaffordableNecessityCount);
 
-            // 翌日、流動資金を戻すと0に戻る(毎日上書きする。GDD02 §6.2.2)。
+            // 翌日、流動資金を戻すと0に戻る(毎日上書きする。GDD02b §3.3)。
             world.Households[0].LiquidFunds = 300;
             scheduler.Advance(world, ticks: 24); // 4日目。
             Assert.Equal(0, world.Households[0].UnaffordableNecessityCount);
@@ -422,7 +422,7 @@ public sealed class TradePipelineTests
 
         // 在庫切れのケース。木工2戸の薪(工房在庫)と入力の木材(工房在庫)を0にして生産による
         // 補充も止め、資金は潤沢にする ── 知っている店が0件になり(StoreChoiceの条件3)、
-        // 資金の項(fundsCap)へは到達しない(GDD02 §6.2.1「売り手の在庫が尽きたのは資金不足では
+        // 資金の項(fundsCap)へは到達しない(GDD02b §3.2「売り手の在庫が尽きたのは資金不足では
         // ない」)。
         {
             var world = WorldGenerator.Generate(definition, new RandomSource(1));
@@ -448,7 +448,7 @@ public sealed class TradePipelineTests
         // (実測、シード1。W2-07で世帯Id1の前提が崩れたので世帯Id3へ差し替えた ──
         // 校正の変更で1日目の供給・価格が変わり、世帯Id1は1日目のうちにビールを買うようになった)、
         // UnaffordableNecessityCountは用途がNecessityの行しか数えないので0のままである
-        // (GDD02 §6.2.1)。
+        // (GDD02b §3.2)。
         {
             var world = WorldGenerator.Generate(definition, new RandomSource(1));
             var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(1));

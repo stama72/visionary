@@ -34,7 +34,7 @@ public readonly record struct LedgerEntry
 {
     /// <summary>
     /// 取引相手の<b>世帯</b> Id。都市外市場が相手の取引では
-    /// <see cref="HouseholdState.ExternalMarketSellerId"/>(GDD02 §10)。
+    /// <see cref="HouseholdState.ExternalMarketSellerId"/>(GDD02d §2.1)。
     /// </summary>
     public int CounterpartyId { get; init; }
 

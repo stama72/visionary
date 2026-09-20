@@ -84,7 +84,7 @@ public sealed class World
     /// <summary>Id 昇順。添字 = 世帯Id(TDD01 §3.2)。</summary>
     public HouseholdState[] Households { get; }
 
-    /// <summary>品目 × 売り手世帯 → 提示価格。Id昇順の疎構造(TDD01 §3.2 / GDD02 §8.1)。</summary>
+    /// <summary>品目 × 売り手世帯 → 提示価格。Id昇順の疎構造(TDD01 §3.2 / GDD02c §1)。</summary>
     public SortedDictionary<MarketKey, int> Market { get; }
 
     /// <summary>信用の疎マップ(GDD01 §2.1)。</summary>

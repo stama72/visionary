@@ -7,12 +7,12 @@ namespace Visionary.Sim;
 /// <para>
 /// <b>在庫は2本ある。</b>世帯在庫(消費財)と工房在庫(生産の入出力)を分けるのは
 /// 構造的な要請である — 薪(itemId 5)は必需の消費財でもパン・ビールの生産入力でもあり
-/// (GDD02 §2.2)、1本では GDD02 §8.2.1 の目標在庫が一意に決まらない。
+/// (GDD02 §2.2)、1本では GDD02b §2 の目標在庫が一意に決まらない。
 /// </para>
 /// <para>
 /// <b>区画 Id と世帯主と構成員は不変。</b>区画が不変なのは GDD02 §4.3「世帯は区画を移らない」、
-/// 構成員が M0 で不変なのは世代交代(GDD02 §11)が M0 スコープ外だから。
-/// <see cref="Occupation"/> だけが可変なのは GDD02 §6.3 ④の職業付け替えがあるため。
+/// 構成員が M0 で不変なのは世代交代(GDD02 §7)が M0 スコープ外だから。
+/// <see cref="Occupation"/> だけが可変なのは GDD02b §4.2 ④の職業付け替えがあるため。
 /// </para>
 /// </remarks>
 public sealed class HouseholdState
@@ -30,7 +30,7 @@ public sealed class HouseholdState
     public int DistrictId { get; }
 
     /// <summary>
-    /// 職業。値の定義(0〜4)は GDD02 §2.4 が持つ。GDD02 §6.3 ④の職業付け替えで変わる
+    /// 職業。値の定義(0〜4)は GDD02 §2.4 が持つ。GDD02b §4.2 ④の職業付け替えで変わる
     /// ため <c>set</c> を残す。
     /// </summary>
     public Occupation Occupation { get; set; }
@@ -50,13 +50,13 @@ public sealed class HouseholdState
     /// 宣言しても同じで、配列は <c>IReadOnlyList&lt;int&gt;</c> を実装しているので
     /// <c>int[]</c> へ戻せてしまう(別インスタンスの <c>ReadOnlyCollection&lt;int&gt;</c> で
     /// 包めば防げるが、そこまでの手当てはしていない)。<b>読むだけにすること。</b>
-    /// 昇順が崩れると世帯内の処理順(GDD02 §6.2.1 の購入の決済順)が入力次第になり、
+    /// 昇順が崩れると世帯内の処理順(GDD02b §3.2 の購入の決済順)が入力次第になり、
     /// ADR-0002 の列挙順規約が破れる。
     /// </para>
     /// </remarks>
     public int[] MemberNpcIds { get; }
 
-    /// <summary>手元の流動資金。単位は貨幣(GDD02 §6.2)。</summary>
+    /// <summary>手元の流動資金。単位は貨幣(GDD02b §3)。</summary>
     public int LiquidFunds { get; set; }
 
     /// <summary>世帯在庫(消費財)。添字 = itemId。</summary>
@@ -66,7 +66,7 @@ public sealed class HouseholdState
     public int[] WorkshopInventory { get; }
 
     /// <summary>
-    /// 仕入れ移動平均単価。添字 = itemId。単位: 貨幣/1単位(GDD02 §8.1.1)。
+    /// 仕入れ移動平均単価。添字 = itemId。単位: 貨幣/1単位(GDD02a §5.1)。
     /// </summary>
     /// <remarks>
     /// <b>更新規則は本タスク(#33)に無い。</b>コンストラクタは長さ <c>itemCount</c> の配列を
@@ -76,12 +76,12 @@ public sealed class HouseholdState
     public int[] PurchaseUnitCostAverage { get; }
 
     /// <summary>
-    /// 破産中フラグ(GDD02 §6.2.2)。0 / 1。<b>bool を使わない</b> —
+    /// 破産中フラグ(GDD02b §3.3)。0 / 1。<b>bool を使わない</b> —
     /// 状態はすべて int/long(TDD01 §3.2)、ハッシュ入力も int/long のみ(§3.8)。
     /// </summary>
     /// <remarks>
     /// <b>0 / 1 以外を setter で拒む。</b>bool の代わりに int を使う以上、値域は型では守れない。
-    /// 2 や -1 が入ると、GDD02 §6.2.2 の②(値付けで原価下限を 500‰ へ下げる)と④のゲートを
+    /// 2 や -1 が入ると、GDD02b §3.3 の②(値付けで原価下限を 500‰ へ下げる)と④のゲートを
     /// <c>== 1</c> で書いた実装と <c>!= 0</c> で書いた実装が食い違う。
     /// </remarks>
     public int IsBankrupt
@@ -92,7 +92,7 @@ public sealed class HouseholdState
             if (value is not (0 or 1))
             {
                 throw new ArgumentOutOfRangeException(
-                    nameof(value), value, "破産中フラグは 0 / 1(GDD02 §6.2.2)。");
+                    nameof(value), value, "破産中フラグは 0 / 1(GDD02b §3.3)。");
             }
 
             isBankrupt = value;
@@ -100,11 +100,11 @@ public sealed class HouseholdState
     }
 
     /// <summary>
-    /// 都市外市場の窓口を指す、予約済みの売り手 Id(TDD01 §3.2 / GDD02 §10.2)。
+    /// 都市外市場の窓口を指す、予約済みの売り手 Id(TDD01 §3.2 / GDD02d §2.1)。
     /// </summary>
     /// <remarks>
     /// 都市外市場は <see cref="World"/> の区分を持たず、売り注文を <see cref="World.Market"/> に
-    /// 実体化しない(GDD02 §10.2)。この定数は <see cref="PriceObservation.SellerId"/> と
+    /// 実体化しない(GDD02d §2.1)。この定数は <see cref="PriceObservation.SellerId"/> と
     /// <see cref="LedgerEntry.CounterpartyId"/> の値としてのみ使う。
     /// <para>
     /// <b><see cref="int.MaxValue"/> を選ぶのは、世帯数に依存しないからである。</b>
@@ -185,7 +185,7 @@ public sealed class HouseholdState
         }
     }
 
-    /// <summary>当日の消費不足量。添字 = itemId。単位: 個(GDD02 §6.1 / §8.4)。</summary>
+    /// <summary>当日の消費不足量。添字 = itemId。単位: 個(GDD02b §1 / §8)。</summary>
     /// <remarks>
     /// <see cref="Systems.ConsumptionSystem"/> が毎日、不足の有無にかかわらず全品目を
     /// 上書きする(#40 が <c>Need.Quantity</c> の入力として読む)。
@@ -193,11 +193,11 @@ public sealed class HouseholdState
     public int[] UnmetConsumption { get; }
 
     /// <summary>
-    /// 当日、必需品を「資金不足で買えなかった」購入の件数(GDD02 §6.2.1 / §6.2.2)。0以上。
+    /// 当日、必需品を「資金不足で買えなかった」購入の件数(GDD02b §3.2 / §3.3)。0以上。
     /// </summary>
     /// <remarks>
     /// <b>#39 の破産中フラグの入力である。</b>順3 Household が読む時点ではまだ前日の値であり
-    /// (順5 Trade が上書きするのはその後)、GDD02 §6.2.2「前日の購入結果を評価する」が
+    /// (順5 Trade が上書きするのはその後)、GDD02b §3.3「前日の購入結果を評価する」が
     /// 順序の帰結として成立する。<b>フラグそのものは本タスクでは立てない。</b>
     /// </remarks>
     public int UnaffordableNecessityCount
@@ -208,7 +208,7 @@ public sealed class HouseholdState
             if (value < 0)
             {
                 throw new ArgumentOutOfRangeException(
-                    nameof(value), value, "資金不足で買えなかった件数は0以上(GDD02 §6.2.1)。");
+                    nameof(value), value, "資金不足で買えなかった件数は0以上(GDD02b §3.2)。");
             }
 
             unaffordableNecessityCount = value;
