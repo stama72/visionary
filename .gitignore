@@ -24,3 +24,6 @@ Thumbs.db
 
 # Claude Code が作る作業用 worktree(パイプライン実行中の並行タスクはここに置く)
 .claude/worktrees/
+
+# scripts/usage-rates.py を import したときに落ちるバイトコード
+__pycache__/
