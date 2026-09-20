@@ -226,6 +226,17 @@ public static class BuyerBudget
     }
 
     /// <summary>
+    /// 用途の単位で解いた数量を個数へ直す(GDD02b §5.2・§2)。耐久だけ耐久値で解くので
+    /// 変換が要る。<b>購入(段5b)と外出の計画(<see cref="ErrandPlanner"/>)の両方がこれを
+    /// 呼ぶ</b> ── 変換が1か所にあることが、耐久の行だけ単位を取り違える(3回目の差し戻しの
+    /// 原因。別表C)を防ぐ。
+    /// </summary>
+    public static int QuantityInUnits(DemandPurpose purpose, int quantity, int durabilityPerTool) =>
+        purpose == DemandPurpose.Durable
+            ? IntegerMath.CeilDiv(quantity, durabilityPerTool)
+            : quantity;
+
+    /// <summary>
     /// ゲートと線形解(GDD02b §5.2)。<b>購入量が0になった理由を返す。</b>
     /// </summary>
     /// <remarks>

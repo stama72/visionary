@@ -19,35 +19,53 @@ public static class OpportunityCost
     }
 
     /// <summary>
-    /// 買いに行く者の機会費用(GDD08 §7.2・§9)。世帯構成員のうち<b>最小</b>を採る。
+    /// 買いに行く者(GDD08 §7.2・§9)。機会費用が最小の構成員。同値は NpcId 昇順。
     /// </summary>
-    /// <remarks>
-    /// <b>職業は世帯の現在の値を読む</b>(#39 の付け替えで変わる)。<c>household.Occupation</c> を
-    /// ここで引く ── 呼び出し側に定数で持たせると付け替え後に追随しない(#36 引き継ぎ表 J と同型)。
-    /// <para>
-    /// <b>構成員は <see cref="HouseholdState.MemberNpcIds"/> の並びそのまま走査し、<c>&lt;</c> で
-    /// 更新する。</b>昇順は構築時に保証されているので、同値なら先に見た(NpcId 最小の)者が残る
-    /// (GDD08 §9 の M0 の単純化「手が空いているを判定しない」)。
-    /// </para>
-    /// </remarks>
-    public static int ForErrand(WorldDefinition definition, World world, HouseholdState household)
+    public static ErrandDelegate SelectErrandDelegate(
+        WorldDefinition definition, World world, HouseholdState household)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(world);
         ArgumentNullException.ThrowIfNull(household);
 
-        int minimum = int.MaxValue;
+        var best = new ErrandDelegate { CostPerHour = int.MaxValue };
 
         foreach (int npcId in household.MemberNpcIds)
         {
-            int cost = ForNpc(definition, household.Occupation, world.Npcs[npcId].Rank);
+            var rank = world.Npcs[npcId].Rank;
 
-            if (cost < minimum)
+            // 職業は世帯の現在の値を読む(#39 の付け替えで変わる)。household.Occupation を
+            // ここで引く ── 呼び出し側に定数で持たせると付け替え後に追随しない(#36 引き継ぎ表 J と同型)。
+            int cost = ForNpc(definition, household.Occupation, rank);
+
+            if (cost < best.CostPerHour)
             {
-                minimum = cost;
+                best = new ErrandDelegate
+                {
+                    NpcId = npcId,
+                    CostPerHour = cost,
+                    // 労働力係数‰(GDD02a §2)。階層係数‰(GDD08 §9)ではない ── 取り違えても
+                    // 例外は出ず、値としては自然に見えるので気付けない(タスク仕様)。
+                    LaborPermille = definition.LaborPermilleByRank[(int)rank],
+                };
             }
         }
 
-        return minimum;
+        return best;
     }
+}
+
+/// <summary>買いに行く者(GDD08 §7.2・§9)。機会費用が最小の構成員。同値は NpcId 昇順。</summary>
+public readonly record struct ErrandDelegate
+{
+    public int NpcId { get; init; }
+
+    /// <summary>機会費用。単位: 貨幣/1時間(GDD08 §9)。</summary>
+    public int CostPerHour { get; init; }
+
+    /// <summary>
+    /// 労働力係数‰(GDD02a §2)。<b>階層係数‰(GDD08 §9)ではない。</b>
+    /// <see cref="OpportunityCost.SelectErrandDelegate"/> が機会費用を選んだのと同じ NPC の値。
+    /// </summary>
+    public int LaborPermille { get; init; }
 }

@@ -496,6 +496,59 @@ public sealed class TradeSystemTests
     }
 
     /// <summary>
+    /// 【核心】別表D-1([#98](https://github.com/stama72/visionary/issues/98) タスク仕様)。
+    /// 手順9(<c>fundsCap == 0</c>)は用途が <see cref="DemandPurpose.Necessity"/> の行だけを
+    /// 数える。必需の行が資金をほぼ使い切ったうえで、嗜好の行が段4の古い現金上限(値下げ前の
+    /// 流動資金で計算済み)のゲートを通ってから、段8で現在の(必需の決済で減った)流動資金に
+    /// 対する <c>fundsCap == 0</c> を踏む世帯を手で組む。<b>必需の行自体は <c>fundsCap</c> が
+    /// 1 のままで、この経路を踏まない。</b> W2-08 のテスト #27(<see cref="NecessityShortfallIsCountedOnBothPaths"/>)は
+    /// 必需の2経路、#28(<see cref="TooExpensiveIsNotCountedAsShortfall"/>)は理由コードを
+    /// 押さえているが、「非必需が経路(2)で数えられないこと」はどちらも押さえていない。
+    /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-20)。</b><c>TradeSystem.RunOneHouseholdsShopping</c> の手順9
+    /// (<c>if (line.Purpose == DemandPurpose.Necessity &amp;&amp; fundsCap == 0)</c>)から
+    /// <c>line.Purpose == DemandPurpose.Necessity &amp;&amp;</c> を外す変異(タスク仕様 別表D-1が
+    /// 名指し)を当てたところ、<c>Assert.Equal(0, world.Households[0].UnaffordableNecessityCount)</c>
+    /// が実際値1(嗜好(穀物)の行が段4の古い現金上限100のゲートを通った後、段8で現在の流動資金0に
+    /// 対する <c>fundsCap == 0</c> を踏んで数えられる)で失敗した(赤を確認)。変異を戻して
+    /// 緑に復帰させた。
+    /// </remarks>
+    [Fact]
+    public void NonNecessityFundsShortfallIsNotCounted()
+    {
+        var definition = BuildShoppingDefinition(
+            breadFloor: 100,
+            grainFloor: 50,
+            necessityTargetStockDays: TargetStockDaysFor(Item.Bread),
+            preferenceTargetStockDays: TargetStockDaysFor(Item.Grain));
+
+        var world = new World(npcCount: 3, householdCount: 3, itemCount: Item.Count);
+        // 必需(パン)の代金ちょうどの流動資金 ── 段4のCashCap(=100)と段8のfundsCap(=1)が
+        // ともに約定を通し、資金をほぼ使い切る(fundsCap==0は踏まない)。
+        AddHousehold(world, id: 0, districtId: 4, Occupation.Woodworker, liquidFunds: 100);
+        AddHousehold(world, id: 1, districtId: 4, Occupation.Miller); // パン(必需)の売り手。床100。
+        AddHousehold(world, id: 2, districtId: 4, Occupation.Baker); // 穀物(嗜好)の売り手。床50。
+        world.Households[1].WorkshopInventory[Item.Bread] = 100;
+        world.Households[2].WorkshopInventory[Item.Grain] = 100;
+
+        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+
+        var buyer = world.Households[0];
+
+        // 必需(パン)は約定し(段4のCashCap=100、価格100で数量1)、流動資金をちょうど使い切る。
+        Assert.Equal(1, buyer.HouseholdInventory[Item.Bread]);
+        Assert.Equal(0, buyer.LiquidFunds);
+
+        // 嗜好(穀物)は段4のゲート(古いCashCap=100、価格50)を通り数量2の解が立つが、
+        // 段8で現在の流動資金0に対するfundsCap==0に切り詰められて0個になる。
+        Assert.Equal(0, buyer.HouseholdInventory[Item.Grain]);
+
+        // 経路(2)は用途がNecessityの行だけを数える。嗜好の資金不足はここに現れない。
+        Assert.Equal(0, buyer.UnaffordableNecessityCount);
+    }
+
+    /// <summary>
     /// テスト表 #28。必需で相場項が実効価格を下回ってゲートが閉じた日 →
     /// UnaffordableNecessityCount == 0。売り手の在庫が0で約定できなかった日・店を1つも
     /// 知らない日も0。
@@ -604,36 +657,282 @@ public sealed class TradeSystemTests
     }
 
     /// <summary>
-    /// 【核心】テスト表 #30。移動費が乗る区画の店で、UnitRealCost &gt; 予算 ≥ UnitEffectivePrice に
-    /// なる配置 → 約定する(数量は実効価格で解いた値)。
+    /// 【核心】テスト表 #25。旧テスト「BudgetGateUsesEffectivePriceNotRealCost」(#30)の置き換え。
+    /// 距離2の訪問区画の店で約定し、数量が距離0の店で同じ提示価格のときと一致する
+    /// (外出の費用は数量の解にも予算にも混ざらない。GDD02b §7)。
     /// </summary>
     /// <remarks>
-    /// <b>変異の実測(2026-09-20)。</b><c>TradeSystem</c> の段5手順3で
-    /// <c>BuyerBudget.Decide(line, store.UnitRealCost)</c>(実質コストを渡す変異)に変えたところ、
-    /// 実効価格10・実質コスト12・現金上限10の配置で <c>Assert.Equal(1,
-    /// buyer.HouseholdInventory[Item.Bread])</c> が実際値0(12&gt;10でCashCapゲートが閉じ、
-    /// 約定しない)で失敗した(赤を確認)。変異を戻して緑に復帰させた。
+    /// <b>変異の実測(2026-09-20)。</b><c>TradeSystem.RunOneHouseholdsShopping</c> の
+    /// <c>BuyerBudget.Decide(line, store.UnitEffectivePrice)</c> を
+    /// <c>BuyerBudget.Decide(line, store.UnitEffectivePrice + Errand.Cost(travelHours,
+    /// errand.CostPerHour))</c>(外出の費用を単価へ足して渡す変異、#85で消した二重計上が戻る形)に
+    /// 変えたところ、距離2のケースの <c>Assert.Equal(2,
+    /// distantBuyer.HouseholdInventory[Item.Bread])</c> が実際値1(単価が実質的に上がり
+    /// 数量の解が減る)で失敗し、<c>homeQuantity</c>(距離0、常に2)と食い違った(赤を確認)。
+    /// 変異を戻して緑に復帰させた。
     /// </remarks>
     [Fact]
-    public void BudgetGateUsesEffectivePriceNotRealCost()
+    public void BudgetGateUsesTheEffectivePriceOnly()
     {
         var definition = BuildShoppingDefinition(
             breadFloor: 10, necessityTargetStockDays: TargetStockDaysFor(Item.Bread));
 
-        var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
-        AddHousehold(world, id: 0, districtId: 4, Occupation.Woodworker, liquidFunds: 10);
-        // 距離1(移動費が乗る)。実効価格10・現金上限10(予算=10)・実質コスト = 10 + 移動費。
-        AddHousehold(world, id: 1, districtId: 1, Occupation.Miller);
-        world.Households[1].WorkshopInventory[Item.Bread] = 100;
+        // 距離0(自区画に売り手)。
+        var homeWorld = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
+        AddHousehold(homeWorld, id: 0, districtId: 4, Occupation.Woodworker, liquidFunds: 1000);
+        AddHousehold(homeWorld, id: 1, districtId: 4, Occupation.Miller);
+        homeWorld.Households[1].WorkshopInventory[Item.Bread] = 100;
+
+        EconomySystemTestFixtures.RunDays(homeWorld, new TradeSystem(definition), days: 1);
+
+        var homeBuyer = homeWorld.Households[0];
+
+        // 距離2(訪問区画に売り手。他区画には売り手がいないので、余剰が費用を上回れば
+        // その区画だけへ外出する)。
+        var distantWorld = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
+        AddHousehold(distantWorld, id: 0, districtId: 0, Occupation.Woodworker, liquidFunds: 1000);
+        AddHousehold(distantWorld, id: 1, districtId: 2, Occupation.Miller); // District.Distance(0,2)=2
+        distantWorld.Households[1].WorkshopInventory[Item.Bread] = 100;
+
+        EconomySystemTestFixtures.RunDays(distantWorld, new TradeSystem(definition), days: 1);
+
+        var distantBuyer = distantWorld.Households[0];
+
+        // 外出が実際に起きたこと(訪問区画にしか売り手がいない以上、外出しなければ約定しえない)。
+        Assert.True(distantBuyer.HouseholdInventory[Item.Bread] > 0);
+
+        // 数量が一致する(外出の費用は数量の解にも予算にも混ざらない。GDD02b §7)。
+        Assert.Equal(homeBuyer.HouseholdInventory[Item.Bread], distantBuyer.HouseholdInventory[Item.Bread]);
+
+        // 決済額も一致する(実効価格のみを使う。Errand.Costは価値の比較にだけ使われ、
+        // LiquidFundsからは一切引かれない)。
+        Assert.Equal(homeBuyer.LiquidFunds, distantBuyer.LiquidFunds);
+    }
+
+    /// <summary>
+    /// 【核心】テスト表 #26。行ったが1つも買えなかった区画(全店の販売在庫0)でも、
+    /// 翌日その区画の店が「有効な記憶」になる(観測は買い物の副産物ではなく、見た時点で
+    /// 生まれる。GDD06 §3.1)。
+    /// </summary>
+    /// <remarks>
+    /// <b>設計:</b> 売り手(Id0)の在庫はちょうど1個。同区画の depleter(Id1)が Household Id
+    /// 昇順で先に処理され、外出なし(自区画)で買い尽くす。遠方の買い手(Id2)は depleter より
+    /// 後に処理される。5a の計画は在庫を見ない(見積もり価格は床から作る。#17と同じ理由)ので、
+    /// depleter に買い尽くされた後でも遠方の買い手はその区画へ外出する。5b では
+    /// <c>WorkshopInventory &lt;= 0</c> で候補から外れ0個しか買えないが、段1で投稿された
+    /// <c>world.Market</c> のエントリ自体は日中クリアされないので、段6の観測は生まれる。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-20)。</b>段5を1つのループへ畳み、5bで実際に購入した
+    /// (quantity ≥ 1 の)品目の区画だけを <c>visitedDistrictIds</c> へ積む変異(旧実装の
+    /// 「訪問記録を約定時だけ積む」)を当てたところ、<c>Assert.Contains(
+    /// world.Knowledge[distantBuyer.HeadNpcId], o =&gt; o.SellerId == SellerId)</c> が
+    /// 実際値なし(Collection was empty。観測が買い物の副産物になり、0個しか買えなかった
+    /// 区画の観測が生まれない経路)で失敗した(赤を確認)。変異を戻して緑に復帰させた。
+    /// </remarks>
+    [Fact]
+    public void ObservationsCoverEveryVisitedDistrictEvenWithoutAPurchase()
+    {
+        const int SellerId = 0;
+        const int DepleterId = 1;
+        const int DistantBuyerId = 2;
+        const int SellerDistrictId = 2; // District.Distance(0,2)=2(Rの外)。
+
+        var definition = BuildShoppingDefinition(
+            breadFloor: 10, necessityTargetStockDays: TargetStockDaysFor(Item.Bread));
+
+        var world = new World(npcCount: 3, householdCount: 3, itemCount: Item.Count);
+        AddHousehold(world, id: SellerId, districtId: SellerDistrictId, Occupation.Miller, liquidFunds: 0);
+        world.Households[SellerId].WorkshopInventory[Item.Bread] = 1; // ちょうど1個。depleterが買い尽くす。
+
+        // depleterは売り手と同区画(自区画なので、外出なしで即座に買い尽くせる)。
+        AddHousehold(
+            world, id: DepleterId, districtId: SellerDistrictId, Occupation.Woodworker, liquidFunds: 100_000);
+
+        // 遠方の買い手。Household Id昇順でdepleterより後に処理される。
+        AddHousehold(world, id: DistantBuyerId, districtId: 0, Occupation.Baker, liquidFunds: 1000);
 
         EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
 
-        var buyer = world.Households[0];
+        var distantBuyer = world.Households[DistantBuyerId];
 
-        // 実効価格(10)で解いた数量が約定し、実質コスト(10+移動費)は予算を超えているが
-        // ゲートには使われない。
-        Assert.Equal(1, buyer.HouseholdInventory[Item.Bread]);
-        Assert.Equal(0, buyer.LiquidFunds); // 10 − 1×10(実効価格で決済)
+        // 買えなかったこと(depleterが先に買い尽くしている)。
+        Assert.Equal(0, distantBuyer.HouseholdInventory[Item.Bread]);
+
+        // それでも観測は生まれる(見た時点で生まれる。買い物の成否に依らない)。
+        Assert.Contains(
+            world.Knowledge[distantBuyer.HeadNpcId],
+            o => o.ItemId == Item.Bread && o.SellerId == SellerId);
+    }
+
+    /// <summary>
+    /// 【核心】テスト表 #31。見積もり価格(<see cref="ErrandPlanner"/> 5.5)と当日の提示価格が
+    /// 一致する配置(売り手が床のまま提示する初日)で、段5b の実際の約定数量が、独立に
+    /// <c>BuyerBudget.Decide</c> + <c>BuyerBudget.QuantityInUnits</c> で予測した q_個 と一致する。
+    /// 必需(単位変換が恒等)と耐久(単位変換がCeilDiv)の両方で確かめる。
+    /// </summary>
+    /// <remarks>
+    /// <b>レビュー2巡目 I-a-1 の訂正。</b>旧版は買い手・売り手を同区画(距離0)に置いていた。
+    /// 同区画だと <see cref="ErrandPlanner"/> が候補区画を1件も持たず<c>VisitedDistrictIds</c>
+    /// が常に空になるので、計画側が算出した q_個 がどのassertにも現れず、比べているのが
+    /// 「段5bの約定数量」と「テスト内の独立予測」であって計画と購入の一致になっていなかった。
+    /// 本版は<b>売り手を買い手と別区画に置く</b>。耐久の組は、正しい変換(q_個=2・余剰1500)なら
+    /// 行き、取り違え(FloorDiv・q_個=1・余剰750)なら行かない境界(費用1000)に外出の費用を
+    /// 置く ── 行かなければ約定自体が起きず(訪問区画に売り手が無い)、独立予測(非0)と実際の
+    /// 約定数量(0)が食い違って落ちる。必需の組は変換が恒等なので同じ境界は作れない
+    /// (<c>QuantityInUnits</c>がDurable以外でCeilDiv/FloorDivの分岐を持たない)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>耐久側の設計。</b>買い手に工具の市場参照(平均2000)を仕込み、基礎値を流動資金から
+    /// 切り離す ── 参照が無いと基礎値=現金上限=流動資金となり、ゲートを通る実効価格の範囲では
+    /// 資金上限が数量を1個に切り詰めてしまい、CeilDiv(1500,1000)=2 と FloorDiv(1500,1000)=1 の
+    /// 分岐が資金上限の背後に隠れて見えなくなる(実測で確認した構造的な制約)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-20)。</b><c>BuyerBudget.QuantityInUnits</c> の <c>CeilDiv</c> を
+    /// <c>FloorDiv</c> に変える変異を当てたところ、本テストの
+    /// <c>Assert.Equal(2, predictedQuantity)</c> が実際値1(FloorDiv(1500,1000)=1)で失敗した
+    /// (赤を確認)。変異を戻して緑に復帰させた。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-20、レビュー2巡目)。</b><see cref="ErrandPlanner"/> の
+    /// <c>SurplusFor</c>(耐久の変換の呼び出し箇所)を、<c>BuyerBudget.QuantityInUnits</c>を
+    /// 呼ばずローカルに<c>IntegerMath.FloorDiv(decision.Quantity, _definition.ToolDurabilityPerUnit)</c>
+    /// を書き戻す変異(計画側だけ古い変換が残る「2か所に書いて片方だけ直す」の具体形)を
+    /// 当てたところ、耐久の組の
+    /// <c>Assert.Equal(predictedQuantity(=2), world.Households[0].WorkshopInventory[Item.Tools])</c>
+    /// が実際値0(計画側の余剰が750&lt;費用1000で行かない判定になり、区画2が訪問されず
+    /// 約定自体が起きない)で失敗した(赤を確認)。変異を戻して緑に復帰させた。
+    /// </remarks>
+    [Fact]
+    public void ErrandPlannerAndSettlementAgreeOnQuantity()
+    {
+        // 必需(パン、単位変換は恒等)。買い手と売り手を別区画(距離1、R以内)に置き、計画が
+        // 実際に外出を選ぶことを確かめる。目標6・床1・流動資金大 → 上側clampで数量12。
+        {
+            const int BuyerDistrictId = 4;
+            const int SellerDistrictId = 3; // 距離1(R以内)。
+
+            var necessityTargetStockDays = new int[Item.Count];
+            necessityTargetStockDays[Item.Bread] = 6;
+
+            var definition = BuildShoppingDefinition(breadFloor: 1, necessityTargetStockDays: necessityTargetStockDays);
+            var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
+
+            AddHousehold(world, id: 0, districtId: BuyerDistrictId, Occupation.Woodworker, liquidFunds: 100_000);
+            AddHousehold(world, id: 1, districtId: SellerDistrictId, Occupation.Miller);
+            world.Households[1].WorkshopInventory[Item.Bread] = 1000;
+
+            EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+
+            // 独立予測: baseValue=cashCap=100000(参照なし)・実効価格1(床、距離1はR以内なので
+            // 当日の提示価格をそのまま使う)・target6・expected0 ── PurchaseQuantityが上側
+            // clamp(2×target)に当たり12。QuantityInUnits(Necessity)は恒等。
+            var line = new DemandLine
+            {
+                Purpose = DemandPurpose.Necessity,
+                ItemId = Item.Bread,
+                HasMarketTerm = false,
+                MarketTerm = 0,
+                CashCap = 100_000,
+                HasProfitCap = false,
+                ProfitCap = 0,
+                TargetStock = 6,
+                ExpectedStock = 0,
+                StockPressurePermille = 0, // HasMarketTerm=falseのゲートでは読まれない。
+                BaseValue = 100_000,
+                Budget = 1,
+            };
+            int predictedQuantity = BuyerBudget.QuantityInUnits(
+                line.Purpose, BuyerBudget.Decide(line, effectivePrice: 1).Quantity, durabilityPerTool: 1);
+
+            // 買い手と売り手が別区画になったことで計画が実際に外出を選んでいる(労働損失‰>0)。
+            Assert.True(world.Households[0].ErrandLaborLossPermille > 0);
+            Assert.Equal(predictedQuantity, world.Households[0].HouseholdInventory[Item.Bread]);
+        }
+
+        // 耐久(工具、単位変換はCeilDiv)。買い手と売り手を別区画(距離2、Rの外)に置く。
+        // N=1(耐久値1000)・市場参照2000・床1500 → 数量1500、q_個=CeilDiv(1500,1000)=2
+        // (FloorDivなら1)。費用1000は正しい変換(余剰1500)なら行き、取り違え(余剰750)なら
+        // 行かない境界(上のremarks参照)。
+        {
+            const int ToolDurabilityPerUnit = 1000; // toolLifeLaborDays=1 × PermilleScale(1000)。
+            const int MarketReferencePrice = 2000;  // 買い手の工具の市場参照(平均)。
+            const int SellerFloorPrice = 1500;       // 床(参照なし初日の提示価格そのもの)。
+            const int BuyerDistrictId = 0;
+            const int SellerDistrictId = 2; // 距離2(Rの外) → 往復4時間(travelHoursPerDistrict=1)。
+            const int WoodworkerOpportunityCostPerHour = 250; // 費用=4時間×250=1000。
+
+            var toolRecipe = new Recipe(
+                Occupation.Miller,
+                outputs: new[] { new ItemQuantity { ItemId = Item.Tools, Quantity = 1 } },
+                inputs: new[] { new ItemQuantity { ItemId = Item.IronOre, Quantity = 1 } },
+                laborPermille: 1000);
+
+            var externalBuyPrice = new int[Item.Count];
+            externalBuyPrice[Item.Tools] = SellerFloorPrice;
+            externalBuyPrice[Item.Grain] = 1; // UnusedRecipe(Baker等)が出力する品目。0だと構築時に投げる。
+
+            var definition = EconomySystemTestFixtures.BuildDefinition(
+                toolRecipe,
+                toolLifeLaborDays: 1,
+                // Woodworker(買い手の職業。Miller=0,Baker=1,Brewer=2,Woodworker=3,Smith=4)だけ
+                // 機会費用を上げ、外出の費用を1000に固定する。
+                opportunityCostBaseByOccupation: new[] { 1, 1, 1, WoodworkerOpportunityCostPerHour, 1 },
+                rankCoefficientPermille: new[] { 1000, 1000, 1000 },
+                travelHoursPerDistrict: 1,
+                shipmentDays: 1,
+                inputBufferDays: 1,
+                externalBuyPriceOverride: externalBuyPrice);
+
+            var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
+            AddHousehold(world, id: 0, districtId: BuyerDistrictId, Occupation.Woodworker, liquidFunds: 100_000);
+            AddHousehold(world, id: 1, districtId: SellerDistrictId, Occupation.Miller);
+            world.Households[1].WorkshopInventory[Item.Tools] = 100;
+
+            // 買い手の工具の市場参照(前日以前の観測。基礎値を流動資金から切り離す。上の<remarks>参照)。
+            // SellerId=999は実在しない売り手 ── ErrandPlannerの見積もり(5.3)は売り手Id一致を
+            // 要求するのでこの観測には当たらず、距離2(Rの外)は床(1500)へ落ちる。
+            EconomySystemTestFixtures.AdvanceClockOnly(world, ticks: 24);
+            world.Knowledge[0].Add(new PriceObservation
+            {
+                ItemId = Item.Tools,
+                LocationId = 0,
+                Price = MarketReferencePrice,
+                SellerId = 999, // 実在しない売り手。参照は売り手を問わず平均するので無関係でよい。
+                ObservedAt = Tick.Zero,
+                Source = ObservationSource.Direct,
+            });
+
+            EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+
+            // 独立予測: 目標=耐久値そのもの(ToolTargetStockPermille=1000・RankCoefficient=1000)、
+            // 予想在庫0(WorkshopInventory[Tools]=0・ToolWear=0)、基礎値=市場参照(生。2000)。
+            var line = new DemandLine
+            {
+                Purpose = DemandPurpose.Durable,
+                ItemId = Item.Tools,
+                HasMarketTerm = true,
+                MarketTerm = MarketReferencePrice,
+                CashCap = 100_000,
+                HasProfitCap = false,
+                ProfitCap = 0,
+                TargetStock = ToolDurabilityPerUnit,
+                ExpectedStock = 0,
+                StockPressurePermille = BuyerBudget.StockPressurePermille(expectedStock: 0, targetStock: ToolDurabilityPerUnit),
+                BaseValue = MarketReferencePrice,
+                Budget = 1,
+            };
+            var decision = BuyerBudget.Decide(line, effectivePrice: SellerFloorPrice);
+            int predictedQuantity = BuyerBudget.QuantityInUnits(
+                line.Purpose, decision.Quantity, ToolDurabilityPerUnit);
+
+            Assert.Equal(2, predictedQuantity); // CeilDiv(1500,1000)=2(FloorDivなら1、分岐の確認)。
+
+            // 正しい変換なら価値500(余剰1500-費用1000)で行く。行かなければ約定自体が起きない。
+            Assert.True(world.Households[0].ErrandLaborLossPermille > 0);
+            Assert.Equal(predictedQuantity, world.Households[0].WorkshopInventory[Item.Tools]);
+        }
     }
 
     /// <summary>
@@ -784,5 +1083,120 @@ public sealed class TradeSystemTests
             world.Ledgers[0],
             entry => entry.Direction == LedgerDirection.Purchase && entry.ItemId == Item.Grain);
         Assert.Equal(0, world.Households[0].WorkshopInventory[Item.Grain]);
+    }
+
+    /// <summary>
+    /// 【核心】テスト表 #18。外出しない日に、前日の値(100)が0で上書きされる
+    /// (UnaffordableNecessityCountを毎日0で上書きするのと同じ理由。書かない日があると
+    /// 前日の損失が翌日以降も効き続ける)。
+    /// </summary>
+    [Fact]
+    public void ErrandLaborLossIsWrittenEveryDayIncludingZero()
+    {
+        // 需要が一切無い(必需・嗜好の目標在庫日数がすべて0)世帯 → どの行も需要リストに残らず、
+        // ErrandPlanner.Planは必ずLaborLossPermille=0を返す。
+        var definition = BuildShoppingDefinition();
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+        AddHousehold(world, id: 0, districtId: 4, Occupation.Woodworker, liquidFunds: 1000);
+
+        // 前日の(古い)損失を直接立てておく。
+        world.Households[0].ErrandLaborLossPermille = 100;
+
+        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+
+        Assert.Equal(0, world.Households[0].ErrandLaborLossPermille);
+    }
+
+    /// <summary>
+    /// 【核心】テスト表 #21。issue #98の閉じる条件。パイプラインを2日走らせ、1日目に外出した
+    /// 世帯の2日目のProductionRunsが、同条件で外出しなかった世帯より少ない。1日目のProductionRuns
+    /// は同じ(損失は翌日に効く)。
+    /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-20)。</b><c>TradeSystem.Step</c> の段5aで
+    /// <c>household.ErrandLaborLossPermille = plan.LaborLossPermille;</c> の代入を消す変異
+    /// (書かない。<c>ProductionSystem</c> は常に0を読む)を当てたところ、
+    /// <c>Assert.True(travelerDay2Runs &lt; controlDay2Runs)</c> が実際値false
+    /// (travelerDay2Runsがcontrolと同じになる。外出しても翌日の生産が減らない経路。
+    /// issue #98の閉じる条件そのもの)で失敗した(赤を確認)。変異を戻して緑に復帰させた。
+    /// </remarks>
+    [Fact]
+    public void NextDaysProductionDropsByTheErrandLaborLoss()
+    {
+        const int TravelerId = 0;
+        const int ControlId = 1;
+        const int SellerId = 2;
+        const int SellerDistrictId = 2; // 距離2。
+
+        var recipe = new Recipe(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = Item.Flour, Quantity = 1 } },
+            inputs: new[] { new ItemQuantity { ItemId = Item.Grain, Quantity = 2 } },
+            laborPermille: 300);
+
+        var externalBuyPrice = new int[Item.Count];
+        externalBuyPrice[Item.Grain] = 1; // 床(安い。travelerを誘引する)。
+        externalBuyPrice[Item.Flour] = 1; // recipeの出力(都市生産品)。値そのものは使わない。
+
+        var definition = EconomySystemTestFixtures.BuildDefinition(
+            recipe,
+            laborPermilleByRank: new[] { 1000, 800, 300 },
+            dailyConsumptionPerNpcByRank: GrainConsumptionTable(),
+            necessityTargetStockDays: TargetStockDaysFor(Item.Grain),
+            tolerancePermille: 1200,
+            opportunityCostBaseByOccupation: new[] { 1, 1, 1, 1, 1 },
+            rankCoefficientPermille: new[] { 1000, 1000, 1000 },
+            travelHoursPerDistrict: 1,
+            shipmentDays: 1,
+            inputBufferDays: 1,
+            disposableHours: 12,
+            externalBuyPriceOverride: externalBuyPrice);
+
+        var world = new World(npcCount: 3, householdCount: 3, itemCount: Item.Count);
+
+        // traveler: 遠方(distance2)のGrain売り手のため必ず外出する(必需・現金潤沢)。
+        AddHousehold(world, id: TravelerId, districtId: 0, Occupation.Miller, liquidFunds: 1000);
+        world.Households[TravelerId].WorkshopInventory[Item.Grain] = 1000; // 生産の入力切れにしない。
+        world.Households[TravelerId].WorkshopInventory[Item.Tools] = 1; // 設備係数1000‰。
+
+        // control: 外出しない(資金0で現金上限0、需要が立たない)。
+        AddHousehold(world, id: ControlId, districtId: 0, Occupation.Miller, liquidFunds: 0);
+        world.Households[ControlId].WorkshopInventory[Item.Grain] = 1000;
+        world.Households[ControlId].WorkshopInventory[Item.Tools] = 1;
+
+        // 売り手(traveler専用の遠方の穀物売り手)。
+        AddHousehold(world, id: SellerId, districtId: SellerDistrictId, Occupation.Baker, liquidFunds: 0);
+        world.Households[SellerId].WorkshopInventory[Item.Grain] = 1000;
+
+        var scheduler = new SimScheduler(
+            new ISimSystem[] { new ProductionSystem(definition), new TradeSystem(definition) },
+            new RandomSource(1));
+
+        scheduler.Advance(world, ticks: 24); // 1日目
+
+        int travelerDay1Runs = world.Households[TravelerId].ProductionRuns;
+        int controlDay1Runs = world.Households[ControlId].ProductionRuns;
+
+        // 1日目のProductionRunsは同じ(損失はまだ効かない。前日=初期値0を順1が読む)。
+        Assert.Equal(controlDay1Runs, travelerDay1Runs);
+
+        // 1日目に実際に外出したことを確かめる(前提)。
+        Assert.True(world.Households[TravelerId].ErrandLaborLossPermille > 0);
+        Assert.Equal(0, world.Households[ControlId].ErrandLaborLossPermille);
+
+        scheduler.Advance(world, ticks: 24); // 2日目
+
+        int travelerDay2Runs = world.Households[TravelerId].ProductionRuns;
+        int controlDay2Runs = world.Households[ControlId].ProductionRuns;
+
+        Assert.True(travelerDay2Runs < controlDay2Runs);
+    }
+
+    private static int[][] GrainConsumptionTable()
+    {
+        var row = new int[Item.Count];
+        row[Item.Grain] = 1;
+
+        return new[] { (int[])row.Clone(), (int[])row.Clone(), (int[])row.Clone() };
     }
 }

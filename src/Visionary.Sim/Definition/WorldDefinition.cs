@@ -142,6 +142,13 @@ public sealed class WorldDefinition
     /// <summary>可処分時間 T。単位: 時間。1以上(GDD08 §3.1。GDD02a §2 の労働損失の分母)。</summary>
     public int DisposableHours { get; }
 
+    /// <summary>
+    /// 信用による実効価格の割引係数 α‰(GDD01 §2.2 効果1)。単位: ‰。信用100で
+    /// <c>trustDiscountPermille</c>‰の割引(M0の既定200‰なら2割引)。<b>値域は0〜999</b>
+    /// (1000を含めない。1000ちょうどだと信用100で実効価格が0になり下流が投げる)。
+    /// </summary>
+    public int TrustDiscountPermille { get; }
+
     /// <summary>職業数。<see cref="Recipes"/> の長さから導く。</summary>
     public int OccupationCount => Recipes.Length;
 
@@ -204,7 +211,8 @@ public sealed class WorldDefinition
         int shipmentDays,
         int toolLifeLaborDays,
         int equipmentPermilleWithoutTools,
-        int disposableHours)
+        int disposableHours,
+        int trustDiscountPermille)
     {
         ArgumentNullException.ThrowIfNull(recipes);
         ArgumentNullException.ThrowIfNull(initialAcquisitionCost);
@@ -680,6 +688,16 @@ public sealed class WorldDefinition
                 nameof(disposableHours), disposableHours, "可処分時間Tは1以上(GDD08 §3.1)。");
         }
 
+        // 0〜999の外を拒む(1000を含めない)。1000ちょうどだと信用100で係数が0になり、
+        // 実効価格が0になって下流(BuyerBudget.Decide / TradeSettlement.FundsCap)が
+        // 投げる(GDD06 §2)。
+        if (trustDiscountPermille is < 0 or > 999)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(trustDiscountPermille), trustDiscountPermille,
+                "信用による実効価格の割引係数‰は0〜999(GDD06 §2)。");
+        }
+
         ItemCount = itemCount;
         HouseholdsPerOccupation = householdsPerOccupation;
         Recipes = recipes.ToArray();
@@ -734,6 +752,7 @@ public sealed class WorldDefinition
         ToolLifeLaborDays = toolLifeLaborDays;
         EquipmentPermilleWithoutTools = equipmentPermilleWithoutTools;
         DisposableHours = disposableHours;
+        TrustDiscountPermille = trustDiscountPermille;
 
         // 導出値。状態ではなく、すべてここまでの引数から決まる(タスク仕様)。
         NominalLaborPermille = laborPermilleByRank[(int)NpcRank.Master] + laborPermilleByRank[(int)NpcRank.Apprentice];
@@ -1006,6 +1025,7 @@ public sealed class WorldDefinition
             shipmentDays: 3,                      // 単位: 日(GDD02c §1.3)
             toolLifeLaborDays: 13,                // 単位: 人日(GDD02a §3.1)
             equipmentPermilleWithoutTools: 500,   // 単位: ‰(GDD02a §3)
-            disposableHours: 12);                 // 単位: 時間(GDD08 §3.1)
+            disposableHours: 12,                  // 単位: 時間(GDD08 §3.1)
+            trustDiscountPermille: 200); // ‰(GDD01 §2.2 効果1)。信用100で2割引の校正値
     }
 }
