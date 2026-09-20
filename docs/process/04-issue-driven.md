@@ -109,6 +109,8 @@ label:needs-decision label:P0,P1 -label:blocked
 
 **GDD / TDD の規則を書き換える `type:design` の issue は、閉じる条件に「追随表」を含める。** 追随表は「変えた規則 → それを実装している既存コード → 引き取る impl issue」の3列で、issue の本文かコメントに置く(文書には置かない。進行の器は issue である)。
 
+**docs 直下(コンセプトシート・企画書・世界観設定書)の規則を書き換える issue も同じ形で、向きが一段上がる** — 「変えた規則 → 追随する GDD / TDD の節 → 引き取る design issue」。[#68](https://github.com/stama72/visionary/issues/68) の ADR-0011「領主 → 市参事会」が最初の適用例で、波及節が「別 issue」とだけ書いた時点では GDD01 / 02 / 09 の「領主」16 箇所に引き取る issue が無かった。層の表は [06-design-sessions](06-design-sessions.md)。
+
 | 変えた規則(現行版の節) | 実装している既存コード | 引き取る issue |
 | ------------------------ | ---------------------- | -------------- |
 | GDD02a §5.1 移動平均の更新対象に耐久を足す | `TradeSettlement.Execute` の更新条件 | [#97](https://github.com/stama72/visionary/issues/97) |
