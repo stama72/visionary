@@ -32,6 +32,12 @@
 #    この検出器は関知しない。これは機械では見えない — 見えないからこそ #101 の
 #    追随表と規則8(docs/process/02-task-spec.md)が人の側にある。
 #
+# 4. "<文書Id> §<番号>" 以外の形で文書を名指しした引用。パスで名指しする形
+#    (`<c>docs/03-gdd/03-seasons-and-city.md</c> §1.2`)や GDD/TDD 接頭辞の無い形
+#    (`(02c §2.3 の利潤上限のための…)`)は、行内に文書が書いてあっても UNRESOLVED
+#    に落ち、件数にしか現れない。`GDD03 §1.2` を振り直すと `GDD03 §1.2` 形式の
+#    引用は STALE に出るのに、この形の引用は 0 件のまま通る。
+#
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -70,7 +76,8 @@ for doc_dir_prefix in "docs/03-gdd GDD" "docs/04-tdd TDD"; do
 done > "$headings_file"
 
 # 2. src/ tests/ を対象に、行内の "§<番号>" を左から順に走査する。
-#    - "(GDD|TDD)dd[a-d]? §<番号>" の形は明示引用として doc/number を確定する。
+#    - "(GDD|TDD)dd<分冊接尾辞>? §<番号>" の形は明示引用として doc/number を確定する。
+#      分冊接尾辞は見出し収集側(1.)と同じく a〜d に限定しない(小文字を任意個)。
 #    - 文書Idの無い裸の "§<番号>" は、同じ行で直前に確定した doc を引き継ぐ。
 #      ただし直前の引用と当該 § のあいだのテキストに「タスク仕様」「ADR-」「#<数字>」の
 #      いずれかが現れたら引き継がない(#96 タスク仕様の節をGDDの節と誤認しないため)。
@@ -122,7 +129,7 @@ awk -v headings_file="$headings_file" '
             numtoken = substr(tail, section_mark_len + 1, RLENGTH - section_mark_len)
             rest = substr(tail, RLENGTH + 1)
 
-            if (match(prefix, /(GDD|TDD)[0-9][0-9][a-d]?[ \t]*$/)) {
+            if (match(prefix, /(GDD|TDD)[0-9][0-9][a-z]*[ \t]*$/)) {
                 docid = substr(prefix, RSTART, RLENGTH)
                 gsub(/[ \t]+$/, "", docid)
                 last_doc = docid
