@@ -4,7 +4,7 @@ using Visionary.Sim.Time;
 namespace Visionary.Sim.Systems;
 
 /// <summary>
-/// 消費(TDD01 §3.3 順2)。GDD02 §6.1・§9 の1人1日あたりの消費量を世帯在庫から引き、
+/// 消費(TDD01 §3.3 順2)。GDD02b §1 / GDD02d §5 の1人1日あたりの消費量を世帯在庫から引き、
 /// 不足量を <see cref="HouseholdState.UnmetConsumption"/> に記録する。
 /// </summary>
 /// <remarks>
@@ -17,7 +17,7 @@ namespace Visionary.Sim.Systems;
 /// </para>
 /// <para>
 /// <b>#40(NeedGeneration)への申し送り。</b>ここが書く <see cref="HouseholdState.UnmetConsumption"/>
-/// が「足りなかったぶん」の唯一の記録である ── GDD02 §6.1 の「在庫は0で下げ止まり、
+/// が「足りなかったぶん」の唯一の記録である ── GDD02b §1 の「在庫は0で下げ止まり、
 /// 足りなかったぶんは繰り越さない」という規約のせいで、消費後の在庫からは
 /// 「ちょうど足りた」と「足りずに0になった」を区別できない(#34 タスク仕様)。
 /// </para>

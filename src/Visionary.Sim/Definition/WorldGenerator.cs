@@ -4,7 +4,7 @@ using Visionary.Sim.Time;
 namespace Visionary.Sim;
 
 /// <summary>
-/// GDD02 §2.2・§2.4・§4.3・§8.1 の初期世界を組み立てる。
+/// GDD02 §2.2・§2.4・§4.3 / GDD02c §1 の初期世界を組み立てる。
 /// </summary>
 /// <remarks>
 /// <para>
@@ -28,7 +28,7 @@ public static class WorldGenerator
     // 例えばHouseholdsPerOccupationがDistrict.Countを超える定義は構造的に満たせない。
     private const int MaxPlacementAttempts = 1000;
 
-    /// <summary>GDD02 §2.2・§2.4・§4.3・§8.1 の初期世界を1つ生成する。</summary>
+    /// <summary>GDD02 §2.2・§2.4・§4.3 / GDD02c §1 の初期世界を1つ生成する。</summary>
     public static World Generate(WorldDefinition definition, RandomSource random)
     {
         // definitionの妥当性はここでは検査しない — WorldDefinitionのコンストラクタが

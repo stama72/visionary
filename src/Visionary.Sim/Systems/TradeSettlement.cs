@@ -3,12 +3,12 @@ using Visionary.Sim.Numerics;
 namespace Visionary.Sim.Systems;
 
 /// <summary>
-/// 約定の適用(GDD02 §6.2・§6.2.1 / TDD01 §3.2)。<b>在庫・流動資金・帳簿を動かす唯一の場所。</b>
+/// 約定の適用(GDD02b §3・§3.2 / TDD01 §3.2)。<b>在庫・流動資金・帳簿を動かす唯一の場所。</b>
 /// </summary>
 public static class TradeSettlement
 {
     /// <summary>
-    /// 資金上限(GDD02 §6.2.1)。<c>FloorDiv(流動資金, 実効価格)</c>。<b>切り下げる</b> —
+    /// 資金上限(GDD02b §3.2)。<c>FloorDiv(流動資金, 実効価格)</c>。<b>切り下げる</b> —
     /// 切り上げると1単位多く買えて流動資金が負に落ちる。
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="unitEffectivePrice"/> が0以下。</exception>
@@ -17,7 +17,7 @@ public static class TradeSettlement
         if (unitEffectivePrice <= 0)
         {
             throw new ArgumentOutOfRangeException(
-                nameof(unitEffectivePrice), unitEffectivePrice, "実効価格は1以上(GDD02 §6.2.1)。");
+                nameof(unitEffectivePrice), unitEffectivePrice, "実効価格は1以上(GDD02b §3.2)。");
         }
 
         return IntegerMath.FloorDiv(liquidFunds, unitEffectivePrice);
@@ -44,13 +44,13 @@ public static class TradeSettlement
 
         if (quantity <= 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(quantity), quantity, "数量は1以上(GDD02 §6.2)。");
+            throw new ArgumentOutOfRangeException(nameof(quantity), quantity, "数量は1以上(GDD02b §3)。");
         }
 
         if (unitEffectivePrice <= 0)
         {
             throw new ArgumentOutOfRangeException(
-                nameof(unitEffectivePrice), unitEffectivePrice, "実効価格は1以上(GDD02 §6.2)。");
+                nameof(unitEffectivePrice), unitEffectivePrice, "実効価格は1以上(GDD02b §3)。");
         }
 
         // 1. 支払額はlongで積んでからcheckedでintへ戻す(quantity×unitEffectivePriceはintを
@@ -60,10 +60,10 @@ public static class TradeSettlement
         buyer.LiquidFunds -= payment;
         seller.LiquidFunds += payment;
 
-        // 2. 販売在庫は工房在庫である(GDD02 §8.1.1)。
+        // 2. 販売在庫は工房在庫である(GDD02c §1.3)。
         seller.WorkshopInventory[itemId] -= quantity;
 
-        // 3. 買い手の在庫は用途で行き先が変わる(GDD02 §6.2.1)。
+        // 3. 買い手の在庫は用途で行き先が変わる(GDD02b §3.2)。
         //    必需・嗜好 → 世帯在庫、生産の入力・耐久 → 工房在庫。
         if (purpose is DemandPurpose.Necessity or DemandPurpose.Preference)
         {

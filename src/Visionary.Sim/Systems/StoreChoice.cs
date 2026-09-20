@@ -15,7 +15,7 @@ public readonly record struct StoreCandidate
     /// <summary>
     /// 実効価格。単位: 貨幣/1単位。<b>M0-W2 では提示価格そのものである</b> —
     /// 信用による割引(GDD01 §2.2 効果1)は W4。<b>支払いに使うのはこちらであって
-    /// <see cref="UnitRealCost"/> ではない</b>(GDD02 §6.2.1)。
+    /// <see cref="UnitRealCost"/> ではない</b>(GDD02b §3.2)。
     /// </summary>
     public int UnitEffectivePrice { get; init; }
 

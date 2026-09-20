@@ -160,7 +160,7 @@ public sealed class StateHasherTests
     /// </summary>
     /// <remarks>
     /// 在庫を2本に分けるのは構造的な要請である(TDD01 §3.2)。薪(itemId 5、GDD02 §2.2)は
-    /// 必需の消費財でもパン・ビールの生産入力でもあり、1本に畳むと GDD02 §8.2.1 の目標在庫が
+    /// 必需の消費財でもパン・ビールの生産入力でもあり、1本に畳むと GDD02b §2 の目標在庫が
     /// 用途別に決まらなくなる。
     /// <para>
     /// <b>変異の実測(2026-09-14)。</b>2本を要素ごとの和で1本に畳む変異を当てて赤になることを
@@ -243,7 +243,7 @@ public sealed class StateHasherTests
     /// <para>
     /// <b>区画Id を含めるのは §3.8 の明示的な要求である</b> — 「不変だが初期配置の一部であり、
     /// シードから決まる世界の同一性に属する」。<b>構成員列</b>は世帯内の処理順
-    /// (GDD02 §6.2.1 の購入の決済順)を決めるデータなので、落ちると並びの違う世界が
+    /// (GDD02b §3.2 の購入の決済順)を決めるデータなので、落ちると並びの違う世界が
     /// 同じハッシュになる。
     /// </para>
     /// </remarks>
@@ -307,7 +307,7 @@ public sealed class StateHasherTests
     /// 破産中フラグがハッシュに乗ること(テスト5)。
     /// </summary>
     /// <remarks>
-    /// GDD02 §6.2.2 の②(順5 の値付けで原価下限を 500‰ へ下げる)と ④のゲートを駆動する状態
+    /// GDD02b §3.3 の②(順5 の値付けで原価下限を 500‰ へ下げる)と ④のゲートを駆動する状態
     /// なので、意思決定に直接関与する(TDD01 §3.8)。書き忘れると、投げ売り中の世帯と
     /// そうでない世帯が同じハッシュになる。
     /// </remarks>
@@ -323,7 +323,7 @@ public sealed class StateHasherTests
         Assert.NotEqual(before, after);
     }
 
-    /// <summary>世帯の職業がハッシュに乗ること。GDD02 §6.3 ④の職業付け替えで変わる状態。</summary>
+    /// <summary>世帯の職業がハッシュに乗ること。GDD02b §4.2 ④の職業付け替えで変わる状態。</summary>
     [Fact]
     public void HashChangesWhenHouseholdOccupationChanges()
     {
@@ -431,7 +431,7 @@ public sealed class StateHasherTests
     /// 観測の売り手がハッシュに乗ること(テスト9)。
     /// </summary>
     /// <remarks>
-    /// 欄を足したのに <c>Compute</c> へ書き足すのを忘れると、GDD02 §8.1.1「売り手ごとに
+    /// 欄を足したのに <c>Compute</c> へ書き足すのを忘れると、GDD02c §1.2「売り手ごとに
     /// 最新の1件」が同定できない状態が回帰テストの外に出る。
     /// </remarks>
     [Fact]
