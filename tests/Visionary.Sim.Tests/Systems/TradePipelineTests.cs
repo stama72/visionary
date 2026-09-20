@@ -214,6 +214,13 @@ public sealed class TradePipelineTests
     /// <c>Errand.Surplus</c> を<see cref="long"/>にしたことで60日走行は緑に戻るが、それは型が
     /// 広いあいだ通るだけであり、値付け(GDD02c §1)の発散そのものを止めたわけではない。
     /// </remarks>
+    /// <remarks>
+    /// <b>実測値は <see href="https://github.com/stama72/visionary/issues/120">#120</see> が
+    /// 直れば動く</b>(別表D-2)。<c>upperBound</c> の式自体は構造(NPC数・世帯数・保持期間)だけで
+    /// 決まり価格には依らないが、<c>totalKnowledge</c>(60日走行の実測値)は「売り注文が2件へ
+    /// 枯れる」現行の発散に従属している。値付けが直って枯れ方が変われば <c>totalKnowledge</c> は
+    /// 動きうる(<c>upperBound</c> を超えないことは構造上保たれる)。
+    /// </remarks>
     [Fact]
     public void ObservationsDoNotGrowWithoutBound()
     {
@@ -253,6 +260,9 @@ public sealed class TradePipelineTests
     /// <item>潤沢な資金(100000): 薪は2日目までに約定する。ビールは3日目に初めて約定する
     /// (1000では3日目までに一度も約定しない)。</item>
     /// </list>
+    /// <b>これらの実測値は <see href="https://github.com/stama72/visionary/issues/120">#120</see> が
+    /// 直れば動く</b>(別表D-2)。相場基準が発散する経済の中で「何日目に約定するか」を測った値
+    /// であり、値付けが直れば同じ日数で成立しなくなりうる。
     /// </remarks>
     /// <remarks>
     /// <b>変異の再実測(2026-09-20、持ち越し指摘)。</b><c>[#81](https://github.com/stama72/visionary/issues/81)</c>
@@ -316,6 +326,9 @@ public sealed class TradePipelineTests
     /// 【核心】テスト表 #26。必需の行で <c>UnaffordableNecessityCount</c> が厳密な期待値になる
     /// (資金不足の日は自然発生。下の<c>W2-09 追随</c>参照)。売り手の在庫が0で買えなかっただけの
     /// 世帯 → 0のまま。嗜好が買えなくても0のまま。翌日に買えたら0に戻る。
+    /// <b>本テストは手順9の用途フィルタ(<c>Purpose == Necessity &amp;&amp;</c>)を判別しない</b>
+    /// (別表D-1)。それを押さえるのは
+    /// <see cref="TradeSystemTests.NonNecessityFundsShortfallIsNotCounted"/> である。
     /// </summary>
     /// <remarks>
     /// <b>変異の実測(2026-09-17)。</b><c>fundsCap == 0</c> への置換(<c>actualQuantity == 0</c> など)
@@ -339,15 +352,26 @@ public sealed class TradePipelineTests
     /// 決まることを利用し、1日分の数量が大きい日にたまたま資金不足になる自然な日を探した
     /// (実測: 世帯Id2、17日目。<b>訂正後(A-1)の価値の式へ差し替えたことで、自然発生する日・
     /// 世帯が動いた</b> ── 値そのものは仕様ではなく、実装が緑にできる自然な例でよい)。
+    /// <b>この実測値は <see href="https://github.com/stama72/visionary/issues/120">#120</see> が
+    /// 直れば動く</b>(別表D-2)。相場基準が発散する経済の中で「17日目に自然発生する」日である
+    /// ため、値付けが直った瞬間に別の日・別の世帯へ動く。
     /// </remarks>
     /// <remarks>
-    /// <b>変異の再実測(2026-09-20、持ち越し指摘)。</b>上の2026-09-17の追補remarksは、流動資金を
-    /// 人為的に0へ落とす旧本体(世帯Id0、Brewer)で「手順9の<c>Purpose == Necessity &amp;&amp;</c>
-    /// を外す変異」が2 → 3で赤になったと記録していたが、この<c>2</c>は旧本体の値である。
-    /// <b>自然発生の日(世帯Id2、17日目)へ差し替えた現本体へ同じ変異を当て直したところ、
-    /// 3回のAssert(0/1/0)がいずれも変わらず、赤を確認できなかった。</b>この日はNecessity以外の
-    /// 行がfundsCap==0を踏んでおらず、用途フィルタの有無が結果に出ない。本節はこの変異に対する
-    /// 判別力を失っている(直さずに報告する。自然発生の日を選び直すのは設計判断)。
+    /// <b>別表D-1(2026-09-20)。用途フィルタ(<c>Purpose == Necessity &amp;&amp;</c>)の判別力は、
+    /// このテストからは求めない。</b>2026-09-17 の追補remarksは、流動資金を人為的に0へ落とす
+    /// 旧本体(世帯Id0、Brewer)で同変異が2 → 3で赤になったと記録していたが、この<c>2</c>は
+    /// 旧本体の値である。自然発生の日(世帯Id2、17日目)へ差し替えた現本体へ同じ変異を当て直した
+    /// ところ、3回のAssert(0/1/0)がいずれも変わらず、赤を確認できなかった ── その日は
+    /// <c>Necessity</c> 以外の行が <c>fundsCap == 0</c> を踏まないためである。<b>構造的に踏みにくい</b>
+    /// (手順9に到達するには段4のゲート(実効価格 ≤ 現金上限)を通っている必要があり、
+    /// 現金上限 ≤ 用途に使える資金 ≤ 流動資金なので本来 <c>fundsCap ≥ 1</c> である。踏むのは
+    /// 同じ世帯の先行する行が約定して <c>LiquidFunds</c> を減らした後だけであり、45世帯17日の
+    /// 走行の中で偶然その組み合わせが出るのを待つ形は判別力が経済の状態に従属する
+    /// ([#81](https://github.com/stama72/visionary/issues/81) と同じ穴)。<b>裁定は、探さずに
+    /// 単体テストで構成すること</b> —
+    /// <see cref="TradeSystemTests.NonNecessityFundsShortfallIsNotCounted"/> が必需の行で資金を
+    /// ほぼ使い切らせてから嗜好の行が古い現金上限のゲートを通る世帯を手で組み、この変異に対する
+    /// 判別力を持つ。
     /// </remarks>
     [Fact]
     public void UnaffordableNecessityCountsOnlyTheFundsShortfall()

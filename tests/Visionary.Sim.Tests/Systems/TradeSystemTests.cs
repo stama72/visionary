@@ -496,6 +496,59 @@ public sealed class TradeSystemTests
     }
 
     /// <summary>
+    /// 【核心】別表D-1([#98](https://github.com/stama72/visionary/issues/98) タスク仕様)。
+    /// 手順9(<c>fundsCap == 0</c>)は用途が <see cref="DemandPurpose.Necessity"/> の行だけを
+    /// 数える。必需の行が資金をほぼ使い切ったうえで、嗜好の行が段4の古い現金上限(値下げ前の
+    /// 流動資金で計算済み)のゲートを通ってから、段8で現在の(必需の決済で減った)流動資金に
+    /// 対する <c>fundsCap == 0</c> を踏む世帯を手で組む。<b>必需の行自体は <c>fundsCap</c> が
+    /// 1 のままで、この経路を踏まない。</b> W2-08 のテスト #27(<see cref="NecessityShortfallIsCountedOnBothPaths"/>)は
+    /// 必需の2経路、#28(<see cref="TooExpensiveIsNotCountedAsShortfall"/>)は理由コードを
+    /// 押さえているが、「非必需が経路(2)で数えられないこと」はどちらも押さえていない。
+    /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-20)。</b><c>TradeSystem.RunOneHouseholdsShopping</c> の手順9
+    /// (<c>if (line.Purpose == DemandPurpose.Necessity &amp;&amp; fundsCap == 0)</c>)から
+    /// <c>line.Purpose == DemandPurpose.Necessity &amp;&amp;</c> を外す変異(タスク仕様 別表D-1が
+    /// 名指し)を当てたところ、<c>Assert.Equal(0, world.Households[0].UnaffordableNecessityCount)</c>
+    /// が実際値1(嗜好(穀物)の行が段4の古い現金上限100のゲートを通った後、段8で現在の流動資金0に
+    /// 対する <c>fundsCap == 0</c> を踏んで数えられる)で失敗した(赤を確認)。変異を戻して
+    /// 緑に復帰させた。
+    /// </remarks>
+    [Fact]
+    public void NonNecessityFundsShortfallIsNotCounted()
+    {
+        var definition = BuildShoppingDefinition(
+            breadFloor: 100,
+            grainFloor: 50,
+            necessityTargetStockDays: TargetStockDaysFor(Item.Bread),
+            preferenceTargetStockDays: TargetStockDaysFor(Item.Grain));
+
+        var world = new World(npcCount: 3, householdCount: 3, itemCount: Item.Count);
+        // 必需(パン)の代金ちょうどの流動資金 ── 段4のCashCap(=100)と段8のfundsCap(=1)が
+        // ともに約定を通し、資金をほぼ使い切る(fundsCap==0は踏まない)。
+        AddHousehold(world, id: 0, districtId: 4, Occupation.Woodworker, liquidFunds: 100);
+        AddHousehold(world, id: 1, districtId: 4, Occupation.Miller); // パン(必需)の売り手。床100。
+        AddHousehold(world, id: 2, districtId: 4, Occupation.Baker); // 穀物(嗜好)の売り手。床50。
+        world.Households[1].WorkshopInventory[Item.Bread] = 100;
+        world.Households[2].WorkshopInventory[Item.Grain] = 100;
+
+        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+
+        var buyer = world.Households[0];
+
+        // 必需(パン)は約定し(段4のCashCap=100、価格100で数量1)、流動資金をちょうど使い切る。
+        Assert.Equal(1, buyer.HouseholdInventory[Item.Bread]);
+        Assert.Equal(0, buyer.LiquidFunds);
+
+        // 嗜好(穀物)は段4のゲート(古いCashCap=100、価格50)を通り数量2の解が立つが、
+        // 段8で現在の流動資金0に対するfundsCap==0に切り詰められて0個になる。
+        Assert.Equal(0, buyer.HouseholdInventory[Item.Grain]);
+
+        // 経路(2)は用途がNecessityの行だけを数える。嗜好の資金不足はここに現れない。
+        Assert.Equal(0, buyer.UnaffordableNecessityCount);
+    }
+
+    /// <summary>
     /// テスト表 #28。必需で相場項が実効価格を下回ってゲートが閉じた日 →
     /// UnaffordableNecessityCount == 0。売り手の在庫が0で約定できなかった日・店を1つも
     /// 知らない日も0。
