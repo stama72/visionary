@@ -52,8 +52,10 @@ public static class District
     }
 
     /// <summary>
-    /// 2区画間のマンハッタン距離(0〜4)。GDD06 §2 の実質コストに乗る唯一の空間の摩擦の
-    /// 数値表現(GDD02 §4.3)。
+    /// 2区画間のマンハッタン距離(0〜4)。GDD06 §2 の<b>外出の費用と労働損失</b>に乗る唯一の
+    /// 空間の摩擦の数値表現(GDD02 §4.3)。
+    /// <b>実効価格には乗らない</b> ── 移動は外出ごとの固定費であり、品目ごと・単位ごとには
+    /// 払わない(GDD06 §2「便益と費用の分離」。#98 で旧「実質コスト」の割り戻しは消えた)。
     /// </summary>
     public static int Distance(int fromDistrictId, int toDistrictId)
     {

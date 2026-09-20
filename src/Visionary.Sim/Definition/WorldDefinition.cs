@@ -514,8 +514,8 @@ public sealed class WorldDefinition
             }
         }
 
-        // 0はGDD06 §3.1の囲みが挙げるR=0と同じ構造の破壊 ── 実質コストの第2項(移動費)が
-        // 全区画で消える。
+        // 0はGDD06 §3.1の囲みが挙げるR=0と同じ構造の破壊 ── 外出の費用と労働損失(GDD06 §2)が
+        // 全区画で0になり、空間の摩擦が消える。
         if (travelHoursPerDistrict < 1)
         {
             throw new ArgumentOutOfRangeException(
