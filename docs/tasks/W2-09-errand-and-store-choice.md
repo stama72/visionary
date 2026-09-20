@@ -235,10 +235,14 @@ public sealed class ErrandPlanner
 
 ```
 余剰(line, p) = p が「無い」なら 0
-                q = BuyerBudget.Decide(line, p).Quantity              ← **ゲートを通した値**
-                w = ApplyPermille(line.BaseValue, line.StockPressurePermille)
-                Errand.Surplus(q, w, p)
+                q     = BuyerBudget.Decide(line, p).Quantity          ← **ゲートを通した値。用途の単位**
+                q_個  = BuyerBudget.QuantityInUnits(line.Purpose, q, definition.ToolDurabilityPerUnit)
+                w     = ApplyPermille(line.BaseValue, line.StockPressurePermille)
+                Errand.Surplus(q_個, w, p)
 ```
+
+- **`q` を個数へ直さずに `Surplus` へ渡してはならない。** `p` も `w` も**貨幣/個**である(`p` は店の提示価格、`w` の材料である相場項も現金上限も 1 個あたり)。一方 **`BuyerBudget.Decide` が返す `q` は「用途の単位」で、耐久だけ耐久値である**([GDD02b §5.2](../03-gdd/02b-consumption-and-household.md)「耐久は耐久値で解き、`CeilDiv(購入量, N × 1000)` で個数に直す」)。直さないと工具の行が **13,000 倍**に膨らむ
+- **変換は購入の側とまったく同じ関数を通す。** [GDD06 §4](../03-gdd/06-trade-and-negotiation.md) が「見積もりに使った q と、着いてから解く購入量は、価格が見積もりどおりなら一致する」と約束しているので、**2 か所に同じ式を書いてはならない**
 
 - **`BuyerBudget.Decide` を通すことが、[GDD06 §4](../03-gdd/06-trade-and-negotiation.md)「見積もりに使った q と、着いてから解く購入量は、価格が見積もりどおりなら一致する」の実体である。** `PurchaseQuantity` を直接呼ぶと、現金上限や利潤上限で買えない品目のために外出が立つ
 - **`line.BaseValue` は需要リストの行では必ず 1 以上である**(`Budget > 0` は `CashCap > 0` を含意し、`BaseValue` は相場項か現金上限のいずれか)。したがって `PurchaseQuantity` のゼロ除算に到達しない。**この保証は「需要リストの絞り込みを先に通していること」に立っている** — 絞り込みの外で `余剰` を呼ばないこと
@@ -331,12 +335,23 @@ public sealed class StoreChoice
 
 **`RunOneHouseholdsShopping` の変更:**
 
+**`PurchaseQuantityInUnits` を `BuyerBudget` へ移す。**
+
+```csharp
+// Systems/BuyerBudget.cs
+/// 用途の単位で解いた数量を個数へ直す(GDD02b §5.2・§2)。耐久だけ耐久値で解くので変換が要る
+public static int QuantityInUnits(DemandPurpose purpose, int quantity, int durabilityPerTool);
+```
+
+- **`TradeSystem.PurchaseQuantityInUnits` を消し、段5b と `ErrandPlanner` の両方がこれを呼ぶ。** 置き場所を `TradeSystem` にしたままだと、計画(5a)が交易システムに依存する向きになるうえ、**同じ変換が 2 か所に書かれる**
+- **これが 3 回目の差し戻しの根治である。** 変換が購入の側にしか無かったことが、単位の取り違えを許した(別表 C)
+
 | 旧手順 | どうする |
 | ------ | -------- |
 | 1. `TargetStockInUnits` で目標在庫を個数へ | **消す**(移動費の分母が無くなった)。`TradeSystem.TargetStockInUnits` ごと削除 |
 | 2. `_storeChoice.TrySelect(…, targetInUnits, errandOpportunityCost, …)` | `_storeChoice.TrySelect(world, household, line.ItemId, visitedDistrictIds, out store)` |
 | 3・4. `BuyerBudget.Decide(line, store.UnitEffectivePrice)` | **そのまま**(#97 で既に実効価格を渡している) |
-| 5・6. 個数へ直す / 0 以下なら終わり | そのまま |
+| 5・6. 個数へ直す / 0 以下なら終わり | **`BuyerBudget.QuantityInUnits` を呼ぶ形に変える**(式は同じ)。`TradeSystem.PurchaseQuantityInUnits` は消す |
 | 7. 訪れた区画を控える | **消す。** 訪問は段5a が決めており、買えたかどうかで変わらない |
 | 8〜10. 資金上限と在庫で切り詰め、約定 | そのまま |
 
@@ -395,7 +410,10 @@ public sealed class StoreChoice
 | 28 | `TradePipelineStillRunsDeterministically` | (既存を維持)同じシードで 2 回走らせると状態ハッシュが一致する。`TradeSystem` が乱数を引かない | `SortedDictionary` を `Dictionary` に戻す。帳簿の走査で列挙順に依存する |  |
 | 29 | `ErrandGainIsNeverNegative` | **自区画にすべての品目の最安店がある**世帯を置き、どの遠方区画についても**利得が 0**(価値 = −費用)であること。遠方の 1 品目だけを安くすると、**利得がその品目の増分ぶんだけ正**になる。**負にはならない** | **候補側の集合から「既に居る区画」を落とす**(`Σ 余剰({d}) − Σ 余剰(B)`)。この変異は 1 区画目の結果を変えないので、#12・#13 では落ちない。**落ちるのはここと #14・#15 後半・#20 だけである** | **核心** |
 
-**「核心」印は 13 件ある。** [process/02](../process/02-task-spec.md) の「1 タスクあたり 2〜3 件」を超えるので、**実際に変異を当てるのは次の 3 件に絞る**。
+| 30 | `DurableSurplusIsMeasuredInUnitsNotDurability` | **耐久(工具)の行だけを需要に持つ世帯**で、遠方の鍛冶へ行くかどうかが**個数で数えた余剰**で決まる。`N × 1000` = 13,000・目標 6,500・予想 0・基礎値 100・見積もり 50 のとき、線形解は耐久値で 13,000 を返すが **`q_個` = `CeilDiv(13000, 13000)` = 1**。余剰は `FloorDiv(1 × (w − 50), 2)` であって `FloorDiv(13000 × (w − 50), 2)` ではない。**外出の費用を両者の間の値(たとえば 300)に置くと、直っていれば行かず、取り違えていれば行く** | `q` を個数へ直さずに `Errand.Surplus` へ渡す。**この変異は他のどのテストでも落ちない** — `ErrandPlannerTests` は全件が `Necessity`(単位が個)の手組み行で、耐久の行を 1 本も通していなかった(3 回目のレビュー I-1) | **核心** |
+| 31 | `ErrandPlannerAndSettlementAgreeOnQuantity` | 見積もり価格と当日の提示価格が一致する配置で、**計画が使った `q_個` と、段5b が `BuyerBudget.QuantityInUnits` で得る購入量が一致する**。必需と耐久の両方で確かめる | 変換を 2 か所に書いて片方だけ直す([GDD06 §4](../03-gdd/06-trade-and-negotiation.md) の約束が破れる)。`CeilDiv` を `FloorDiv` にする(耐久値 13,000 未満の需要が 0 個になり、工具が永久に買われない) | **核心** |
+
+**「核心」印は 15 件ある。** [process/02](../process/02-task-spec.md) の「1 タスクあたり 2〜3 件」を超えるので、**実際に変異を当てるのは次の 3 件に絞る**。
 
 | 印を当てる | なぜこの 3 件か |
 | ---------- | --------------- |
@@ -404,7 +422,9 @@ public sealed class StoreChoice
 | **#21** | 翌日の生産が減ること。**issue #98 の閉じる条件そのもの**であり、書き忘れても `ProductionSystem` は 0 を読んで普通に動く |
 | **#29** | 候補側が「既に居る区画」を含むこと。**差し戻しの原因そのもの**(下記「別表 A」)。1 区画目の結果を変えないので、他のどのテストでも落ちない |
 
-**変異は 4 件に増えた**(当初 3 件 + #29)。
+| **#30** | 耐久の余剰の単位。**3 回目の差し戻しの原因そのもの**(別表 C)。353 件が緑のまま通り抜けた経路であり、他のどのテストでも落ちない |
+
+**変異は 5 件に増えた**(当初 3 件 + #29 + #30)。
 
 **残りの「核心」印は「壊れたときの影響が大きい」ことだけを示す** — 変異は当てず、レビュアーが読む優先度として使う。
 
@@ -494,6 +514,43 @@ public sealed class StoreChoice
 
 > **これを書かないと、次に 60 日走行を読んだ者が「上界のテストが通っているから経済は健全」と読む。** 発散を見つけたのは `OverflowException` という偶然であり、それを `long` で消した以上、**偶然の報せも無くなる。**
 
+## 別表 C: 3 回目の差し戻しの裁定(フェーズ1、2026-09-20)
+
+**3 回目のフェーズ2 のレビュー1 巡目が `SPEC-OUTSIDE`(I-1)を出した。指摘は正しい。**
+
+### C-1. 耐久の余剰が単位を取り違えていた
+
+**`BuyerBudget.Decide` が返す `q` は「用途の単位」で、耐久だけ耐久値である。`w` と `p` は貨幣/個である。** §5.5 はこれを無変換で `Errand.Surplus` へ渡していた。M0 の `ToolDurabilityPerUnit` = 13,000 なので、**工具の行だけ余剰が 13,000 倍**になる。耐久の行は `BuyerDemand.Build` が全世帯に無条件で 1 行足すので、**工具が摩耗した日から外出の行き先が鍛冶の居る区画に張り付く。**
+
+訂正は上の §5.5 と「作るもの」#7、および [GDD06 §3](../03-gdd/06-trade-and-negotiation.md)(三角形の底辺の単位)。**根治は `PurchaseQuantityInUnits` を `BuyerBudget.QuantityInUnits` へ移して 1 か所にすること** — 変換が購入の側にしか無かったことが取り違えを許した。
+
+### C-2. 別表 B-2 の overflow の帰属を狭める(**フェーズ1 の訂正**)
+
+**別表 B は 2 回目の `OverflowException` を「相場基準の発散」1 つに帰していたが、原因は 2 つあった。**
+
+溢れた積は `3885 × (5,930,407 − 290)`。
+
+| 因子 | 正体 | 誰のものか |
+| ---- | ---- | ---------- |
+| `3885` | **耐久値で数えた `q`。** 個数へ直せば **1** | **#98(C-1)** |
+| `5,930,407` | 発散した `BaseValue` | [#120](https://github.com/stama72/visionary/issues/120) |
+
+**個数へ直していれば、同じ日の同じ発散でも `int` に収まっていた。** 別表 B-1 が `long` へ広げたこと自体は正しい(積の型として)が、**「overflow が出たのは発散のせいである」という帰属は広すぎた**([process/03](../process/03-corrections.md) 規則1)。
+
+**#120 そのものは揺るがない。** 根拠は overflow ではなく、**フェーズ1 が `master` で直接測った提示価格の系列**(別表 B-2 の表)である。あれは `World.Market` の値を読んだだけで、余剰の計算を一切通していない。**したがって「#98 は止めない」という裁定も維持する** — ただし理由は「overflow は発散のせい」ではなく「`master` に #98 抜きで発散が在る」である。
+
+> **別表 B-3 が「`long` で消した以上、偶然の報せも無くなる」と書いた、その報せがもう 1 件あった。** 書いた本人が、同じ段落で 1 件しか数えていなかった。
+
+### C-3. `ErrandPlannerTests` が用途を 1 種類しか通していなかった
+
+**353 件緑・変異 4 件実測を通り抜けた理由がこれである。** `ErrandPlannerTests` は全件が `DemandPurpose.Necessity` の手組み行で、**耐久の行を 1 本も通していない。** テスト #30・#31 を足し、完了条件に「4 種とも通す」を入れた。
+
+### 持ち越した指摘(3 回目のレビュー1 巡目、I-1 以外)
+
+**フェーズ2 の報告のとおり、I-1 の訂正で実測値が動くものを後ろに回してある。次巡でまとめて直すこと。** とくに次の 1 件は**訂正と独立に必ず再実測する**:
+
+- `TradePipelineTests.NecessityIsSettledBeforePreference` の **`Lines` 逆順変異で赤になるかの再実測**。[#81](https://github.com/stama72/visionary/issues/81) の検出器の判別力が、`AmpleLiquidFunds` を 1000 → 100,000 に広げたことで吸収されている可能性がある
+
 ## 編集してよい文書
 
 worktree をまたいだ所有権の宣言。**ここに挙がっていない文書は触らない。**
@@ -515,7 +572,8 @@ worktree をまたいだ所有権の宣言。**ここに挙がっていない文
 ## 完了条件
 
 - [ ] 「落ちるべき条件」のテストが全て緑
-- [ ] **#14・#17・#21・#29 に変異を当てて落ちることを確認し、当てた変異と結果を残した**
+- [ ] **#14・#17・#21・#29・#30 に変異を当てて落ちることを確認し、当てた変異と結果を残した**
+- [ ] **`ErrandPlannerTests` が `DemandPurpose` を 4 種とも通している**(3 回目のレビュー I-1 は「耐久の行が 1 本も通っていない」ことに守られていた)
 - [ ] `dotnet build Visionary.sln -c Release` が警告0
 - [ ] `dotnet test Visionary.sln -c Release` が緑
 - [ ] `dotnet format Visionary.sln --verify-no-changes --severity warn` が通る
