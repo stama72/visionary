@@ -124,6 +124,27 @@ function Get-SpecChange {
         Sort-Object -Unique
 }
 
+function Get-DirtyWorkTree {
+    <#
+        **フェーズ2 が `DONE` を出した時点で、本体の作業ツリーが汚れていないかを返す。**
+
+        フェーズ2 の成果物は「緑のコードと**コミット**」である。汚れて終わるのは2つの
+        どちらかで、どちらも黙って進めてはいけない:
+
+          1. コミットし忘れ — 検証した状態と、次のフェーズが PR にする状態が違う
+          2. **戻し忘れた変異** — W2-08 では、依頼した3変異のどれでもない変異が
+             本体に残ったまま「`git diff --stat src/` は空」と報告された([#110](https://github.com/stama72/visionary/issues/110))
+
+        変異は [ADR-0013](../docs/adr/0013-mutation-measurement-separated.md) で使い捨て
+        worktree の中だけに閉じたが、**閉じたことを確かめるのは規律ではなくここである。**
+        `.pipeline/` と `.claude/worktrees/` は `.gitignore` 済みなので、`--porcelain` には
+        現れない(使い捨て worktree 自身も見えない)。
+    #>
+    return @(& git -C $RepoRoot status --porcelain) |
+        Where-Object { $_ } |
+        ForEach-Object { $_.Substring(3).Trim('"') }
+}
+
 function Send-DesktopNotification {
     param([string]$Title, [string]$Text, [string]$Level = 'Info')
     try {
@@ -312,6 +333,19 @@ function Invoke-Phase {
                     Status = 'HALT'
                     Reason = 'SPEC-OUTSIDE'
                     Detail = "仕様の外に差分がある: {0}" -f ($changed -join ', ')
+                    Log    = $log
+                }
+            }
+
+            # **コミットし忘れと、戻し忘れた変異を同じ検査で拾う。**
+            $dirty = Get-DirtyWorkTree
+            if ($dirty) {
+                $head = ($dirty | Select-Object -First 5) -join ', '
+                if ($dirty.Count -gt 5) { $head += (" ほか{0}件" -f ($dirty.Count - 5)) }
+                return @{
+                    Status = 'HALT'
+                    Reason = 'RED'
+                    Detail = "DONE だが作業ツリーが汚れている(コミット漏れか、戻し忘れた変異): $head"
                     Log    = $log
                 }
             }
