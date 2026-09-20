@@ -198,16 +198,26 @@ public sealed class TradePipelineTests
 
     /// <summary>
     /// 【核心】W2-11 タスク仕様テスト表 #6。M0・シード1・60日。<b>毎日</b>、<c>world.Market</c> の
-    /// 全件が <c>床 × BandMultiplier</c> 以下(GDD02c §1.1 の頭打ちが提示価格の帯を保つ)。
+    /// 全件が <c>床 × BandMultiplier</c> 以下であることを確かめる。この検出器が確かめているのは
+    /// 「60日を通じて提示価格が床の20倍を超えない」という事実だけである。
     /// </summary>
     /// <remarks>
-    /// <b>帯の定数(20倍)の根拠。</b>本実装での実測(2026-09-20、M0・60日・シード1/2/3)で
+    /// <b>帯の定数(20倍)の根拠 ── 緑側。</b>本実装での実測(2026-09-20、M0・60日・シード1/2/3)で
     /// 頭打ちを入れたときの最大はシード1のパン500(床54の9.26倍、12日目)、シード2はパン435
     /// (床54の8.06倍、14日目)。<b>シード3はタスク仕様「設計の前提」の記載(工具444・1.53倍)と
     /// 食い違い、実際にはシード1・2と同じくパンが最大になる(パン195、床54の3.61倍、11日目。
     /// 工具444・1.53倍は15日目以降パンが市場から消えた後に定常する値であり、60日全体の最大では
-    /// ない)。</b>いずれにせよ20倍を超えないので帯の定数そのものは動かさない。20倍は
-    /// 頭打ちを外す変異(M-1)に対して判別力を持ち、実測(最大9.26倍)に対して2倍強の余裕がある。
+    /// ない)。</b>いずれにせよ20倍を超えないので帯の定数そのものは動かさない。実測(最大9.26倍)に
+    /// 対して2倍強の余裕がある。
+    /// </remarks>
+    /// <remarks>
+    /// <b>帯の定数(20倍)の根拠 ── 赤側。</b>タスク仕様「設計の前提」によれば、素の master
+    /// (頭打ち無し)はビールが20日目に床72の21.6倍に達する。20倍はこれを下回るので、
+    /// 頭打ちを外す変異(M-1)を20日目の時点で捕まえられる。<b>ただしこの赤側の余裕は
+    /// 21.6対20で8%しかない</b>(緑側の「2倍強」とは非対称)。
+    /// <see href="https://github.com/stama72/visionary/issues/38">#38</see> のフェーズ2が
+    /// <c>BandMultiplier</c> を動かすときは、この非対称(緑側は2倍強、赤側は8%)を見ずに
+    /// 上げると、M-1を20日目で捕まえられなくなることに注意すること。
     /// </remarks>
     /// <remarks>
     /// <b>パンの9.26倍は不具合ではない。</b>パン屋は毎日売れている(約定がある)ので§1.1の頭打ちを
@@ -250,11 +260,14 @@ public sealed class TradePipelineTests
                 int floorPrice = definition.ExternalBuyPrice(entry.Key.ItemId);
                 int bandUpperBound = floorPrice * BandMultiplier;
 
+                // 失敗メッセージは事実(日・品目・売り手・価格・床・倍率)だけを出す ── 赤になった
+                // 原因を断定しない。§1.1の頭打ちが原因とは限らない(完売枝のラチェット、または
+                // 帯の定数の再実測が要る可能性もある)。
                 Assert.True(
                     entry.Value <= bandUpperBound,
                     $"day={day} itemId={entry.Key.ItemId} sellerId={entry.Key.SellerId} "
-                        + $"price={entry.Value} floor={floorPrice} band<= {bandUpperBound}"
-                        + "(GDD02c §1.1の頭打ちが提示価格の帯を保っていない)。");
+                        + $"price={entry.Value} floor={floorPrice} band<= {bandUpperBound} "
+                        + $"ratio={(double)entry.Value / floorPrice:F3}");
             }
         }
     }
@@ -338,6 +351,8 @@ public sealed class TradePipelineTests
     /// <c>Assert.False(boughtBeer, ...)</c> が実際値trueで失敗した(赤を確認: 嗜好が必需より先に
     /// 決済され、流動資金が先に嗜好へ回って必需を圧迫する経路が再現する)。判別力は維持されている。
     /// 変異を戻して緑に復帰させた。
+    /// <b>この赤の確認は #98(<c>13e9251</c>)のもので、W2-11 の頭打ち(GDD02c §1.1)が入る前の
+    /// 経済で測った。</b>頭打ち後の判別力は変異M-4で測り直す(上のremarks参照)。
     /// </remarks>
     [Fact]
     public void NecessityIsSettledBeforePreference()
