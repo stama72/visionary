@@ -48,9 +48,14 @@ $LogDir = Join-Path $RepoRoot '.pipeline'
 #
 # **単位は「枠の残り比」(0〜1)。** 0.40 = 残り 40%。
 #
-# 出所は [04「枠」](../docs/process/04-issue-driven.md) 規則2。現在のレートで組み直すと
-# 「パイプライン 1 本の上限 28% + 併走する対話 1 本(fable 以外)の上限 8%」= 36% で、
-# 40% はその上に余裕を少し置いた値である。
+# 出所は [04「枠」](../docs/process/04-issue-driven.md) 規則2。**40% は「パイプライン中央値 +
+# 対話 1 本」から置かれた値である**(#122 決定1)。現在のレートで組み直すと:
+#
+#   中央値どうし   14 + 4〜8  = 18〜22%
+#   上限どうし     28 + 21    = 49%      <- **40% を超える**
+#
+# **上限どうしの組み合わせは元々守っていない。** 21 は 04 の「実装のフェーズ1(opus)」行
+# (3〜21)で、fable 以外の対話でいちばん重い。40% はこの 2 つの間にある値である。
 #
 # **`wrap` 単独だけ別の値を持つ。** 実測 $1.07〜1.41 / 2〜5 分 = 枠の 0.16〜0.21%
 # (P_sonnet の LOO 下限で悲観して 1.0%)に、併走する対話 1 本(8%)を足して丸めた。
@@ -341,18 +346,25 @@ function Get-DryRunProbeStream {
 
     $lines = @('{"type":"system","subtype":"init"}')
     if ($Case -ne 'fail') {
-        $lines += '{{"type":"rate_limit_event","rate_limit_info":{{"status":"allowed","unifiedWindows":{{"five_hour":{{"utilization":{0},"resetsAt":{1}}}}}}}}}' -f $spec.util, $spec.resets
+        # 週次も入れてある — **表示の経路まで DryRun で通す**ため(判定には使わない)。
+        $lines += '{{"type":"rate_limit_event","rate_limit_info":{{"status":"allowed","unifiedWindows":{{"five_hour":{{"utilization":{0},"resetsAt":{1}}},"seven_day":{{"utilization":0.58,"resetsAt":{1}}}}}}}}}' -f $spec.util, $spec.resets
     }
     return $lines + @('{"type":"result","subtype":"success","is_error":false,"result":"OK"}')
 }
 
-function Read-FiveHourWindow {
+function Read-UsageWindows {
     <#
-        プローブの出力(JSONL)から 5 時間枠の観測点を1つ取り出す。読めなければ `$null` を返し、
-        **呼び出し側の fail-closed に落ちる。**
+        プローブの出力(JSONL)から枠の観測点を取り出す。**5 時間枠が読めなければ `$null` を返し、
+        呼び出し側の fail-closed に落ちる。**
 
         `type` は**トップレベルで `rate_limit_event`** である(`system` / `subtype` ではない)。
         `unifiedWindows.five_hour` が無い形(API キー運用など)も `$null` に倒す。
+
+        **週次(`seven_day`)は読むが、判定には使わない。** 論点7 の緩和の前提(リセットで
+        utilization が 0 に戻る)は週次には成り立たず、しかも緩和がいちばん効く局面は週次も
+        高い局面である。それでも閾値を置かないのは根拠が無いためで、**表示して開発者の目に
+        入れるところまでにしてある**([#141](https://github.com/stama72/visionary/issues/141)。
+        校正は [#123](https://github.com/stama72/visionary/issues/123))。
     #>
     param([string[]]$Lines)
 
@@ -364,12 +376,14 @@ function Read-FiveHourWindow {
     if (-not $w -or $null -eq $w.utilization -or $null -eq $w.resetsAt) { return $null }
 
     return [pscustomobject]@{
-        Utilization = [double]$w.utilization
-        ResetsAt    = [long]$w.resetsAt
+        Utilization        = [double]$w.utilization
+        ResetsAt           = [long]$w.resetsAt
+        # 無ければ $null。**表示専用なので、欠けても判定は変えない。**
+        SevenDayUtilization = $ev.rate_limit_info.unifiedWindows.seven_day.utilization
     }
 }
 
-function Get-FiveHourWindow {
+function Get-UsageWindows {
     <#
         haiku を 1 回呼んで 5 時間枠の観測点を取る。**`/usage` は CLI の UI なので読めないが、
         同じ値が `rate_limit_event` に乗る**(実測 2026-09-20、$0.11 = 枠の 0.05%)。
@@ -377,7 +391,7 @@ function Get-FiveHourWindow {
         返らないときは `$ProbeTimeoutSec` で切る。**プローブがハングしたまま居座ると、
         パイプラインは起動も通知もしないまま消える** — 停止則が拾えない死に方になる。
     #>
-    if ($DryRun) { return Read-FiveHourWindow -Lines (Get-DryRunProbeStream -Case $DryRunProbe) }
+    if ($DryRun) { return Read-UsageWindows -Lines (Get-DryRunProbeStream -Case $DryRunProbe) }
 
     $job = Start-Job -ScriptBlock {
         & claude -p --model haiku --output-format stream-json --verbose 'OK' 2>&1
@@ -387,7 +401,7 @@ function Get-FiveHourWindow {
             Write-Warning "枠のプローブが $ProbeTimeoutSec 秒で返りませんでした。"
             return $null
         }
-        return Read-FiveHourWindow -Lines @(Receive-Job -Job $job | ForEach-Object { [string]$_ })
+        return Read-UsageWindows -Lines @(Receive-Job -Job $job | ForEach-Object { [string]$_ })
     } catch {
         Write-Warning "枠のプローブに失敗しました: $_"
         return $null
@@ -441,7 +455,7 @@ function Test-BudgetGate {
     Write-Host ""
     Write-Host "=== 5 時間枠の確認(要求: 残り $([int]($Required * 100))% 以上)===" -ForegroundColor Cyan
 
-    $w = Get-FiveHourWindow
+    $w = Get-UsageWindows
     if (-not $w) {
         Write-Host "!!! 枠の残りを読めませんでした。起動しません(fail-closed)。" -ForegroundColor Red
         Write-Host "    検査を外して打つなら -MinRemaining 0 です。"
@@ -454,7 +468,12 @@ function Test-BudgetGate {
     $effective = Get-EffectiveMinRemaining -Base $Required -ResetsAt $w.ResetsAt
     $resetText = Format-ResetsAtJst -ResetsAt $w.ResetsAt
 
-    Write-Host ("    残り {0}% / リセット {1}" -f [int]($remaining * 100), $resetText)
+    # **週次は表示だけで、判定には使わない**(#141)。単位を 5 時間枠と揃えて「残り」で出す
+    # — 片方が残り・片方が使用率だと読み違える。
+    $weekly = if ($null -ne $w.SevenDayUtilization) {
+        '  /  週次 残り {0}%(判定には使わない)' -f [int]((1.0 - [double]$w.SevenDayUtilization) * 100)
+    } else { '' }
+    Write-Host ("    残り {0}% / リセット {1}{2}" -f [int]($remaining * 100), $resetText, $weekly)
     if ($effective -lt $Required) {
         Write-Host ("    リセットが近いので要求を {0}% まで下げます(#132 論点7)" -f [Math]::Round($effective * 100, 1)) -ForegroundColor DarkGray
     }
