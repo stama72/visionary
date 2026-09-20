@@ -338,6 +338,74 @@ public sealed class ErrandPlannerTests
         Assert.Equal(new[] { District.ExternalMarketDistrictId }, plan.VisitedDistrictIds);
     }
 
+    /// <summary>
+    /// 別表R-2(レビュー1巡目)。買い手が中心から距離R以内に居るとき、窓口の見積もりは
+    /// <b>その日の外部売値</b>である(GDD02d §2.2 見積もり3段の段1)。
+    /// </summary>
+    /// <remarks>
+    /// <b>#10(<see cref="WindowEstimateFallsBackToOneWithoutAMemory"/>)は段3、
+    /// #11(<see cref="WindowEstimateUsesTheMemoryBeforeTheFloor"/>)は段2 の検出器であり、
+    /// どちらも買い手を区画0(距離2、Rの外)に置いているため段1 を一度も通らない。</b>
+    /// 当日の外部売値(300)・前日の記憶(50)・床(1、<see cref="ExternalMarket.UnknownPriceFloor"/>)を
+    /// すべて異なる値にし、w=75 を挟むことで3値のどれが使われたかを一意に判別できる配置にする
+    /// (段1=300を正しく使えば w≤300 で余剰0、行かない。段1を誤って飛ばし記憶50や床1を使えば
+    /// w&gt;価格で余剰が生まれ、行ってしまう)。
+    /// </remarks>
+    [Fact]
+    public void WindowEstimateUsesTodaysPriceWithinTheVisionRadius()
+    {
+        const int BuyerDistrictId = 1; // District.Distance(1,4)=1 ≤ VisionRadius(R以内)。
+
+        // 1次産品はすべて基準値1(既定と同じ)、PrimaryItemだけ300(今日の外部売値)にする ──
+        // 都市生産品(ItemA・ItemB)は0のまま(検証を満たす)。
+        var externalSellPriceBase = new int[Item.Count];
+        for (int itemId = 0; itemId < Item.Count; itemId++)
+        {
+            if (itemId != ItemA && itemId != ItemB)
+            {
+                externalSellPriceBase[itemId] = 1;
+            }
+        }
+
+        externalSellPriceBase[PrimaryItem] = 300;
+
+        var externalSellPriceSeasonPermille = new int[Item.Count][];
+        for (int itemId = 0; itemId < Item.Count; itemId++)
+        {
+            externalSellPriceSeasonPermille[itemId] = new[] { 1000, 1000, 1000, 1000 };
+        }
+
+        var definition = EconomySystemTestFixtures.BuildDefinition(
+            new Recipe(
+                Occupation.Miller,
+                outputs: new[] { new ItemQuantity { ItemId = ItemA, Quantity = 1 } },
+                inputs: new[] { new ItemQuantity { ItemId = PrimaryItem, Quantity = 1 } },
+                laborPermille: 1000),
+            opportunityCostBaseByOccupation: new[] { 1, 1, 1, 1, 1 },
+            rankCoefficientPermille: new[] { 1000, 1000, 1000 },
+            travelHoursPerDistrict: 1,
+            disposableHours: 12,
+            externalBuyPriceOverride: BuildExternalBuyPrice(),
+            externalSellPriceBaseOverride: externalSellPriceBase,
+            externalSellPriceSeasonPermilleOverride: externalSellPriceSeasonPermille);
+
+        var world = BuildWorld(buyerDistrictId: BuyerDistrictId); // 売り手なし(窓口だけが候補)。
+
+        // 前日の記憶(50)を仕込む ── 段1を飛ばして段2へ落ちる実装ミスでも、床(1)を使う
+        // 実装ミスとは異なる値になるようにする(3値がすべて異なることを保証する)。
+        EconomySystemTestFixtures.AdvanceClockOnly(world, ticks: 3 * 24);
+        AddObservation(
+            world, PrimaryItem, HouseholdState.ExternalMarketSellerId, price: 50, observedAt: Tick.Zero);
+
+        // baseValue=50・target=1・expected=0 → w=75。段1(300)を使えば w≤300 で余剰0、行かない。
+        var line = BuildLine(PrimaryItem, budget: 1, targetStock: 1, expectedStock: 0, baseValue: 50);
+        var planner = new ErrandPlanner(definition);
+
+        var plan = planner.Plan(world, world.Households[0], DemandOf(line), Delegate(costPerHour: 1));
+
+        Assert.Empty(plan.VisitedDistrictIds);
+    }
+
     /// <summary>テスト表 #11(#38)。前日の観測があればその価格、当日の観測は使わない。</summary>
     /// <remarks>
     /// 記憶の段を飛ばす(常に床を使う)・当日(差0)の観測を使う、いずれの実装ミスでも

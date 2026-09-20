@@ -316,6 +316,23 @@ TradeSettlement.ExecuteExport(world, seller, 出力品目, 超過分, 外部買�
 | M-6 | `TradeSystem` 段4 | 段4 のループを消し、段5 のループの先頭で `_buyerDemand.Build` を呼ぶ | テスト #22 が**赤**([#107](https://github.com/stama72/visionary/issues/107) の閉じる条件そのもの) |
 | M-7 | `TradeSystem` 段6 | 段6 のループを消し、段5 のループの末尾で `RunOneHouseholdsExport` を呼ぶ | テスト #23 が**赤** |
 
+### 別表: レビューで足したテストと変異(フェーズ2)
+
+**上のテスト表と変異表は implementer に渡した時点の指示であり、最終形ではない。** レビュー1巡目が「仕様が数えた実装ミスのうち、実際には検出器が当たっていないもの」を2件挙げた。**どちらも訂正先はこの文書の中で閉じる**(GDD / TDD には及ばない)。
+
+| # | テスト | 検証内容 | 何が検出できていなかったか |
+| - | ------ | -------- | -------------------------- |
+| R-1 | `WindowObservationRecordsTheCentreNotTheObserversDistrict`(#12 の補強。**別のテストとして足す**) | **中心区画以外に居て、かつ中心が視界内**の世帯が得た窓口の観測の `LocationId` が `District.ExternalMarketDistrictId` であること | 既存 #12 は観測者を中心区画に置いているので `LocationId = household.DistrictId` と同値になり、仕様が数えた「`LocationId` を観測者の区画にする」変異が**緑のまま通る**。`LocationId` はいま `StateHasher` しか読まないので**同一設定の2回実行は一致し、CI が素通りする** |
+| R-2 | `WindowEstimateUsesTodaysPriceWithinTheVisionRadius` | 買い手が**中心から距離 R 以内**に居るとき、窓口の見積もりが**その日の外部売値**であること(記憶でも床 1 でもない) | 仕様 §3 の見積もり3段のうち**段1 に検出器が無い**。#10 は段3、#11 は段2 で、どちらも買い手を区画 0(距離 2)に置いており段1 を通らない。落ちても季節係数が変わる日だけ値がずれ、**赤くなるテストが1件も無い** |
+| R-3 | `ExportRunsAfterEveryHouseholdHasShopped`(#23 の補強。**表明を足す**) | 世帯 A が**実際に輸出した**こと(外部 `Sale` の行 ≥ 1)を、既存の表明に**加えて**見る | 現状の唯一の表明は世帯 B の在庫。閾在庫の式・出荷目標在庫・T の検査のいずれかが将来動いて輸出が起きなくなると、**緑のまま [#107](https://github.com/stama72/visionary/issues/107) の契約を守らなくなる** |
+
+**変異の追加**(`mutator` が上の 7 件と一緒に測る):
+
+| # | 場所 | 変異 | 期待 |
+| - | ---- | ---- | ---- |
+| M-8 | `Observations.CollectWindow` | `LocationId` を `District.ExternalMarketDistrictId` → `household.DistrictId` | テスト **R-1** が赤 |
+| M-9 | `ErrandPlanner` の窓口見積もり | 段1(`District.Distance(...) <= District.VisionRadius` の枝)を消し、常に記憶/床へ落とす | テスト **R-2** が赤 |
+
 ## 編集してよい文書
 
 - `docs/tasks/W2-12-external-market.handoff.md`(引き継ぎメモ)

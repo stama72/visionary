@@ -1630,6 +1630,14 @@ public sealed class TradeSystemTests
             world.Households[1].HouseholdInventory[Item.Bread] > 1,
             $"Bの購入量が{world.Households[1].HouseholdInventory[Item.Bread]}個(閾在庫1個を超えない"
                 + "= 段6が段5へ畳まれ、Aが自分の順番で先に輸出してしまった可能性)。");
+
+        // 別表R-3(レビュー1巡目)。上の表明はBの在庫だけを見ており、Aが実際に輸出したことを
+        // 確かめていない ── 空振り防止(閾在庫の式・出荷目標在庫・Tの検査のいずれかが将来動いて
+        // 輸出そのものが起きなくなっても、上の表明だけでは緑のままになる)。
+        int externalSaleCount = world.Ledgers[0].Count(
+            entry => entry.Direction == LedgerDirection.Sale
+                && entry.CounterpartyId == HouseholdState.ExternalMarketSellerId);
+        Assert.True(externalSaleCount >= 1, "Aの外部Saleの行が1件も無い(輸出が実際には起きていない)。");
     }
 
     private static int[][] GrainConsumptionTable()

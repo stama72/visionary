@@ -242,6 +242,37 @@ public sealed class ObservationsTests
     }
 
     /// <summary>
+    /// 別表R-1(レビュー1巡目)。#12(<see cref="WindowObservationIsBornForEveryPrimaryItem"/>)の
+    /// 補強。中心区画<b>以外</b>に居て、かつ中心が視界内の世帯が得た窓口の観測の
+    /// <c>LocationId</c> が観測者の区画ではなく <see cref="District.ExternalMarketDistrictId"/> で
+    /// あることを確かめる。
+    /// </summary>
+    /// <remarks>
+    /// <b>#12 は観測者を中心区画(4)に置いているので、この検出器にならない。</b>
+    /// <c>LocationId</c> を観測者の区画に取り違える実装ミスを入れても、#12 では
+    /// <c>household.DistrictId == District.ExternalMarketDistrictId</c> のため両者が同値になり、
+    /// 緑のまま通ってしまう。<b>本テストがその取り違えの検出器である。</b>
+    /// </remarks>
+    [Fact]
+    public void WindowObservationRecordsTheCentreNotTheObserversDistrict()
+    {
+        const int ObserverDistrictId = 1; // 距離1(District.Distance(1,4)=1 ≤ VisionRadius)。中心そのものではない。
+
+        var definition = WorldDefinition.M0;
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+        world.Households[0] = new HouseholdState(
+            id: 0, districtId: ObserverDistrictId, headNpcId: 0, memberNpcIds: new[] { 0 },
+            itemCount: Item.Count);
+
+        Observations.CollectWindow(definition, world, world.Households[0], Array.Empty<int>());
+
+        Assert.NotEmpty(world.Knowledge[0]); // 前提(中心が視界内で観測が実際に生まれている)。
+        Assert.All(
+            world.Knowledge[0],
+            observation => Assert.Equal(District.ExternalMarketDistrictId, observation.LocationId));
+    }
+
+    /// <summary>
     /// テスト表 #13(#38)。中心から距離2以上で、その日中心へ行っていない世帯には窓口の観測が
     /// 生まれない(視界半径の例外は置かない。GDD02d §2.2)。
     /// </summary>
