@@ -43,11 +43,11 @@ public sealed class OpportunityCostTests
     /// 全員同値なら NpcId 最小のものが残る。
     /// </summary>
     /// <remarks>
-    /// <b>変異の実測(2026-09-17)。</b><c>OpportunityCost.ForErrand</c> の <c>if (cost &lt;
-    /// minimum)</c> を <c>if (cost &gt; minimum)</c>(<c>Max</c> を取る変異)に変えたところ、
-    /// <c>Assert.Equal(1, ...)</c> が実際値5(親方の機会費用が残った。GDD06 §3「機会費用の
-    /// 低い者を使うと選択肢が広がる」が恒偽になる)で失敗した(赤を確認)。変異を戻して
-    /// 緑に復帰させた。
+    /// <b>変異の実測(2026-09-20)。</b><c>OpportunityCost.SelectErrandDelegate</c> の
+    /// <c>if (cost &lt; best.CostPerHour)</c> を <c>if (cost &gt; best.CostPerHour)</c>
+    /// (<c>Max</c> を取る変異)に変えたところ、<c>Assert.Equal(1, ...)</c> が実際値5
+    /// (親方の機会費用が残った。GDD06 §3「機会費用の低い者を使うと選択肢が広がる」が
+    /// 恒偽になる)で失敗した(赤を確認)。変異を戻して緑に復帰させた。
     /// </remarks>
     [Fact]
     public void ErrandOpportunityCostTakesTheSmallestMember()
@@ -56,14 +56,18 @@ public sealed class OpportunityCostTests
         var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(
             new[] { NpcRank.Master, NpcRank.Apprentice });
 
-        // Miller(基準値5): 親方=5、徒弟=1。最小の1が採られる。
-        Assert.Equal(1, OpportunityCost.ForErrand(definition, world, world.Households[0]));
+        // Miller(基準値5): 親方=5、徒弟=1。最小の1が採られ、NpcId(徒弟=1)も一致する。
+        var selected = OpportunityCost.SelectErrandDelegate(definition, world, world.Households[0]);
+        Assert.Equal(1, selected.CostPerHour);
+        Assert.Equal(1, selected.NpcId);
 
-        // 全員同値(Master×2) → 先頭(NpcId最小)が残ることを、Maxに落ちていないことと
+        // 全員同値(Master×2) → 先頭(NpcId最小=0)が残ることを、Maxに落ちていないことと
         // あわせて確認する。
         var tiedWorld = EconomySystemTestFixtures.BuildWorldWithOneHousehold(
             new[] { NpcRank.Master, NpcRank.Master });
-        Assert.Equal(5, OpportunityCost.ForErrand(definition, tiedWorld, tiedWorld.Households[0]));
+        var tiedSelected = OpportunityCost.SelectErrandDelegate(definition, tiedWorld, tiedWorld.Households[0]);
+        Assert.Equal(5, tiedSelected.CostPerHour);
+        Assert.Equal(0, tiedSelected.NpcId);
     }
 
     /// <summary>
@@ -82,11 +86,11 @@ public sealed class OpportunityCostTests
         var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(new[] { NpcRank.Apprentice });
 
         // Miller(基準値5)・徒弟(200‰) → CeilDiv(5×200,1000) = 1。
-        Assert.Equal(1, OpportunityCost.ForErrand(definition, world, world.Households[0]));
+        Assert.Equal(1, OpportunityCost.SelectErrandDelegate(definition, world, world.Households[0]).CostPerHour);
 
         world.Households[0].Occupation = Occupation.Smith;
 
         // Smith(基準値8)・徒弟(200‰) → CeilDiv(8×200,1000) = 2。
-        Assert.Equal(2, OpportunityCost.ForErrand(definition, world, world.Households[0]));
+        Assert.Equal(2, OpportunityCost.SelectErrandDelegate(definition, world, world.Households[0]).CostPerHour);
     }
 }

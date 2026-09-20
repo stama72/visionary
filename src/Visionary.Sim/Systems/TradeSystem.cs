@@ -10,12 +10,14 @@ namespace Visionary.Sim.Systems;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>内部は6段</b>(TDD01 §3.3「順5 Trade の内部の段」)。
+/// <b>内部は6段(うち段5は5a・5bの2手順)</b>(TDD01 §3.3「順5 Trade の内部の段」)。
 /// 1. 全売り手の新しい提示価格を求める(<c>Market</c> は読むだけ。前日の自分の出力品目の
 /// 提示価格を控える)。2. <c>Market.Clear()</c> → 一括書き込み。3. <see cref="Observations.Expire"/>。
 /// 4. 全世帯ぶんの <see cref="HouseholdDemand"/> を作る(段5 の中へ畳まない)。
-/// 5. 世帯 Id 昇順に買い物(<see cref="StoreChoice"/> で店を選び <see cref="TradeSettlement"/> で
-/// 約定する)。6. <see cref="Observations.CollectAndShare"/>(段5 と別ループ)。
+/// 5. 世帯 Id 昇順に、5a(<see cref="ErrandPlanner"/> で外出を計画し
+/// <see cref="HouseholdState.ErrandLaborLossPermille"/> を書く)→5b(<see cref="StoreChoice"/> で
+/// 5aが決めた区画の中から店を選び <see cref="TradeSettlement"/> で約定する)。
+/// 6. <see cref="Observations.CollectAndShare"/>(段5 と別ループ)。
 /// </para>
 /// <para>
 /// <b><see cref="World.Market"/> を書くのは段2 だけである</b>(GDD02b §4.1「書き込みは1か所の
@@ -42,6 +44,7 @@ public sealed class TradeSystem : ISimSystem
     private readonly WorldDefinition _definition;
     private readonly BuyerDemand _buyerDemand;
     private readonly StoreChoice _storeChoice;
+    private readonly ErrandPlanner _errandPlanner;
 
     public TradeSystem(WorldDefinition definition)
     {
@@ -62,10 +65,11 @@ public sealed class TradeSystem : ISimSystem
 
         _definition = definition;
 
-        // BuyerDemand / StoreChoice はStepのたびに作らず、コンストラクタで1つ持つ
+        // BuyerDemand / StoreChoice / ErrandPlanner はStepのたびに作らず、コンストラクタで1つ持つ
         // (_definitionと同じ。タスク仕様)。
         _buyerDemand = new BuyerDemand(definition);
         _storeChoice = new StoreChoice(definition);
+        _errandPlanner = new ErrandPlanner(definition);
     }
 
     public RandomStream Stream => RandomStream.Trade;
@@ -166,15 +170,22 @@ public sealed class TradeSystem : ISimSystem
                 world, household, hasOwnPreviousOffer[household.Id], ownPreviousOfferPrice[household.Id]);
         }
 
-        // 段5. 世帯Id昇順に買い物。段6 でまとめて使うため、訪れた区画を世帯ごとに控える。
-        var visitedDistrictIdsByHousehold = new List<int>[householdCount];
+        // 段5. 世帯Id昇順に、5a(外出の計画)→5b(購入)。段6 でまとめて使うため、
+        // 行くと決めた区画を世帯ごとに控える(TDD01 §3.3)。
+        var visitedDistrictIdsByHousehold = new IReadOnlyList<int>[householdCount];
 
         foreach (var household in world.Households)
         {
-            var visitedDistrictIds = new List<int>();
-            visitedDistrictIdsByHousehold[household.Id] = visitedDistrictIds;
+            // 5a. 外出の計画。ErrandLaborLossPermilleは0の日も必ず書く ── UnaffordableNecessityCount
+            // と同じ理由で、書かない日があると前日の損失が翌日以降も効き続ける。
+            var errand = OpportunityCost.SelectErrandDelegate(_definition, world, household);
+            var plan = _errandPlanner.Plan(world, household, demands[household.Id], errand);
 
-            RunOneHouseholdsShopping(world, household, demands[household.Id], visitedDistrictIds);
+            household.ErrandLaborLossPermille = plan.LaborLossPermille;
+            visitedDistrictIdsByHousehold[household.Id] = plan.VisitedDistrictIds;
+
+            // 5b. 購入。訪問は5aが決めており、買えたかどうかで変わらない。
+            RunOneHouseholdsShopping(world, household, demands[household.Id], plan.VisitedDistrictIds);
         }
 
         // 段6. 段5 と別のループ(先に買った世帯の観測が、後の世帯の買い物より前に生まれない
@@ -186,53 +197,41 @@ public sealed class TradeSystem : ISimSystem
     }
 
     /// <summary>
-    /// 目標在庫を個数へ直す(段5 手順1。移動費の分母。GDD06 §2)。耐久だけ耐久値で持つので
-    /// 変換が要る。<b>用途による分岐をここに持つ</b> ── 段5 の本文に残すと、耐久の約定が
+    /// 購入量(用途の単位)を個数へ直す(段5b 手順5。GDD02b §5.2)。耐久だけ耐久値で持つので
+    /// 変換が要る。<b>用途による分岐をここに持つ</b> ── 段5b の本文に残すと、耐久の約定が
     /// W2 では構造的に起きない以上どこからもテストが踏めない(レビュー1巡目 I-b の訂正)。
-    /// </summary>
-    public static int TargetStockInUnits(DemandPurpose purpose, int targetStock, int durabilityPerTool) =>
-        purpose == DemandPurpose.Durable
-            ? IntegerMath.CeilDiv(targetStock, durabilityPerTool)
-            : targetStock;
-
-    /// <summary>
-    /// 購入量(用途の単位)を個数へ直す(段5 手順5。GDD02b §5.2)。耐久だけ耐久値で持つので
-    /// 変換が要る。<b>用途による分岐をここに持つ</b>(理由は <see cref="TargetStockInUnits"/> と同じ)。
     /// </summary>
     public static int PurchaseQuantityInUnits(DemandPurpose purpose, int quantity, int durabilityPerTool) =>
         purpose == DemandPurpose.Durable
             ? IntegerMath.CeilDiv(quantity, durabilityPerTool)
             : quantity;
 
-    /// <summary>段5 の1世帯ぶんの買い物(タスク仕様の10手順)。</summary>
+    /// <summary>
+    /// 段5b の1世帯ぶんの買い物。<paramref name="visitedDistrictIds"/> は段5a
+    /// (<see cref="ErrandPlanner"/>)が既に決めた行き先であり、ここでは読むだけで書かない
+    /// (訪問は買えたかどうかで変わらない)。
+    /// </summary>
     private void RunOneHouseholdsShopping(
-        World world, HouseholdState household, HouseholdDemand demand, List<int> visitedDistrictIds)
+        World world, HouseholdState household, HouseholdDemand demand, IReadOnlyList<int> visitedDistrictIds)
     {
         // 毎日上書きする(ConsumptionSystemがUnmetConsumptionを毎日上書きするのと同じ)。
         household.UnaffordableNecessityCount = 0;
-
-        int errandOpportunityCost = OpportunityCost.ForErrand(_definition, world, household);
 
         // demand.Linesの並び順そのままに走査する ── GDD02b §3.2の走査順(必需→耐久→生産の入力→
         // 嗜好、同一用途は品目Id昇順)そのものである。資金は世帯内の共有資源なので、並べ替えると
         // 決済順が変わり結果が変わる(#36引き継ぎ「並べ直さないこと」)。
         foreach (var line in demand.Lines)
         {
-            // 1. 目標在庫を個数へ直す(移動費の分母。GDD06 §2)。
-            int targetInUnits = TargetStockInUnits(
-                line.Purpose, line.TargetStock, _definition.ToolDurabilityPerUnit);
-
-            // 2. 知っている店のうち実質コストが最小のものを選ぶ。0件ならこのlineは終わり
+            // 2. 自区画と行った区画の店のうち実効価格が最小のものを選ぶ。0件ならこのlineは終わり
             // (Needは立てない、#40)。販売在庫は約定のたびに減るのでworldを毎回読み直す ──
             // 候補を1日1回作って使い回すと売り切れた店を選んでしまう。
-            if (!_storeChoice.TrySelect(
-                    world, household, line.ItemId, targetInUnits, errandOpportunityCost, out var store))
+            if (!_storeChoice.TrySelect(world, household, line.ItemId, visitedDistrictIds, out var store))
             {
                 continue;
             }
 
-            // 3・4. ゲートと線形解(GDD02b §5.2)。渡すのは実効価格であって実質コストではない
-            // (GDD02b §7「便益と費用の分離」── 予算は移動費を一切含まない)。
+            // 3・4. ゲートと線形解(GDD02b §5.2)。渡すのは実効価格であって外出の費用を含む値では
+            // ない(GDD02b §7「便益と費用の分離」── 予算は外出の費用を一切含まない)。
             var decision = BuyerBudget.Decide(line, store.UnitEffectivePrice);
 
             if (decision.Quantity <= 0)
@@ -245,7 +244,7 @@ public sealed class TradeSystem : ISimSystem
                     household.UnaffordableNecessityCount++;
                 }
 
-                continue; // 訪問には数えない。
+                continue;
             }
 
             int purchaseQuantity = decision.Quantity;
@@ -254,17 +253,10 @@ public sealed class TradeSystem : ISimSystem
             int purchaseQuantityInUnits = PurchaseQuantityInUnits(
                 line.Purpose, purchaseQuantity, _definition.ToolDurabilityPerUnit);
 
-            // 6. 0以下なら、このlineは終わり(店は選んだが買う量が0。訪問にも数えない)。
+            // 6. 0以下なら、このlineは終わり(店は選んだが買う量が0)。
             if (purchaseQuantityInUnits <= 0)
             {
                 continue;
-            }
-
-            // 7. 訪れた区画を控える(6を通った時点で控える。8の切り詰めで0個になっても
-            // 「行った」ことは変わらない)。重複は積まない。
-            if (!visitedDistrictIds.Contains(store.DistrictId))
-            {
-                visitedDistrictIds.Add(store.DistrictId);
             }
 
             // 8. 資金上限と売り手の在庫で買える数量を切り詰める。

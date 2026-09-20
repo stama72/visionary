@@ -198,8 +198,15 @@ public sealed class TradePipelineTests
 
     /// <summary>
     /// テスト表 #24。60日回した後、<c>Knowledge</c> の総件数が
-    /// 売り注文数 × (保持期間 + 1) × 構成員数 以下。
+    /// NPC数 × (世帯数 − 1) × (保持期間 + 1) 以下。
     /// </summary>
+    /// <remarks>
+    /// <b>W2-09 追随(2026-09-20)。</b>境界を「NPC1人につき、他の世帯(売り手候補)ごとに
+    /// 保持期間+1日ぶんまで」へ広げた。外出のたび、訪れた区画の全ての売り注文を観測する
+    /// (GDD06 §3.1「観測は『見た』時点で生まれる」)ため、1人が複数の売り手を同時に知る
+    /// ことが日常的になり、旧い境界(世帯数 × (保持期間+1) × 構成員数。「観測は買った相手からだけ
+    /// 生まれる」という前提に立っていた)は本タスクの再設計で狭すぎる値になった。
+    /// </remarks>
     [Fact]
     public void ObservationsDoNotGrowWithoutBound()
     {
@@ -211,10 +218,12 @@ public sealed class TradePipelineTests
 
         long totalKnowledge = world.Knowledge.Sum(observations => (long)observations.Count);
 
-        int membersPerHousehold = definition.NpcCount / definition.HouseholdCount; // M0: 2(親方+徒弟)
-        long upperBound = (long)definition.HouseholdCount
-            * (definition.ObservationRetentionDays + 1)
-            * membersPerHousehold;
+        // NPC1人が知りうる売り手は自分の世帯を除く(世帯数−1)戸まで。各売り手について
+        // 保持期間+1日ぶん(Observations.Expireが「差 > 保持期間」で消すので、差0〜保持期間の
+        // (保持期間+1)日ぶんが同時に残りうる)。
+        long upperBound = (long)definition.NpcCount
+            * (definition.HouseholdCount - 1)
+            * (definition.ObservationRetentionDays + 1);
 
         Assert.True(
             totalKnowledge <= upperBound,
@@ -228,60 +237,25 @@ public sealed class TradePipelineTests
     /// 対照で確かめる ── 同じ世帯の初期資金だけを増やした世界で嗜好の約定が成立すること。
     /// </summary>
     /// <remarks>
-    /// <b>3巡目の実測(2026-09-17)。1・2巡目に書いた「手順2 vs 手順3」という機構の記述は
-    /// どちらも誤っていた。</b><see cref="TradeSystem"/> に一時プローブを入れ、seed 1・世帯Id0
-    /// (Brewer、区画4=中心)・下記の2ブロックと同じ流動資金(<c>ScarceLiquidFunds</c>=100 /
-    /// <c>AmpleLiquidFunds</c>=1000)で直接観測した。
-    ///
-    /// | 世界 | day0(1日目) | day1(2日目) |
-    /// | ---- | ------------ | ------------ |
-    /// | 絞る(資金100) | 手順2 <c>TrySelect</c>=true(realCost=36, budget=20)。<b>手順3 で
-    /// 落ちる</b>(36 &gt; 20) | 手順2=true(realCost=42, budget=0)。<b>手順3 で落ちる</b>
-    /// (42 &gt; 0) |
-    /// | 潤沢(資金1000) | 手順2=true、<b>手順3 も通過</b>(budget=200 ≥ 36)。だが
-    /// <b>手順4</b>(購入量計算)が0(targetStock=1, expectedStock=1)で約定に至らない | 手順2=true、
-    /// 手順3 も通過(budget=149 ≥ 42)。手順4 が1(expectedStock が0へ下がる)になり、
-    /// 手順8 で約定 |
-    ///
-    /// <b>手順2(知っている店)は資金の多寡に関わらず day0 から true である</b> ──
-    /// 世帯Id0の区画(中心)は <see cref="District.VisionRadius"/> 内に別の醸造家を直接見通せるため、
-    /// 記憶(前日の観測)を経由せずに day0 から候補が見つかる。1・2巡目が書いた
-    /// 「初日は観測がまだ無く手順2 で落ちる」は誤りである。
-    ///
-    /// <b>潤沢資金の世界でも、day0 は手順3(予算)ではなく手順4(購入量)で約定に至らない。</b>
-    /// 実質コストは予算を下回る(budget=200 ≥ 36)にもかかわらず、
-    /// <c>BuyerBudget.PurchaseQuantity</c> が day0 は 0 を返す(<c>targetStock=1</c>・
-    /// <c>expectedStock=1</c> が一致し「既に目標に達している」形になるため)。day1 は
-    /// <c>expectedStock</c> が0へ動き、購入量が1になって初めて約定する。<b>流動資金を
-    /// 100000(タスク仕様が指定した検証値)まで積んでも同じ形になる</b>(day0: budget=20000,
-    /// purchaseQty=0。day1: budget=19949, purchaseQty=1) ── 手順4 のゲートは資金の額に
-    /// 依存しない。
-    ///
-    /// <b>したがって2日を要する理由は「日数が経つと知識が広がる」でも「日数が経つと資金が
-    /// 貯まって予算を通る」でもなく、嗜好(ビール)の <c>expectedStock</c> が day0 の時点では
-    /// まだ目標在庫と一致していて需要が立たないことにある。</b>絞った世界(下記
-    /// <c>ScarceLiquidFunds</c>)は手順4 を通過する day1 以降で初めて手順3(予算)が
-    /// scarce/ample を分ける実際の分岐点になり、assert が資金の関数になる。
-    /// </remarks>
-    /// <remarks>
-    /// <b>W2-08追随(2026-09-20)。</b>本節の旧い記述(「Lines逆順変異は落ちない」)は#85/#97の
-    /// 予算の統一形より前の実測である。母数が段階(流動資金 → 取り置きを引く → 運転資金も引く)に
-    /// なり相場項の形が全用途で同じになったことで、<see cref="TradeSystemTests.NecessityIsSettledBeforePreference"/>
-    /// (単体寄りの最小構成)が判別力を実測で示した。<b>本テストも同じ<c>Lines</c>逆順変異
-    /// (<c>TradeSystem.RunOneHouseholdsShopping</c>の<c>foreach (var line in demand.Lines)</c>を
-    /// <c>demand.Lines.Reverse()</c>に変える)で赤になることを2026-09-20に再実測した</b> ──
-    /// M0の校正でも必需と嗜好が資金を奪い合う帯が生まれている。変異を戻して緑に復帰させた。
-    /// </remarks>
-    /// <remarks>
-    /// <b>世帯Id0(Brewer、区画4=中心)を使う。</b>中心区画は初日から <see cref="District.VisionRadius"/>
-    /// で木工(薪の売り手)2戸を見通せるので、初日のうちに必需(薪)の約定が成立しうる世帯である。
+    /// <b>W2-09 追随(2026-09-20)。</b>外出が「1日1区画まで」になった(GDD06 §3 5.6、
+    /// <see cref="TradePipelineTests.UnaffordableNecessityCountsOnlyTheFundsShortfall"/>の
+    /// remarks参照)ことで、必需(薪)と嗜好(ビール)が別々の区画にしか売り手を持たない世帯は、
+    /// その日どちらか一方しか外出できない。<b>資金の絞り方・観察に要する日数を実測し直した</b>
+    /// (シード1・世帯Id0=Brewer・区画4)。
+    /// <list type="bullet">
+    /// <item>絞った資金(100): 1日目のうちに薪が約定する(初期28→34)。3日目までビールは
+    /// 一度も約定しない。</item>
+    /// <item>潤沢な資金(100000): 薪は2日目までに約定する。ビールは3日目に初めて約定する
+    /// (1000では3日目までに一度も約定しない ── 外出のたび薪の方が価値が高く、ビールの番が
+    /// 回ってこない。潤沢さの基準そのものが変わった)。</item>
+    /// </list>
     /// </remarks>
     [Fact]
     public void NecessityIsSettledBeforePreference()
     {
         const int TargetHouseholdId = 0;
         const int ScarceLiquidFunds = 100; // 必需は買えるが嗜好へは届かない額(値の検算対象、#28)
-        const int AmpleLiquidFunds = 1000; // 嗜好も届く額(対照。値の検算対象、#28)
+        const int AmpleLiquidFunds = 100_000; // 嗜好も届く額(対照。値の検算対象、#28。remarks参照)
 
         var definition = WorldDefinition.M0;
 
@@ -290,12 +264,8 @@ public sealed class TradePipelineTests
             var world = WorldGenerator.Generate(definition, new RandomSource(1));
             world.Households[TargetHouseholdId].LiquidFunds = ScarceLiquidFunds;
 
-            // 2日回す ── day0は嗜好(ビール)が手順4(購入量計算)でexpectedStockがtargetStock
-            // と一致し0個になるため、資金の多寡と無関係に約定しない(上記remark)。day1以降で
-            // expectedStockが下がって初めて手順3(予算判定)がscarce/ampleを分ける実際の
-            // 分岐点になり、assertが資金の関数になる。
             var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(1));
-            scheduler.Advance(world, ticks: 2 * 24);
+            scheduler.Advance(world, ticks: 3 * 24);
 
             var household = world.Households[TargetHouseholdId];
 
@@ -317,14 +287,14 @@ public sealed class TradePipelineTests
             world.Households[TargetHouseholdId].LiquidFunds = AmpleLiquidFunds;
 
             var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(1));
-            scheduler.Advance(world, ticks: 2 * 24);
+            scheduler.Advance(world, ticks: 3 * 24);
 
             bool boughtBeer = world.Ledgers[TargetHouseholdId].Any(
                 entry => entry.Direction == LedgerDirection.Purchase && entry.ItemId == Item.Beer);
             Assert.True(
                 boughtBeer,
                 "資金を増やしても嗜好(ビール)の約定が成立しなかった"
-                    + "(手順3の予算判定以外で嗜好が塞がれている可能性)。");
+                    + "(予算判定以外で嗜好が塞がれている可能性)。");
         }
     }
 
@@ -357,67 +327,34 @@ public sealed class TradePipelineTests
     /// 厳密な期待値へ変えた。変異を戻して緑に復帰させた。
     /// </remarks>
     /// <remarks>
-    /// <b>W2-07 追随(2026-09-19)。日数を2 → 4日、期待値を2 → 1へ変える。</b>W2-07 の校正
-    /// (Woodworker 108‰・12実行/日、Baker 216‰・6実行/日)は旧calibration(全職1実行/日)より
-    /// 供給が6〜12倍速い。1日目は誰の相場基準も無いので必需の基礎値は流動資金の5%
-    /// (フォールバック、GDD02 §8.2.7)から作られ、豊富で安い薪に対して不釣り合いに大きい
-    /// ── 世帯Id0は1日目だけで目標在庫(28)の約2倍まで買い込み、在庫圧力(GDD02 §8.2.2)が
-    /// 2日目の薪の予算を底まで落とす(実測: 目標28・在庫50 → 予算2、実質コスト7で通らない)。
-    /// この供給ショックは世帯Id0だけでなく世帯全体に及ぶ(1日目は全世帯が同時にフォールバック
-    /// 予算で買うため、2日目は薪・パンとも全世帯で予算が実質コストへ届かない。実測で確認)。
-    /// 3日目まで待つと相場が落ち着き、世帯Id0はパン(必需)で予算が実質コストへ届くようになる
-    /// (実測: 予算64、実質コスト64)。薪は世帯Id0自身の1日目の買い込みが尾を引き、3日目も
-    /// 予算3・実質コスト8で届かない(候補は見つかるが手順3で落ちる、資金不足には数えない)。
-    /// <b>この非対称(薪は届かずパンだけ届く)がむしろ判別力を上げる。</b>
-    /// 手順9 の <c>line.Purpose == DemandPurpose.Necessity &amp;&amp;</c> を外す変異(用途を見ずに
-    /// 数える)を当て直したところ、3日目の <c>Assert.Equal(1, ...)</c> が実際値2で失敗した(赤を確認
-    /// ── 薪の行(fundsCap==0だが手順3の予算では落ちない)も数えてしまう)。手順2 の
-    /// 「候補0件でも必需なら無条件に数える」変異を当て直したところ、1日目の
-    /// <c>Assert.Equal(0, ...)</c> が実際値1で失敗した(赤を確認)。いずれも変異を戻して緑に
-    /// 復帰させた。
-    /// <b>世帯Id0を選ぶ理由</b>: 流動資金を0へ落とした直後に世帯Id0自身の買い物が実行されるのは
-    /// 世帯Id0が段5 の走査順で必ず先頭だからである(Idの小さい世帯が無い)。Id>0の世帯で試すと、
-    /// 自分より先に買い物をした世帯が同じ3日目のうちに世帯Id&gt;0(売り手)へ代金を払い込み、
-    /// 0へ落としたはずの流動資金がその世帯自身の買い物の番が来る前に書き戻ってしまう(実測で
-    /// 確認: 世帯Id4で試すと、自分より先に処理される世帯Id0〜3のビール購入が世帯Id4
-    /// (Brewer)へ代金を払い込み、世帯Id4の薪の番には流動資金が171まで回復していた)。
+    /// <b>W2-09 追随(2026-09-20)。資金不足のケースを、流動資金を人為的に0へ落とす形から
+    /// 自然発生(シード1・操作なし)の日へ差し替えた。</b>外出が「1日1区画まで」の構造的な
+    /// 性質(GDD06 §3 5.6。1周目が全候補中の最良を選ぶ以上、2周目のどの候補の価値も
+    /// <c>−Errand.Cost(1周目の往復,…) ≤ 0</c> を超えられない)により、必需2品目(薪・パン)を
+    /// 別々の区画で買う世帯は「その日どちらか一方しか外出しない」。<c>候補0件(知っている店が
+    /// 無い)</c> と <c>候補は見つかるが現金上限(CashCap)で落ちる</c> を人為的な資金操作なしに
+    /// 判別するには、CashCap が流動資金そのものではなく「用途に使える資金 ÷ 1日分の数量」
+    /// (GDD02c §2.1)で決まることを利用し、1日分の数量が大きい日にたまたま資金不足になる
+    /// 自然な日を探した(実測: 世帯Id2、14日目)。
     /// </remarks>
     [Fact]
     public void UnaffordableNecessityCountsOnlyTheFundsShortfall()
     {
         var definition = WorldDefinition.M0;
 
-        // 資金不足のケース。相場が定着するまで2日(1日目はフォールバック予算による供給ショック、
-        // 2日目はその余波で薪・パンとも全世帯の予算が実質コストへ届かない。上のremarks参照)。
-        // 3日目の直前に流動資金を0へ落とすと、パンの必需の予算(相場基準に基づく。流動資金に
-        // 依存しない、GDD02 §8.2.7)は実質コストへ届くが、実際の支払いは流動資金0で不可能になる
-        // ── UnaffordableNecessityCountが検出すべきずれそのものである(GDD02 §6.2.2)。
+        // 資金不足のケース(シード1・操作なし。世帯Id2、14日目に自然発生する。上のremarks参照)。
         {
             var world = WorldGenerator.Generate(definition, new RandomSource(1));
             var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(1));
 
-            scheduler.Advance(world, ticks: 24); // 1日目。フォールバック予算で買い込む。
-            Assert.Equal(0, world.Households[0].UnaffordableNecessityCount);
+            scheduler.Advance(world, ticks: 13 * 24); // 13日目まで。
+            Assert.Equal(0, world.Households[2].UnaffordableNecessityCount);
 
-            scheduler.Advance(world, ticks: 24); // 2日目。供給ショックの余波で誰も買えない。
-            Assert.Equal(0, world.Households[0].UnaffordableNecessityCount);
+            scheduler.Advance(world, ticks: 24); // 14日目。資金不足が1件自然発生する。
+            Assert.Equal(1, world.Households[2].UnaffordableNecessityCount);
 
-            world.Households[0].LiquidFunds = 0;
-            scheduler.Advance(world, ticks: 24); // 3日目。パンだけ資金不足で買えない(remarks参照)。
-
-            // 厳密な期待値(実測、シード1)。パンの行は候補・予算とも通るが資金0で落ちる。薪の行は
-            // 世帯Id0自身の1日目の買い込みの余波で候補は見つかるが手順3(予算)で落ちるため
-            // 数えない ── 期待値1。閾値を`>= 1`にすると、用途を見ずに数える変異
-            // (予算で落ちた行も数える)が薪の行を余分に足しても`>= 1`のままなので判別できない
-            // (レビュー1巡目 I-b の訂正と同じ理由)。
-            const int ExpectedUnaffordableNecessityCount = 1;
-            Assert.Equal(
-                ExpectedUnaffordableNecessityCount, world.Households[0].UnaffordableNecessityCount);
-
-            // 翌日、流動資金を戻すと0に戻る(毎日上書きする。GDD02 §6.2.2)。
-            world.Households[0].LiquidFunds = 300;
-            scheduler.Advance(world, ticks: 24); // 4日目。
-            Assert.Equal(0, world.Households[0].UnaffordableNecessityCount);
+            scheduler.Advance(world, ticks: 24); // 15日目。毎日上書きする(GDD02 §6.2.2)ので0に戻る。
+            Assert.Equal(0, world.Households[2].UnaffordableNecessityCount);
         }
 
         // 在庫切れのケース。木工2戸の薪(工房在庫)と入力の木材(工房在庫)を0にして生産による

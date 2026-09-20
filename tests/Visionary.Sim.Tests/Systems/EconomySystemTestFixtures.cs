@@ -59,6 +59,7 @@ internal static class EconomySystemTestFixtures
         int toolLifeLaborDays = 30,
         int equipmentPermilleWithoutTools = 0,
         int disposableHours = 12,
+        int trustDiscountPermille = 200,
         int initialWorkshopInputDays = 0,
         int[]? externalSellPriceBaseOverride = null,
         int[][]? externalSellPriceSeasonPermilleOverride = null,
@@ -131,7 +132,8 @@ internal static class EconomySystemTestFixtures
             shipmentDays: shipmentDays,
             toolLifeLaborDays: toolLifeLaborDays,
             equipmentPermilleWithoutTools: equipmentPermilleWithoutTools,
-            disposableHours: disposableHours);
+            disposableHours: disposableHours,
+            trustDiscountPermille: trustDiscountPermille);
     }
 
     /// <summary>どのレシピも出力しない品目か(= 1次産品か)を、渡されたレシピ表から求める。</summary>

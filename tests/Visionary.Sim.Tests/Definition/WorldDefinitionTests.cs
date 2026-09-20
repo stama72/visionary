@@ -37,7 +37,8 @@ public sealed class WorldDefinitionTests
         int? shipmentDays = null,
         int? toolLifeLaborDays = null,
         int? equipmentPermilleWithoutTools = null,
-        int? disposableHours = null)
+        int? disposableHours = null,
+        int? trustDiscountPermille = null)
     {
         var m0 = WorldDefinition.M0;
 
@@ -74,7 +75,8 @@ public sealed class WorldDefinitionTests
             shipmentDays: shipmentDays ?? m0.ShipmentDays,
             toolLifeLaborDays: toolLifeLaborDays ?? m0.ToolLifeLaborDays,
             equipmentPermilleWithoutTools: equipmentPermilleWithoutTools ?? m0.EquipmentPermilleWithoutTools,
-            disposableHours: disposableHours ?? m0.DisposableHours);
+            disposableHours: disposableHours ?? m0.DisposableHours,
+            trustDiscountPermille: trustDiscountPermille ?? m0.TrustDiscountPermille);
     }
 
     // WorldDefinitionは外部価格表を公開しない(private でよい、タスク仕様)。この
@@ -362,6 +364,19 @@ public sealed class WorldDefinitionTests
         // 平滑化係数‰が1000超(高値で仕入れるほど原価が下がる)
         Assert.Throws<ArgumentOutOfRangeException>(
             () => BuildDefinition(acquisitionCostSmoothingPermille: 1001));
+    }
+
+    /// <summary>
+    /// 信用による実効価格の割引係数‰(<see cref="WorldDefinition.TrustDiscountPermille"/>)が
+    /// 0〜1000の外(-1・1001)を拒む(GDD06 §2。1000超だと信用100で実効価格が0以下になる)。
+    /// </summary>
+    [Fact]
+    public void WorldDefinitionRejectsTrustDiscountPermilleOutsideZeroToThousand()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => BuildDefinition(trustDiscountPermille: -1));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => BuildDefinition(trustDiscountPermille: 1001));
     }
 
     // ── ここから #96 タスク仕様「落ちるべき条件」の新規テスト。
