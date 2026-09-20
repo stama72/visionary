@@ -127,7 +127,14 @@ try {
                 'dotnet\s+format(?!.*--verify-no-changes)'
                 'Set-Content|Out-File|Remove-Item|New-Item|Move-Item|Copy-Item|Add-Content'
                 'gh\s+pr\s+(create|merge|edit)'
-                '>\s*\S'
+                # **リダイレクトは「ファイルへ書き出す形」だけを止める。** 素朴に `>` の後ろに
+                # 非空白が続く形を止めると、`grep ... 2>&1` のような**読み取りだけのコマンドが
+                # 止まる。** 走行中の様子を worktree から覗く経路で毎回踏むうえ、
+                # 「読み取りは止めない」という上の方針と矛盾する。除くのは2種類:
+                #   `>&1` / `>&2`  ハンドルの合流であって、ファイルには書かない
+                #   `/dev/null` / `$null`  捨て先であって、作業ツリーには残らない
+                # `>> file` は追記(書き込み)なので**止まる側に残す**。
+                '>\s*(?!&|/dev/null|\$null)\S'
             ) -join '|'
             if ($cmd -notmatch $writeish) { exit 0 }
             # ロックそのものを触るコマンドは素通し(回収路)。
