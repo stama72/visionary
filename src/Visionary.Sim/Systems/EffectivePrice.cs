@@ -21,7 +21,8 @@ public static class EffectivePrice
     /// 呼び出し側を探し回らずに済ませるためである。
     /// </para>
     /// <para>
-    /// <b>戻り値は、M0 の値域(<paramref name="trustDiscountPermille"/> ≤ 1000)では通常1以上になる。</b>
+    /// <b>戻り値は、M0 の値域(<paramref name="trustDiscountPermille"/> は0〜999。
+    /// <see cref="WorldDefinition.TrustDiscountPermille"/> が1000を拒む)では通常1以上になる。</b>
     /// <see cref="IntegerMath.ApplyPermille(int, int)"/> が <c>CeilDiv</c> なので、正の提示価格に
     /// 正の係数を掛けて0にはならない ── これが <see cref="BuyerBudget.Decide"/> /
     /// <see cref="TradeSettlement.FundsCap"/>(どちらも0以下で投げる)の前提を満たしている。

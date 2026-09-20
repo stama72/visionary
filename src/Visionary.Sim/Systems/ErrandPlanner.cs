@@ -159,7 +159,7 @@ public sealed class ErrandPlanner
     }
 
     /// <summary>余剰(5.5)。見積もり価格が「無い」なら0。</summary>
-    private static long SurplusFor(in DemandLine line, bool hasPrice, int price)
+    private long SurplusFor(in DemandLine line, bool hasPrice, int price)
     {
         if (!hasPrice)
         {
@@ -170,9 +170,18 @@ public sealed class ErrandPlanner
         // 価格が見積もりどおりなら一致する」の実体である(GDD06 §4)。PurchaseQuantityを
         // 直接呼ぶと、現金上限や利潤上限で買えない品目のために外出が立ってしまう。
         var decision = BuyerBudget.Decide(line, price);
+
+        // qを個数へ直してからErrand.Surplusへ渡す。BuyerBudget.Decideが返すqは「用途の単位」
+        // であり、耐久だけ耐久値である ── wとpはどちらも貨幣/個なので、直さずに渡すと
+        // 工具の行だけ余剰がToolDurabilityPerUnit倍に膨らむ(3回目の差し戻し、別表C-1)。
+        // 変換は段5b(TradeSystem.RunOneHouseholdsShopping)とまったく同じ関数を通す
+        // (BuyerBudget.QuantityInUnits。GDD06 §4「見積もりに使ったqと、着いてから解く購入量は
+        // 一致する」の実体)。
+        int quantityInUnits =
+            BuyerBudget.QuantityInUnits(line.Purpose, decision.Quantity, _definition.ToolDurabilityPerUnit);
         int willingness = IntegerMath.ApplyPermille(line.BaseValue, line.StockPressurePermille);
 
-        return Errand.Surplus(decision.Quantity, willingness, price);
+        return Errand.Surplus(quantityInUnits, willingness, price);
     }
 
     /// <summary>

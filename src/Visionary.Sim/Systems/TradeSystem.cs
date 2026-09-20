@@ -1,4 +1,3 @@
-using Visionary.Sim.Numerics;
 using Visionary.Sim.Randomness;
 
 namespace Visionary.Sim.Systems;
@@ -30,7 +29,7 @@ namespace Visionary.Sim.Systems;
 /// <b>段6(観測の生成)は段5(買い物)の後であり、かつ別ループである。</b>段5 の世帯ループへ畳むと、
 /// 先に買った世帯の観測が後の世帯の買い物より前に生まれる(GDD06 §3.1「記憶は前日まで」は
 /// 当日生成の観測が誰にも読まれないことに立っている)。生まれた観測は
-/// <see cref="MarketReference"/> / <see cref="StoreChoice"/> の鮮度判定
+/// <see cref="MarketReference"/> / <see cref="ErrandPlanner"/> の鮮度判定
 /// (差1日以上)により翌日から有効な記憶になる。
 /// </para>
 /// <para>
@@ -155,9 +154,9 @@ public sealed class TradeSystem : ISimSystem
             world.Market[offer.Key] = offer.Price;
         }
 
-        // 段3. 観測の失効(GDD06 §3.1)。値付けの後・買い物の前に置く ── 段5 の
-        // StoreChoice.TrySelect が「有効な記憶」を保持期間で二重に判定しないための前提
-        // (StoreChoice のdocコメント参照)。
+        // 段3. 観測の失効(GDD06 §3.1)。値付けの後・買い物の前に置く ── 段5a の
+        // ErrandPlanner(見積もり価格5.3)が「有効な記憶」を保持期間で二重に判定しないための前提
+        // (ErrandPlannerのdocコメント参照)。
         Observations.Expire(world, _definition.ObservationRetentionDays);
 
         // 段4. 全世帯ぶんのHouseholdDemandを作る。段5 の中へ畳まない ── 畳むと予算そのものが
@@ -195,16 +194,6 @@ public sealed class TradeSystem : ISimSystem
             Observations.CollectAndShare(world, household, visitedDistrictIdsByHousehold[household.Id]);
         }
     }
-
-    /// <summary>
-    /// 購入量(用途の単位)を個数へ直す(段5b 手順5。GDD02b §5.2)。耐久だけ耐久値で持つので
-    /// 変換が要る。<b>用途による分岐をここに持つ</b> ── 段5b の本文に残すと、耐久の約定が
-    /// W2 では構造的に起きない以上どこからもテストが踏めない(レビュー1巡目 I-b の訂正)。
-    /// </summary>
-    public static int PurchaseQuantityInUnits(DemandPurpose purpose, int quantity, int durabilityPerTool) =>
-        purpose == DemandPurpose.Durable
-            ? IntegerMath.CeilDiv(quantity, durabilityPerTool)
-            : quantity;
 
     /// <summary>
     /// 段5b の1世帯ぶんの買い物。<paramref name="visitedDistrictIds"/> は段5a
@@ -249,8 +238,9 @@ public sealed class TradeSystem : ISimSystem
 
             int purchaseQuantity = decision.Quantity;
 
-            // 5. 個数へ直す。
-            int purchaseQuantityInUnits = PurchaseQuantityInUnits(
+            // 5. 個数へ直す。ErrandPlannerの余剰(5.5)と同じ関数を通す(GDD06 §4「見積もりに
+            // 使ったqと、着いてから解く購入量は、価格が見積もりどおりなら一致する」の実体)。
+            int purchaseQuantityInUnits = BuyerBudget.QuantityInUnits(
                 line.Purpose, purchaseQuantity, _definition.ToolDurabilityPerUnit);
 
             // 6. 0以下なら、このlineは終わり(店は選んだが買う量が0)。

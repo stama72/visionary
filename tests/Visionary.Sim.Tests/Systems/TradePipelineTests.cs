@@ -254,6 +254,16 @@ public sealed class TradePipelineTests
     /// (1000では3日目までに一度も約定しない)。</item>
     /// </list>
     /// </remarks>
+    /// <remarks>
+    /// <b>変異の再実測(2026-09-20、持ち越し指摘)。</b><c>[#81](https://github.com/stama72/visionary/issues/81)</c>
+    /// の検出器としての判別力が、<c>AmpleLiquidFunds</c> を1000 → 100,000、観察日数を2日 → 3日へ
+    /// 広げたことで吸収されていないかを確かめるため、<c>TradeSystem.RunOneHouseholdsShopping</c>
+    /// の <c>demand.Lines</c> の走査を <c>.Reverse()</c> する変異(製品コードで用途の走査順を
+    /// 必需→耐久→入力→嗜好から逆順へ変える変異に相当)を当て直した。絞った世界(資金100)の
+    /// <c>Assert.False(boughtBeer, ...)</c> が実際値trueで失敗した(赤を確認: 嗜好が必需より先に
+    /// 決済され、流動資金が先に嗜好へ回って必需を圧迫する経路が再現する)。判別力は維持されている。
+    /// 変異を戻して緑に復帰させた。
+    /// </remarks>
     [Fact]
     public void NecessityIsSettledBeforePreference()
     {
@@ -303,9 +313,9 @@ public sealed class TradePipelineTests
     }
 
     /// <summary>
-    /// 【核心】テスト表 #26。流動資金0の世帯 → 必需の行で <c>UnaffordableNecessityCount</c> が
-    /// 厳密な期待値になる。売り手の在庫が0で買えなかっただけの世帯 → 0のまま。嗜好が買えなくても
-    /// 0のまま。翌日に買えたら0に戻る。
+    /// 【核心】テスト表 #26。必需の行で <c>UnaffordableNecessityCount</c> が厳密な期待値になる
+    /// (資金不足の日は自然発生。下の<c>W2-09 追随</c>参照)。売り手の在庫が0で買えなかっただけの
+    /// 世帯 → 0のまま。嗜好が買えなくても0のまま。翌日に買えたら0に戻る。
     /// </summary>
     /// <remarks>
     /// <b>変異の実測(2026-09-17)。</b><c>fundsCap == 0</c> への置換(<c>actualQuantity == 0</c> など)
@@ -322,15 +332,6 @@ public sealed class TradePipelineTests
     /// 緑に復帰させた。
     /// </remarks>
     /// <remarks>
-    /// <b>変異の実測・追補(2026-09-17、レビュー1巡目 I-b の訂正)。</b>手順9 の
-    /// <c>line.Purpose == DemandPurpose.Necessity &amp;&amp;</c> を外す変異(用途を見ずに数える)を
-    /// 当てたところ、資金不足のケースの <c>UnaffordableNecessityCount</c> が実測2 → 3 になった
-    /// (赤を確認: 世帯Id0(Brewer)は2日目までに嗜好・生産の入力の行も「知っている店」を得ており、
-    /// 流動資金0の日はそれらの行も <c>fundsCap == 0</c> を通るため、用途を見ない変異は必需以外の
-    /// 行も加算する)。旧い <c>&gt;= 1</c> の期待値ではこの差(2 → 3)を判別できないため、
-    /// 厳密な期待値へ変えた。変異を戻して緑に復帰させた。
-    /// </remarks>
-    /// <remarks>
     /// <b>W2-09 追随(2026-09-20)。資金不足のケースを、流動資金を人為的に0へ落とす形から
     /// 自然発生(シード1・操作なし)の日へ差し替えた。</b><c>候補0件(知っている店が無い)</c> と
     /// <c>候補は見つかるが現金上限(CashCap)で落ちる</c> を人為的な資金操作なしに判別するには、
@@ -338,6 +339,15 @@ public sealed class TradePipelineTests
     /// 決まることを利用し、1日分の数量が大きい日にたまたま資金不足になる自然な日を探した
     /// (実測: 世帯Id2、17日目。<b>訂正後(A-1)の価値の式へ差し替えたことで、自然発生する日・
     /// 世帯が動いた</b> ── 値そのものは仕様ではなく、実装が緑にできる自然な例でよい)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の再実測(2026-09-20、持ち越し指摘)。</b>上の2026-09-17の追補remarksは、流動資金を
+    /// 人為的に0へ落とす旧本体(世帯Id0、Brewer)で「手順9の<c>Purpose == Necessity &amp;&amp;</c>
+    /// を外す変異」が2 → 3で赤になったと記録していたが、この<c>2</c>は旧本体の値である。
+    /// <b>自然発生の日(世帯Id2、17日目)へ差し替えた現本体へ同じ変異を当て直したところ、
+    /// 3回のAssert(0/1/0)がいずれも変わらず、赤を確認できなかった。</b>この日はNecessity以外の
+    /// 行がfundsCap==0を踏んでおらず、用途フィルタの有無が結果に出ない。本節はこの変異に対する
+    /// 判別力を失っている(直さずに報告する。自然発生の日を選び直すのは設計判断)。
     /// </remarks>
     [Fact]
     public void UnaffordableNecessityCountsOnlyTheFundsShortfall()

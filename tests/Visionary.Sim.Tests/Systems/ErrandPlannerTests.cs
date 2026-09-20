@@ -72,10 +72,11 @@ public sealed class ErrandPlannerTests
     }
 
     private static DemandLine BuildLine(
-        int itemId, int budget, int targetStock, int expectedStock, int baseValue, int cashCap = 1_000_000) =>
+        int itemId, int budget, int targetStock, int expectedStock, int baseValue, int cashCap = 1_000_000,
+        DemandPurpose purpose = DemandPurpose.Necessity) =>
         new()
         {
-            Purpose = DemandPurpose.Necessity,
+            Purpose = purpose,
             ItemId = itemId,
             HasMarketTerm = false,
             MarketTerm = 0,
@@ -776,5 +777,113 @@ public sealed class ErrandPlannerTests
 
             Assert.Equal(new[] { RemoteDistrictId }, plan.VisitedDistrictIds);
         }
+    }
+
+    /// <summary>
+    /// 【核心】テスト表 #30。GDD06 §3の例(別表C)。耐久(工具)の行だけを需要に持つ世帯で、
+    /// N×1000=13,000・目標6,500・予想0・基礎値100・見積もり50のとき、線形解は耐久値で13,000を
+    /// 返すが q_個=CeilDiv(13000,13000)=1。余剰はFloorDiv(1×(w-50),2)=50であって
+    /// FloorDiv(13000×(w-50),2)=650000ではない。外出の費用を両者の間(300)に置くと、
+    /// 直っていれば行かず(50&lt;300)、取り違えていれば行く(650000&gt;300)。
+    /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-20)。</b><c>SurplusFor</c> で <c>decision.Quantity</c> を
+    /// <c>BuyerBudget.QuantityInUnits</c> に通さず直接 <c>Errand.Surplus</c> へ渡す変異
+    /// (C-1で直した誤り。段5.5が耐久だけ単位を取り違えていた本体)を当てたところ、
+    /// <c>Assert.Empty(plan.VisitedDistrictIds)</c> が実際値 <c>[SellerDistrictId]</c>
+    /// (13,000倍に膨らんだ余剰650000が費用300を圧倒的に上回り、行ってしまう)で失敗した
+    /// (赤を確認)。変異を戻して緑に復帰させた。
+    /// </remarks>
+    [Fact]
+    public void DurableSurplusIsMeasuredInUnitsNotDurability()
+    {
+        const int SellerDistrictId = 2; // 距離2 → 往復4時間(travelHoursPerDistrict=1)。
+        const int ToolItem = Item.Tools;
+
+        var recipe = new Recipe(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = ToolItem, Quantity = 1 } },
+            inputs: new[] { new ItemQuantity { ItemId = PrimaryItem, Quantity = 1 } },
+            laborPermille: 1000);
+
+        var externalBuyPrice = new int[Item.Count];
+        externalBuyPrice[ToolItem] = 50; // 見積もり50(記憶なし・Rの外 → 床)。
+        externalBuyPrice[Item.Grain] = 1; // UnusedRecipe(Baker等)が出力する品目。0だと構築時に投げる。
+
+        var definition = EconomySystemTestFixtures.BuildDefinition(
+            recipe,
+            opportunityCostBaseByOccupation: new[] { 1, 1, 1, 1, 1 },
+            rankCoefficientPermille: new[] { 1000, 1000, 1000 },
+            travelHoursPerDistrict: 1,
+            disposableHours: 12,
+            toolLifeLaborDays: 13, // N=13 → ToolDurabilityPerUnit = 13 × 1000 = 13,000。
+            externalBuyPriceOverride: externalBuyPrice);
+
+        var world = BuildWorld(buyerDistrictId: 0, (SellerDistrictId, Occupation.Miller));
+
+        var line = BuildLine(
+            ToolItem, budget: 1, targetStock: 6500, expectedStock: 0, baseValue: 100,
+            purpose: DemandPurpose.Durable);
+
+        // 費用 = 往復4時間 × 機会費用75 = 300(50と650000の間。<remarks>参照)。
+        var errand = Delegate(costPerHour: 75);
+        var planner = new ErrandPlanner(definition);
+
+        var plan = planner.Plan(world, world.Households[0], DemandOf(line), errand);
+
+        Assert.Empty(plan.VisitedDistrictIds);
+    }
+
+    /// <summary>
+    /// C-3。3回目のレビュー I-1 は「<see cref="ErrandPlannerTests"/> が
+    /// <see cref="DemandPurpose.Necessity"/> の行しか通していない」ことに守られていた。
+    /// <see cref="DurableSurplusIsMeasuredInUnitsNotDurability"/>(Durable)と既存の各テスト
+    /// (Necessity)に加え、残る2種(<see cref="DemandPurpose.ProductionInput"/> ・
+    /// <see cref="DemandPurpose.Preference"/>)でも <c>BuyerBudget.QuantityInUnits</c> が恒等
+    /// (単位を変えない)であることを、#30 とまったく同じ数量(耐久値13,000相当)を使って確かめる
+    /// ── Durableだけが変換で縮み、他の3種は縮まないので費用300を超えて行く。
+    /// </summary>
+    [Theory]
+    [InlineData(DemandPurpose.ProductionInput)]
+    [InlineData(DemandPurpose.Necessity)]
+    [InlineData(DemandPurpose.Preference)]
+    public void NonDurablePurposesDoNotScaleTheQuantity(DemandPurpose purpose)
+    {
+        const int SellerDistrictId = 2; // 距離2 → 往復4時間(travelHoursPerDistrict=1)。
+        const int ToolItem = Item.Tools;
+
+        var recipe = new Recipe(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = ToolItem, Quantity = 1 } },
+            inputs: new[] { new ItemQuantity { ItemId = PrimaryItem, Quantity = 1 } },
+            laborPermille: 1000);
+
+        var externalBuyPrice = new int[Item.Count];
+        externalBuyPrice[ToolItem] = 50; // #30と同じ見積もり50(記憶なし・Rの外 → 床)。
+        externalBuyPrice[Item.Grain] = 1; // UnusedRecipe(Baker等)が出力する品目。0だと構築時に投げる。
+
+        var definition = EconomySystemTestFixtures.BuildDefinition(
+            recipe,
+            opportunityCostBaseByOccupation: new[] { 1, 1, 1, 1, 1 },
+            rankCoefficientPermille: new[] { 1000, 1000, 1000 },
+            travelHoursPerDistrict: 1,
+            disposableHours: 12,
+            toolLifeLaborDays: 13, // #30と同じ13,000(ただしDurable以外は換算に使われない)。
+            externalBuyPriceOverride: externalBuyPrice);
+
+        var world = BuildWorld(buyerDistrictId: 0, (SellerDistrictId, Occupation.Miller));
+
+        // #30と同じ数量13,000(目標6,500・予想0・基礎値100)。Durableなら q_個=1 に縮むが、
+        // それ以外は13,000のまま(恒等)。
+        var line = BuildLine(
+            ToolItem, budget: 1, targetStock: 6500, expectedStock: 0, baseValue: 100, purpose: purpose);
+
+        // 費用300は#30の閾値と同じ。恒等変換なら余剰650000 > 300で行く。
+        var errand = Delegate(costPerHour: 75);
+        var planner = new ErrandPlanner(definition);
+
+        var plan = planner.Plan(world, world.Households[0], DemandOf(line), errand);
+
+        Assert.Equal(new[] { SellerDistrictId }, plan.VisitedDistrictIds);
     }
 }

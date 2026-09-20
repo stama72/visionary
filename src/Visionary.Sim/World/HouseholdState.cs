@@ -149,7 +149,9 @@ public sealed class HouseholdState
     /// <remarks>
     /// <b>上限(<see cref="WorldDefinition.NominalLaborPermille"/>)は型では守れない。</b>
     /// 超える値が来ても <see cref="Systems.ProductionSystem"/> が <c>max(0, …)</c> で0へ潰す
-    /// (GDD02a §2)。W2-07 の範囲では書き手が無く、初期値0のままである。
+    /// (GDD02a §2)。書き手は <see cref="Systems.TradeSystem"/> の段5a(<see cref="Systems.ErrandPlanner"/>)
+    /// であり、外出しない日も0を書く(毎日上書きする。書かない日があると前日の損失が
+    /// 翌日以降も効き続ける)。
     /// </remarks>
     public int ErrandLaborLossPermille
     {

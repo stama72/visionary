@@ -402,25 +402,6 @@ public sealed class TradeSystemTests
         Assert.Equal(200, world.Market[new MarketKey(Item.Bread, 0)]);
     }
 
-    /// <summary>
-    /// 段5b手順5の内側の用途分岐(<c>Durable</c>はNで割り、<c>Necessity</c>は換算しない)。
-    /// #37のテスト表#6の片側(<c>PurchaseQuantityInUnits</c>のみ。<c>TargetStockInUnits</c>は
-    /// 本タスクで削除された)。
-    /// </summary>
-    [Fact]
-    public void PurchaseQuantityInUnitsConvertsOnlyForDurable()
-    {
-        const int PurchaseQuantityInDurabilityUnits = 15; // 耐久値
-        const int ProductionRunsPerToolWear = 30;         // N
-
-        Assert.Equal(
-            1, TradeSystem.PurchaseQuantityInUnits(
-                DemandPurpose.Durable, PurchaseQuantityInDurabilityUnits, ProductionRunsPerToolWear));
-        Assert.Equal(
-            15, TradeSystem.PurchaseQuantityInUnits(
-                DemandPurpose.Necessity, PurchaseQuantityInDurabilityUnits, ProductionRunsPerToolWear));
-    }
-
     /// <summary>テスト表 #28(旧番)。入力0件は許容される(原価が値付けに入らないため)。出力2件以上でNotSupportedException。</summary>
     [Fact]
     public void TradeSystemRejectsMultiOutputRecipesAtConstruction()
@@ -729,6 +710,136 @@ public sealed class TradeSystemTests
         Assert.Contains(
             world.Knowledge[distantBuyer.HeadNpcId],
             o => o.ItemId == Item.Bread && o.SellerId == SellerId);
+    }
+
+    /// <summary>
+    /// 【核心】テスト表 #31。見積もり価格(<see cref="ErrandPlanner"/> 5.5)と当日の提示価格が
+    /// 一致する配置(売り手が床のまま提示する初日)で、段5b の実際の約定数量が、独立に
+    /// <c>BuyerBudget.Decide</c> + <c>BuyerBudget.QuantityInUnits</c> で予測した q_個 と一致する。
+    /// 必需(単位変換が恒等)と耐久(単位変換がCeilDiv)の両方で確かめる。
+    /// </summary>
+    /// <remarks>
+    /// <b>耐久側の設計。</b>買い手に工具の市場参照(平均2000)を仕込み、基礎値を流動資金から
+    /// 切り離す ── 参照が無いと基礎値=現金上限=流動資金となり、ゲートを通る実効価格の範囲では
+    /// 資金上限が数量を1個に切り詰めてしまい、CeilDiv(1500,1000)=2 と FloorDiv(1500,1000)=1 の
+    /// 分岐が資金上限の背後に隠れて見えなくなる(実測で確認した構造的な制約)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-20)。</b><c>BuyerBudget.QuantityInUnits</c> の <c>CeilDiv</c> を
+    /// <c>FloorDiv</c> に変える変異を当てたところ、本テストの
+    /// <c>Assert.Equal(predictedQuantity(=2), world.Households[0].WorkshopInventory[Item.Tools])</c>
+    /// が実際値1(FloorDiv(1500,1000)=1)で失敗した(赤を確認)。変異を戻して緑に復帰させた。
+    /// </remarks>
+    [Fact]
+    public void ErrandPlannerAndSettlementAgreeOnQuantity()
+    {
+        // 必需(パン、単位変換は恒等)。目標6・床1・流動資金大 → 上側clampで数量12。
+        {
+            var necessityTargetStockDays = new int[Item.Count];
+            necessityTargetStockDays[Item.Bread] = 6;
+
+            var definition = BuildShoppingDefinition(breadFloor: 1, necessityTargetStockDays: necessityTargetStockDays);
+            var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
+
+            AddHousehold(world, id: 0, districtId: 4, Occupation.Woodworker, liquidFunds: 100_000);
+            AddHousehold(world, id: 1, districtId: 4, Occupation.Miller); // 買い手と同区画(距離0)。
+            world.Households[1].WorkshopInventory[Item.Bread] = 1000;
+
+            EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+
+            // 独立予測: baseValue=cashCap=100000(参照なし)・実効価格1(床)・target6・expected0 ──
+            // PurchaseQuantityが上側clamp(2×target)に当たり12。QuantityInUnits(Necessity)は恒等。
+            var line = new DemandLine
+            {
+                Purpose = DemandPurpose.Necessity,
+                ItemId = Item.Bread,
+                HasMarketTerm = false,
+                MarketTerm = 0,
+                CashCap = 100_000,
+                HasProfitCap = false,
+                ProfitCap = 0,
+                TargetStock = 6,
+                ExpectedStock = 0,
+                StockPressurePermille = 0, // HasMarketTerm=falseのゲートでは読まれない。
+                BaseValue = 100_000,
+                Budget = 1,
+            };
+            int predictedQuantity = BuyerBudget.QuantityInUnits(
+                line.Purpose, BuyerBudget.Decide(line, effectivePrice: 1).Quantity, durabilityPerTool: 1);
+
+            Assert.Equal(predictedQuantity, world.Households[0].HouseholdInventory[Item.Bread]);
+        }
+
+        // 耐久(工具、単位変換はCeilDiv)。N=1(耐久値1000)・市場参照2000・床1500 → 数量1500、
+        // q_個=CeilDiv(1500,1000)=2(FloorDivなら1)。
+        {
+            const int ToolDurabilityPerUnit = 1000; // toolLifeLaborDays=1 × PermilleScale(1000)。
+            const int MarketReferencePrice = 2000;  // 買い手の工具の市場参照(平均)。
+            const int SellerFloorPrice = 1500;       // 床(参照なし初日の提示価格そのもの)。
+
+            var toolRecipe = new Recipe(
+                Occupation.Miller,
+                outputs: new[] { new ItemQuantity { ItemId = Item.Tools, Quantity = 1 } },
+                inputs: new[] { new ItemQuantity { ItemId = Item.IronOre, Quantity = 1 } },
+                laborPermille: 1000);
+
+            var externalBuyPrice = new int[Item.Count];
+            externalBuyPrice[Item.Tools] = SellerFloorPrice;
+            externalBuyPrice[Item.Grain] = 1; // UnusedRecipe(Baker等)が出力する品目。0だと構築時に投げる。
+
+            var definition = EconomySystemTestFixtures.BuildDefinition(
+                toolRecipe,
+                toolLifeLaborDays: 1,
+                opportunityCostBaseByOccupation: new[] { 1, 1, 1, 1, 1 },
+                rankCoefficientPermille: new[] { 1000, 1000, 1000 },
+                travelHoursPerDistrict: 1,
+                shipmentDays: 1,
+                inputBufferDays: 1,
+                externalBuyPriceOverride: externalBuyPrice);
+
+            var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
+            AddHousehold(world, id: 0, districtId: 4, Occupation.Woodworker, liquidFunds: 100_000);
+            AddHousehold(world, id: 1, districtId: 4, Occupation.Miller); // 買い手と同区画(距離0)。
+            world.Households[1].WorkshopInventory[Item.Tools] = 100;
+
+            // 買い手の工具の市場参照(前日以前の観測。基礎値を流動資金から切り離す。上の<remarks>参照)。
+            EconomySystemTestFixtures.AdvanceClockOnly(world, ticks: 24);
+            world.Knowledge[0].Add(new PriceObservation
+            {
+                ItemId = Item.Tools,
+                LocationId = 0,
+                Price = MarketReferencePrice,
+                SellerId = 999, // 実在しない売り手。参照は売り手を問わず平均するので無関係でよい。
+                ObservedAt = Tick.Zero,
+                Source = ObservationSource.Direct,
+            });
+
+            EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+
+            // 独立予測: 目標=耐久値そのもの(ToolTargetStockPermille=1000・RankCoefficient=1000)、
+            // 予想在庫0(WorkshopInventory[Tools]=0・ToolWear=0)、基礎値=市場参照(生。2000)。
+            var line = new DemandLine
+            {
+                Purpose = DemandPurpose.Durable,
+                ItemId = Item.Tools,
+                HasMarketTerm = true,
+                MarketTerm = MarketReferencePrice,
+                CashCap = 100_000,
+                HasProfitCap = false,
+                ProfitCap = 0,
+                TargetStock = ToolDurabilityPerUnit,
+                ExpectedStock = 0,
+                StockPressurePermille = BuyerBudget.StockPressurePermille(expectedStock: 0, targetStock: ToolDurabilityPerUnit),
+                BaseValue = MarketReferencePrice,
+                Budget = 1,
+            };
+            var decision = BuyerBudget.Decide(line, effectivePrice: SellerFloorPrice);
+            int predictedQuantity = BuyerBudget.QuantityInUnits(
+                line.Purpose, decision.Quantity, ToolDurabilityPerUnit);
+
+            Assert.Equal(2, predictedQuantity); // CeilDiv(1500,1000)=2(FloorDivなら1、分岐の確認)。
+            Assert.Equal(predictedQuantity, world.Households[0].WorkshopInventory[Item.Tools]);
+        }
     }
 
     /// <summary>
