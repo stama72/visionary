@@ -1,3 +1,5 @@
+using Visionary.Sim.Time;
+
 namespace Visionary.Sim.Systems;
 
 /// <summary>
@@ -82,6 +84,59 @@ public static class Observations
 
             // 世帯全員に同じレコードを配る(GDD08 §8.1「見ただけの売り注文も含む」)。
             // MemberNpcIdsの昇順は構築時に検証済み。
+            foreach (int npcId in household.MemberNpcIds)
+            {
+                world.Knowledge[npcId].Add(observation);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 都市外市場の窓口の観測(GDD02d §2.2 / GDD06 §3.1)。<b>視界半径の例外は置かない</b>
+    /// ── 中心が視界(R)の外なら何もしない。真なら1次産品を品目Id昇順に1件ずつ、
+    /// 世帯全員へ配る(既存の <see cref="CollectAndShare"/> と同じ)。
+    /// </summary>
+    /// <remarks>
+    /// <b><see cref="CollectAndShare"/> に畳まない。</b>あちらは <see cref="World.Market"/> を
+    /// 1回だけ走査することが重複を構造で防いでおり、窓口は <see cref="World.Market"/> に載らない
+    /// (GDD02d §2.1)。畳むと走査の中に「<see cref="World.Market"/> に無いもの」を混ぜることになる。
+    /// <b>自分の売り注文の除外は要らない</b> ── 窓口はどの世帯でもない。
+    /// </remarks>
+    public static void CollectWindow(
+        WorldDefinition definition, World world, HouseholdState household,
+        IReadOnlyList<int> visitedDistrictIds)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(world);
+        ArgumentNullException.ThrowIfNull(household);
+        ArgumentNullException.ThrowIfNull(visitedDistrictIds);
+
+        if (!IsWithinVisionRadius(household.DistrictId, visitedDistrictIds, District.ExternalMarketDistrictId))
+        {
+            return;
+        }
+
+        var season = GameDate.FromTick(world.Now).Season;
+
+        // 品目Id昇順に1次産品だけを対象にする(0..ItemCount-1を素直に走査すれば昇順になる)。
+        for (int itemId = 0; itemId < definition.ItemCount; itemId++)
+        {
+            if (!definition.IsPrimaryItem(itemId))
+            {
+                continue;
+            }
+
+            var observation = new PriceObservation
+            {
+                ItemId = itemId,
+                LocationId = District.ExternalMarketDistrictId,
+                Price = definition.ExternalSellPrice(itemId, season),
+                SellerId = HouseholdState.ExternalMarketSellerId,
+                ObservedAt = world.Now,
+                Source = ObservationSource.Direct,
+            };
+
+            // 世帯全員に同じレコードを配る(MemberNpcIdsの昇順は構築時に検証済み)。
             foreach (int npcId in household.MemberNpcIds)
             {
                 world.Knowledge[npcId].Add(observation);

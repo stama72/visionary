@@ -10,6 +10,12 @@ public readonly record struct ErrandPlan
 
     /// <summary>当日の外出の労働損失‰の合計(GDD02a §2)。外出しない日は0。</summary>
     public int LaborLossPermille { get; init; }
+
+    /// <summary>
+    /// 段5a の往復移動時間の合計。単位: 時間。<see cref="TradeSystem"/> 段6(輸出)が T の残りを
+    /// 読む(GDD02d §2.3「その日の往復時間の合計が T を超える日は持ち込まない」)。
+    /// </summary>
+    public int TotalTravelHours { get; init; }
 }
 
 /// <summary>
@@ -155,6 +161,7 @@ public sealed class ErrandPlanner
         {
             VisitedDistrictIds = visitedDistrictIds,
             LaborLossPermille = laborLossPermille,
+            TotalTravelHours = totalTravelHours,
         };
     }
 
@@ -230,8 +237,81 @@ public sealed class ErrandPlanner
             }
         }
 
+        // 世帯の走査が終わったあとに窓口の見積もりを比べる(GDD02d §2.2)。都市内の店と違って
+        // 「売り注文が無いので候補から外す」枝は無い ── 窓口は毎日すべての1次産品を並べる。
+        if (isTargetDistrict(District.ExternalMarketDistrictId) && _definition.IsPrimaryItem(itemId))
+        {
+            int windowPrice = EstimateWindowPrice(world, buyer, itemId);
+
+            if (!found || windowPrice < best)
+            {
+                found = true;
+                best = windowPrice;
+            }
+        }
+
         cheapestPrice = best;
         return found;
+    }
+
+    /// <summary>
+    /// 窓口の見積もり価格(GDD02d §2.2)。1. 距離(買い手区画, 中心) ≤ R → その日の外部売値。
+    /// 2. 有効な記憶(<see cref="HouseholdState.ExternalMarketSellerId"/> かつ品目一致で最新)。
+    /// 3. <see cref="ExternalMarket.UnknownPriceFloor"/>。<c>EffectivePrice.Calculate</c>(trust: 0)を
+    /// 通してから返す(都市内の店と同じ)。
+    /// </summary>
+    /// <remarks>
+    /// <b>既存の <see cref="TryEstimateOfferPrice"/> の3段目(<c>ExternalBuyPrice</c>)を1次産品で
+    /// 通してはならない</b> ── 1次産品は外部買値を持たず <see cref="ArgumentException"/> を投げる
+    /// (タスク仕様)。窓口の経路はこの別関数に閉じる。
+    /// </remarks>
+    private int EstimateWindowPrice(World world, HouseholdState buyer, int itemId)
+    {
+        int offerPrice;
+
+        if (District.Distance(buyer.DistrictId, District.ExternalMarketDistrictId) <= District.VisionRadius)
+        {
+            // 1. 今日の知覚。IsPrimaryItem(itemId)は呼び出し側(TryCheapestEstimate)が既に
+            // 確かめているので、ここでは無条件にTryOfferPriceを呼んでよい(常にtrueを返す)。
+            ExternalMarket.TryOfferPrice(_definition, world.Now, itemId, out offerPrice);
+        }
+        else
+        {
+            // 2. 有効な記憶: 世帯主の観測のうちSellerId==予約Idかつ品目一致で最新のもの
+            // (now.DayIndex − 観測日 ≥ 1)。
+            var headObservations = world.Knowledge[buyer.HeadNpcId];
+            bool hasMemory = false;
+            long latestDayIndex = 0;
+            int latestPrice = 0;
+
+            foreach (var observation in headObservations)
+            {
+                if (observation.ItemId != itemId
+                    || observation.SellerId != HouseholdState.ExternalMarketSellerId)
+                {
+                    continue;
+                }
+
+                long dayDifference = world.Now.DayIndex - observation.ObservedAt.DayIndex;
+
+                if (dayDifference < 1)
+                {
+                    continue;
+                }
+
+                if (!hasMemory || observation.ObservedAt.DayIndex > latestDayIndex)
+                {
+                    hasMemory = true;
+                    latestDayIndex = observation.ObservedAt.DayIndex;
+                    latestPrice = observation.Price;
+                }
+            }
+
+            // 3. 床(最小の正の価格)。
+            offerPrice = hasMemory ? latestPrice : ExternalMarket.UnknownPriceFloor;
+        }
+
+        return EffectivePrice.Calculate(offerPrice, trust: 0, _definition.TrustDiscountPermille);
     }
 
     private static bool OutputsItem(Recipe recipe, int itemId)

@@ -63,7 +63,8 @@ internal static class EconomySystemTestFixtures
         int initialWorkshopInputDays = 0,
         int[]? externalSellPriceBaseOverride = null,
         int[][]? externalSellPriceSeasonPermilleOverride = null,
-        int[]? externalBuyPriceOverride = null)
+        int[]? externalBuyPriceOverride = null,
+        bool isExportEnabled = true)
     {
         var recipes = new[]
         {
@@ -133,7 +134,8 @@ internal static class EconomySystemTestFixtures
             toolLifeLaborDays: toolLifeLaborDays,
             equipmentPermilleWithoutTools: equipmentPermilleWithoutTools,
             disposableHours: disposableHours,
-            trustDiscountPermille: trustDiscountPermille);
+            trustDiscountPermille: trustDiscountPermille,
+            isExportEnabled: isExportEnabled);
     }
 
     /// <summary>どのレシピも出力しない品目か(= 1次産品か)を、渡されたレシピ表から求める。</summary>

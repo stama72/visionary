@@ -9,14 +9,22 @@ namespace Visionary.Sim.Systems;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>内部は6段(うち段5は5a・5bの2手順)</b>(TDD01 §3.3「順5 Trade の内部の段」)。
+/// <b>内部は7段(うち段5は5a・5bの2手順)</b>(TDD01 §3.3「順5 Trade の内部の段」/ #38 タスク仕様。
+/// 段6(輸出)を新設して段を1つ増やした)。
 /// 1. 全売り手の新しい提示価格を求める(<c>Market</c> は読むだけ。前日の自分の出力品目の
-/// 提示価格を控える)。2. <c>Market.Clear()</c> → 一括書き込み。3. <see cref="Observations.Expire"/>。
+/// 提示価格と、輸出(段6)が読む相場基準(速い側)を控える)。2. <c>Market.Clear()</c> → 一括書き込み。
+/// 3. <see cref="Observations.Expire"/>。
 /// 4. 全世帯ぶんの <see cref="HouseholdDemand"/> を作る(段5 の中へ畳まない)。
 /// 5. 世帯 Id 昇順に、5a(<see cref="ErrandPlanner"/> で外出を計画し
 /// <see cref="HouseholdState.ErrandLaborLossPermille"/> を書く)→5b(<see cref="StoreChoice"/> で
-/// 5aが決めた区画の中から店を選び <see cref="TradeSettlement"/> で約定する)。
-/// 6. <see cref="Observations.CollectAndShare"/>(段5 と別ループ)。
+/// 5aが決めた区画の中から店を選び、都市内は <see cref="TradeSettlement.Execute"/>、窓口は
+/// <see cref="TradeSettlement.ExecuteImport"/> で約定する)。
+/// 6. <b>輸出(新設)。</b><see cref="WorldDefinition.IsExportEnabled"/> が偽なら段ごと飛ばす。
+/// 世帯 Id 昇順に、閾在庫を超えた販売在庫を <see cref="TradeSettlement.ExecuteExport"/> で窓口へ
+/// 売る(GDD02d §2.3)。<b>段5 の世帯ループへ畳まない</b> ── 畳むと先に輸出した世帯の在庫減が、
+/// 後の世帯の買い物に効く(世帯間の取引が「確定したあと」でなくなる)。
+/// 7. <see cref="Observations.CollectAndShare"/> の直後に <see cref="Observations.CollectWindow"/>
+/// (段5 と別ループ)。
 /// </para>
 /// <para>
 /// <b><see cref="World.Market"/> を書くのは段2 だけである</b>(GDD02b §4.1「書き込みは1か所の
@@ -26,11 +34,16 @@ namespace Visionary.Sim.Systems;
 /// <c>Clear()</c> してしまった売り手が自分の前日価格を失うので、段1 と段2 は分かれている。
 /// </para>
 /// <para>
-/// <b>段6(観測の生成)は段5(買い物)の後であり、かつ別ループである。</b>段5 の世帯ループへ畳むと、
+/// <b>段7(観測の生成)は段6(輸出)の後であり、かつ別ループである。</b>段5 の世帯ループへ畳むと、
 /// 先に買った世帯の観測が後の世帯の買い物より前に生まれる(GDD06 §3.1「記憶は前日まで」は
 /// 当日生成の観測が誰にも読まれないことに立っている)。生まれた観測は
 /// <see cref="MarketReference"/> / <see cref="ErrandPlanner"/> の鮮度判定
 /// (差1日以上)により翌日から有効な記憶になる。
+/// </para>
+/// <para>
+/// <b>輸出は段5 と段7(観測)の間の新しい段である。</b>観測より前に置くのは、持ち込んだ世帯が
+/// その日中心に居たことになる(GDD02d §2.3 追記)ためである ── 段6 が訪問区画に中心を足した後で
+/// なければ、段7 がその観測を生めない。
 /// </para>
 /// <para>
 /// <b>乱数を一切引かない。</b><see cref="Stream"/> が <see cref="RandomStream.Trade"/> を持つのは
@@ -87,6 +100,10 @@ public sealed class TradeSystem : ISimSystem
         var hasOwnPreviousOffer = new bool[householdCount];
         var ownPreviousOfferPrice = new int[householdCount];
 
+        // 段6(輸出)が読む、売り手の相場基準(速い側)。段1が求める(#38タスク仕様)。
+        var hasSellerReference = new bool[householdCount];
+        var sellerReference = new int[householdCount];
+
         // 段1. 新しい提示価格を求める(この間 world.Market は読むだけ)。世帯Id昇順に
         // (Householdsは添字=Idなので先頭から走査するだけでADR-0002の処理順規約を満たす)。
         var newOffers = new List<(MarketKey Key, int Price)>();
@@ -108,15 +125,6 @@ public sealed class TradeSystem : ISimSystem
             hasOwnPreviousOffer[household.Id] = hasOwnOffer;
             ownPreviousOfferPrice[household.Id] = ownOfferPrice;
 
-            if (sellableStock <= 0)
-            {
-                // 販売在庫0の日は売り注文を出さない。出品すると店選択に在庫のない店が
-                // 候補として載る(GDD02c §1.3)。
-                continue;
-            }
-
-            int floorPrice = _definition.ExternalBuyPrice(outputItemId);
-
             // 売り手の自分の錨は前日の提示価格ではなく前日の約定単価(帳簿、輸出を含む)。
             // hasSettledは錨(§1.2)と頭打ち(§1.1)の両方に使う。母数は同じ(帳簿のSale、
             // 品目で絞る、輸出を含む)。
@@ -125,6 +133,9 @@ public sealed class TradeSystem : ISimSystem
 
             // 誰の観測かは世帯主(親方)である(GDD02c §1.2)。買い物に行くのが徒弟でも
             // 値付けに使うのは世帯主の観測。Knowledgeの添字はNpcIdなのでHeadNpcIdで引く。
+            // #38: この控えは販売在庫0の世帯についても行う(sellableStock<=0のcontinueより上)。
+            // 移さないと、段5で工具を買った鍛冶(耐久は工房在庫へ入る=販売在庫が増える唯一の経路)の
+            // 閾在庫が「相場基準が無い日」の枝に落ちる(#38タスク仕様「決めたこと」)。
             bool hasReference = MarketReference.TrySeller(
                 world.Knowledge[household.HeadNpcId],
                 outputItemId,
@@ -134,6 +145,18 @@ public sealed class TradeSystem : ISimSystem
                 hasSettled,
                 settledPrice,
                 out int marketReference);
+
+            hasSellerReference[household.Id] = hasReference;
+            sellerReference[household.Id] = marketReference;
+
+            if (sellableStock <= 0)
+            {
+                // 販売在庫0の日は売り注文を出さない。出品すると店選択に在庫のない店が
+                // 候補として載る(GDD02c §1.3)。
+                continue;
+            }
+
+            int floorPrice = _definition.ExternalBuyPrice(outputItemId);
 
             // 職業は世帯の現在の値を読む(#39の付け替えで変わる)。出荷目標在庫も現在の職業から導く。
             int shipmentTargetStock =
@@ -172,9 +195,12 @@ public sealed class TradeSystem : ISimSystem
                 world, household, hasOwnPreviousOffer[household.Id], ownPreviousOfferPrice[household.Id]);
         }
 
-        // 段5. 世帯Id昇順に、5a(外出の計画)→5b(購入)。段6 でまとめて使うため、
-        // 行くと決めた区画を世帯ごとに控える(TDD01 §3.3)。
-        var visitedDistrictIdsByHousehold = new IReadOnlyList<int>[householdCount];
+        // 段5. 世帯Id昇順に、5a(外出の計画)→5b(購入)。段6・段7 でまとめて使うため、
+        // 行くと決めた区画(List<int>のまま。段6が中心を足す)・委託先・往復時間の合計を
+        // 世帯ごとに控える(TDD01 §3.3 / #38タスク仕様)。
+        var visitedDistrictIdsByHousehold = new List<int>[householdCount];
+        var errandDelegateByHousehold = new ErrandDelegate[householdCount];
+        var totalTravelHoursByHousehold = new int[householdCount];
 
         foreach (var household in world.Households)
         {
@@ -184,17 +210,36 @@ public sealed class TradeSystem : ISimSystem
             var plan = _errandPlanner.Plan(world, household, demands[household.Id], errand);
 
             household.ErrandLaborLossPermille = plan.LaborLossPermille;
-            visitedDistrictIdsByHousehold[household.Id] = plan.VisitedDistrictIds;
+
+            // VisitedDistrictIdsの実体は必ずList<int>(ErrandPlanner.Planの構築どおり)。
+            // 段6が同じ実体へ中心を足す(#38タスク仕様「型をList<int>[]にする」)。
+            visitedDistrictIdsByHousehold[household.Id] = (List<int>)plan.VisitedDistrictIds;
+            errandDelegateByHousehold[household.Id] = errand;
+            totalTravelHoursByHousehold[household.Id] = plan.TotalTravelHours;
 
             // 5b. 購入。訪問は5aが決めており、買えたかどうかで変わらない。
-            RunOneHouseholdsShopping(world, household, demands[household.Id], plan.VisitedDistrictIds);
+            RunOneHouseholdsShopping(world, household, demands[household.Id], visitedDistrictIdsByHousehold[household.Id]);
         }
 
-        // 段6. 段5 と別のループ(先に買った世帯の観測が、後の世帯の買い物より前に生まれない
-        // ようにする。docコメント参照)。世帯Id昇順に。
+        // 段6(新設)。輸出。IsExportEnabledが偽なら段ごと飛ばす(GDD02d §2.1「状態ではない」)。
+        // 段5 の世帯ループへ畳まない ── 世帯間の取引が確定したあとに走る(GDD02d §2.3)。
+        if (_definition.IsExportEnabled)
+        {
+            foreach (var household in world.Households)
+            {
+                RunOneHouseholdsExport(
+                    world, household, hasSellerReference[household.Id], sellerReference[household.Id],
+                    errandDelegateByHousehold[household.Id], totalTravelHoursByHousehold[household.Id],
+                    visitedDistrictIdsByHousehold[household.Id]);
+            }
+        }
+
+        // 段7. 段5・段6 と別のループ(先に買った/輸出した世帯の観測が、後の世帯の買い物より前に
+        // 生まれないようにする。docコメント参照)。世帯Id昇順に。
         foreach (var household in world.Households)
         {
             Observations.CollectAndShare(world, household, visitedDistrictIdsByHousehold[household.Id]);
+            Observations.CollectWindow(_definition, world, household, visitedDistrictIdsByHousehold[household.Id]);
         }
     }
 
@@ -252,27 +297,108 @@ public sealed class TradeSystem : ISimSystem
                 continue;
             }
 
-            // 8. 資金上限と売り手の在庫で買える数量を切り詰める。
+            // 8. 資金上限で買える数量を切り詰める。窓口(isWindow)は無限在庫なので売り手の在庫
+            // による切り詰めはしない ── int.MaxValue(HouseholdState.ExternalMarketSellerId)を
+            // world.Householdsの添字に通さない(#38タスク仕様)。
+            bool isWindow = store.SellerId == HouseholdState.ExternalMarketSellerId;
+            var seller = isWindow ? null : world.Households[store.SellerId];
+
             int fundsCap = TradeSettlement.FundsCap(household.LiquidFunds, store.UnitEffectivePrice);
-            var seller = world.Households[store.SellerId];
             int affordableQuantity = Math.Min(purchaseQuantityInUnits, fundsCap);
-            int actualQuantity = Math.Min(affordableQuantity, seller.WorkshopInventory[line.ItemId]);
+            int actualQuantity = isWindow
+                ? affordableQuantity
+                : Math.Min(affordableQuantity, seller!.WorkshopInventory[line.ItemId]);
 
             // 9. 経路(2): 資金上限の切り詰めで0(GDD02b §3.2)。売り手の在庫が尽きて
             // 0個になったのは資金不足ではない。経路(1)は上で既にcontinueしているので、
-            // 同じlineが両方の経路で二重に数えられることは無い。
+            // 同じlineが両方の経路で二重に数えられることは無い。数え方は変えない(#38タスク仕様)。
             if (line.Purpose == DemandPurpose.Necessity && fundsCap == 0)
             {
                 household.UnaffordableNecessityCount++;
             }
 
-            // 10. 約定を適用する。
+            // 10. 約定を適用する。窓口は買い手側だけを動かすExecuteImportを使う。
             if (actualQuantity >= 1)
             {
-                TradeSettlement.Execute(
-                    world, household, seller, line.Purpose, line.ItemId, actualQuantity,
-                    store.UnitEffectivePrice, _definition.AcquisitionCostSmoothingPermille);
+                if (isWindow)
+                {
+                    TradeSettlement.ExecuteImport(
+                        world, household, line.Purpose, line.ItemId, actualQuantity,
+                        store.UnitEffectivePrice, _definition.AcquisitionCostSmoothingPermille);
+                }
+                else
+                {
+                    TradeSettlement.Execute(
+                        world, household, seller!, line.Purpose, line.ItemId, actualQuantity,
+                        store.UnitEffectivePrice, _definition.AcquisitionCostSmoothingPermille);
+                }
             }
         }
+    }
+
+    /// <summary>
+    /// 段6 の1世帯ぶんの輸出(GDD02d §2.3)。段5 の後(世帯間の取引が確定したあと)に呼ばれる。
+    /// </summary>
+    /// <remarks>
+    /// <b>段5a が求めた <see cref="ErrandDelegate"/> と往復時間の合計を渡され、呼び直さない。</b>
+    /// いまは同じ値を返すが、呼び直す形は「段5a と段6 で委託先が違う日がありうる」という契約を
+    /// 静かに作る(#38タスク仕様)。<paramref name="visitedDistrictIds"/> は段5a の実体そのもので、
+    /// 中心へ持ち込んだ日はここで中心を足す(段7 の観測がこれを読む)。
+    /// </remarks>
+    private void RunOneHouseholdsExport(
+        World world,
+        HouseholdState seller,
+        bool hasSellerReference,
+        int sellerReference,
+        in ErrandDelegate errand,
+        int totalTravelHours,
+        List<int> visitedDistrictIds)
+    {
+        var recipe = _definition.Recipes[(int)seller.Occupation];
+        int outputItemId = recipe.Outputs[0].ItemId; // 出力1件はコンストラクタが保証
+
+        // 販売在庫は段5 の後の値(工房在庫の出力品目だけ)。
+        int sellableStock = seller.WorkshopInventory[outputItemId];
+
+        if (sellableStock <= 0)
+        {
+            return;
+        }
+
+        int externalBuyPrice = _definition.ExternalBuyPrice(outputItemId);
+        int shipmentTargetStock = _definition.ShipmentTargetStock(seller.Occupation, outputItemId);
+
+        int thresholdStock = ExternalMarket.ExportThresholdStock(
+            externalBuyPrice, hasSellerReference, sellerReference, shipmentTargetStock, seller.IsBankrupt);
+
+        int surplus = Math.Max(0, sellableStock - thresholdStock);
+
+        if (surplus <= 0)
+        {
+            return;
+        }
+
+        if (!ExternalMarket.IsWithinReach(seller.DistrictId, visitedDistrictIds))
+        {
+            int travelHours = Errand.TravelHours(
+                seller.DistrictId, District.ExternalMarketDistrictId, _definition.TravelHoursPerDistrict);
+
+            if (totalTravelHours + travelHours > _definition.DisposableHours)
+            {
+                // 持ち込まない(GDD02d §2.3「その日の往復時間の合計がTを超える日は持ち込まない」)。
+                return;
+            }
+
+            // 労働損失は加算である(段5a が書いた当日の合計に足す。GDD06 §3「外出ごとに切り上げて
+            // から合計する」)。
+            seller.ErrandLaborLossPermille = checked(seller.ErrandLaborLossPermille + Errand.LaborLossPermille(
+                errand.LaborPermille, travelHours, _definition.DisposableHours));
+
+            // 訪問区画のリストは段5a のList<int>を持ち回っているので、ここで中心を足せば
+            // 段7 の観測がこれを読む。
+            visitedDistrictIds.Add(District.ExternalMarketDistrictId);
+        }
+
+        TradeSettlement.ExecuteExport(world, seller, outputItemId, surplus, externalBuyPrice);
     }
 }

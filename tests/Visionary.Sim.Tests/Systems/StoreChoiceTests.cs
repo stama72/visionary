@@ -10,6 +10,13 @@ public sealed class StoreChoiceTests
     private const int ItemA = 0;
 
     /// <summary>
+    /// 1次産品(#38用)。<see cref="Definition"/> のレシピ(Miller: Flour←Grain、Baker〜Smith
+    /// (UnusedRecipe): Grain←Timber)のどれも Timber を出力しない ── ItemA(Grain)は
+    /// UnusedRecipe が出力するため都市生産品であり、窓口の候補にならない。
+    /// </summary>
+    private const int PrimaryItem = Item.Timber;
+
+    /// <summary>
     /// 単一構成員(<c>headNpcId == npcId == 0</c>)の世帯を、渡した区画Idの並びで作る。
     /// 添字0が買い手、以降が売り手という前提でテストが組む。
     /// </summary>
@@ -99,6 +106,79 @@ public sealed class StoreChoiceTests
             world, buyer, ItemA, new[] { VisitedDistrictId }, out var tieSelected);
         Assert.True(tieFound);
         Assert.Equal(ExpensiveSellerId, tieSelected.SellerId); // Id 1 < Id 2
+    }
+
+    /// <summary>
+    /// 【核心】テスト表 #5(#38)。自区画が中心 / 訪問に中心を含む / どちらでもない、の3枝。
+    /// 3つ目は候補0件。
+    /// </summary>
+    /// <remarks>
+    /// M-2: <c>IsWithinReach</c> の呼び出しを外して常に候補にする変異は、3つ目の枝(候補0件)を
+    /// 崩す(全世帯が移動せずに輸入でき、空間の摩擦が輸入の側から抜ける。タスク仕様)。
+    /// </remarks>
+    [Fact]
+    public void WindowIsACandidateOnlyWhenTheCentreIsReachable()
+    {
+        var storeChoice = new StoreChoice(Definition);
+
+        // 1. 自区画が中心。
+        var worldAtCentre = BuildWorld(District.ExternalMarketDistrictId);
+        bool foundAtCentre = storeChoice.TrySelect(
+            worldAtCentre, worldAtCentre.Households[0], PrimaryItem, Array.Empty<int>(), out var atCentre);
+        Assert.True(foundAtCentre);
+        Assert.Equal(HouseholdState.ExternalMarketSellerId, atCentre.SellerId);
+
+        // 2. 訪問区画に中心を含む(自区画は中心ではない)。
+        var worldElsewhere = BuildWorld(0);
+        bool foundWithVisit = storeChoice.TrySelect(
+            worldElsewhere, worldElsewhere.Households[0], PrimaryItem,
+            new[] { District.ExternalMarketDistrictId }, out var withVisit);
+        Assert.True(foundWithVisit);
+        Assert.Equal(HouseholdState.ExternalMarketSellerId, withVisit.SellerId);
+
+        // 3. どちらでもない → 候補0件(都市内にもTimberの売り手は居ない)。
+        bool foundWithoutVisit = storeChoice.TrySelect(
+            worldElsewhere, worldElsewhere.Households[0], PrimaryItem, Array.Empty<int>(), out _);
+        Assert.False(foundWithoutVisit);
+    }
+
+    /// <summary>テスト表 #6(#38)。都市内の売り手と窓口の実効価格が同値のとき都市内が選ばれる。</summary>
+    /// <remarks>
+    /// 窓口を走査の前に足す・更新を <c>&lt;=</c> にする、のどちらの実装ミスでも本テストが落ちる
+    /// (タスク仕様)。
+    /// </remarks>
+    [Fact]
+    public void CitySellerWinsTheTieAgainstTheWindow()
+    {
+        const int SellerId = 1;
+
+        // 買い手・都市内の売り手ともに中心区画(窓口も自動的に候補になる)。
+        var world = BuildWorld(District.ExternalMarketDistrictId, District.ExternalMarketDistrictId);
+        world.Households[SellerId].WorkshopInventory[PrimaryItem] = 10;
+        // 窓口の提示価格(既定の基準値1、季節係数1000‰ずつ)と同値にする。
+        world.Market[new MarketKey(PrimaryItem, SellerId)] = 1;
+
+        var storeChoice = new StoreChoice(Definition);
+        var buyer = world.Households[0];
+
+        bool found = storeChoice.TrySelect(world, buyer, PrimaryItem, Array.Empty<int>(), out var selected);
+
+        Assert.True(found);
+        Assert.Equal(SellerId, selected.SellerId); // 窓口(ExternalMarketSellerId)ではなく都市内。
+    }
+
+    /// <summary>テスト表 #7(#38)。都市生産品では窓口が候補に出ない。</summary>
+    [Fact]
+    public void WindowIsNotACandidateForCityGoods()
+    {
+        // ItemA(Grain)はUnusedRecipeが出力する都市生産品。買い手を中心区画に置いても、
+        // 都市内に売り手が居なければ候補0件のはず(窓口は1次産品しか並べない)。
+        var world = BuildWorld(District.ExternalMarketDistrictId);
+        var storeChoice = new StoreChoice(Definition);
+
+        bool found = storeChoice.TrySelect(world, world.Households[0], ItemA, Array.Empty<int>(), out _);
+
+        Assert.False(found);
     }
 
     /// <summary>テスト表 #24(既存を維持)。販売在庫0の店は候補外。自分の売り注文も候補外。</summary>
