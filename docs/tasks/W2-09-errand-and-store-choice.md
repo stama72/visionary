@@ -99,14 +99,14 @@ public static class Errand
     public static int LaborLossPermille(int delegateLaborPermille, int travelHours, int disposableHours);
 
     /// 余剰 = w ≤ p ? 0 : FloorDiv( q × (w − p) , 2 )(GDD06 §3)
-    public static int Surplus(int quantity, int willingness, int price);
+    public static long Surplus(int quantity, int willingness, int price);
 }
 ```
 
 - **`TravelHours` は `StoreChoice` から移す**(既存のテスト `TravelHoursCountsTheRoundTrip` も移す)
 - **`Cost` に割る対象は無い。** 引数が 2 つしか無いことが、旧の「目標在庫で割り戻す」が戻らない歯止めである
 - **`LaborLossPermille` の分母は `T`(可処分時間、`WorldDefinition.DisposableHours` = 12)であって 24 ではない**
-- **`Surplus` の中間の積は `long`。** `quantity × (willingness − price)` は int を超えうる
+- **`Surplus` は `long` を返す。中間の積も `long`。** `quantity × (willingness − price)` は int を容易に超える。**初版は `int` を返すと書きながら、同じ節で「中間の積は `long`」、5.6 で「利得と価値は `long` で積む」と書いていた** — 積む先だけが広く、1 項が狭い形で内部矛盾していた(別表 B)。**`checked` で int へ戻さないこと** — `checked` の `OverflowException` は「経済が発散している」という別の事実の報せとしては使えない(別表 B)
 - **`Surplus` は負を返さない。** `willingness ≤ price` を先に見て 0 を返す。`FloorDiv` に負を通さない(負の `FloorDiv` は −∞ 方向へ丸まるので、丸め誤差がそのまま「損をする外出」として他の品目の余剰から差し引かれる)
 
 ### 2. `ErrandDelegate` / `OpportunityCost.SelectErrandDelegate`(`Systems/OpportunityCost.cs`)
@@ -449,12 +449,50 @@ public sealed class StoreChoice
 | `Errand` / `EffectivePrice` / `ErrandDelegate` / `StoreChoice` / `TradeSystem` 段5 の分割 | **そのまま使える**(訂正の影響を受けない) |
 | `ErrandPlanner` の価値の式 | **A-1 のとおり直す。** 品目ごとの「既に居る区画の最安値」を 1 周につき 1 回求め、区画の評価では `min` を取る |
 | `WorldDefinition.TrustDiscountPermille` の値域 | **A-2 のとおり 0〜999 へ** |
-| テスト #14 後半(2 つ目だけさらに安いと 2 つ目にも行く)・**#15 後半**(距離 4 と距離 2 なら両方)・#20(同日 2 回の外出) | **1 回目は 2 区画目が立たないため書けていない。訂正後は書けるので、仕様どおり書く。** とくに **#15 は「核心」印であり、書けていないあいだ T の上限検査は実質デッドコードである** |
+| テスト #14 後半(2 つ目だけさらに安いと 2 つ目にも行く)・**#15 後半**(距離 4 と距離 2 なら両方) | **1 回目は 2 区画目が立たないため書けていない。訂正後は書けるので、仕様どおり書く。** とくに **#15 は「核心」印であり、書けていないあいだ T の上限検査は実質デッドコードである** |
+
+> **訂正(2 回目のフェーズ2 の報告による)。初版の本表は #20 も「書けていない」に数えていたが、誤りである。** #20 は `Errand.LaborLossPermille` の 2 回直接呼び出しで書かれており、2 区画目の成立を要求しない。`e71b880` の時点で `ErrandTests.cs` に実装済みだった。**書けていなかったのは #14 後半・#15 後半の 2 件である**([process/03](../process/03-corrections.md) 規則1 — 狭い側に倒す)。
 | **#29**(利得が負にならない) | **新設。** A-1 の変異を直接押さえる唯一のテスト |
 | `TradePipelineTests` の 3 件 | **1 回目は「外出は 1 日 1 区画まで」を前提に実測値を取り直していた。その前提は欠陥であって仕様ではない。** `NecessityIsSettledBeforePreference`(**[#81](https://github.com/stama72/visionary/issues/81) の検出器であり、W2-08 の「核心」#29**)は `AmpleLiquidFunds` を 1000 → 100,000、2 日 → 3 日へ動かしていた。**訂正後の挙動で取り直すこと。** doc コメントに「1 日 1 区画」と書いてはならない |
 | `ObservationsDoNotGrowWithoutBound` の上界の緩和 | **維持してよい。** 訂正とは独立で、理由(訪れた区画の全売り注文を観測する)は現行の [GDD06 §3.1](../03-gdd/06-trade-and-negotiation.md) のままである |
 
 > **実測値を assert に置くときは、doc コメントに「何を壊すとこの値が動くか」を書くこと。** 値そのものは仕様ではない。1 回目は動かした値の根拠を「1 日 1 区画」という**欠陥の記述**に置いていた — これは [process/03](../process/03-corrections.md) 規則1 の「広い保証」と同型で、**読み返しても実測ログに嘘が無いぶん穴が見えない。**
+
+## 別表 B: 2 回目の差し戻しの裁定(フェーズ1、2026-09-20)
+
+**2 回目のフェーズ2 が `IMPL-BLOCKED` で止まった。報告は正しい。** 60 日走行で `Errand.Surplus` が `OverflowException` を投げ、`BaseValue`(相場項)が 743 万になっていた。裁定は 2 つに分かれる。
+
+### B-1. `Errand.Surplus` の戻り値を `long` にする(本タスクの中)
+
+**仕様の内部矛盾だった。** 「作るもの」#1 が `int` と書きながら、同じ節が「中間の積は `long`」、5.6 が「利得と価値は `long` で積む」と書いていた。**積む先だけが広く、1 項が狭い。** 直した(上の #1)。
+
+**`checked` で int へ戻さないこと。** `OverflowException` は「経済が発散している」という別の事実を運んでいたが、**例外は検出器ではない** — 発散が半分の速さなら 60 日では投げず、同じ欠陥が緑で通る。検出は B-2 が持つ。
+
+### B-2. 相場基準の指数的発散は #98 の外である([#120](https://github.com/stama72/visionary/issues/120))
+
+**フェーズ2 は「A-1 訂正前 / 後」の 2 変種しか測っておらず、`master` を測っていなかった。フェーズ1 が `master`(`43afada`)で測り直した。**
+
+| 日 | 最大提示価格(master・シード1) | 売り注文の件数 |
+| -- | ------------------------------ | -------------- |
+| 1  | 290 | **10** |
+| 10 | 333 | 3 |
+| 20 | 1,556 | 2 |
+| 40 | 33,634 | 2 |
+| 60 | **725,771** | 2 |
+
+**#98 が存在しない木で、1 日あたり約 1.166 倍の複利で発散し、売り注文が 10 件から 2 件へ枯れる。** #98 は値付けに一切触れていないので、原因ではない。A-1 の訂正がしたのは、暴走した `BaseValue` と baseline の安い見積もりの組み合わせを早く評価するようになり、**int の限界に届くのが早まった**ことだけである。
+
+**したがって #98 は止めない。** [CLAUDE.md](../../CLAUDE.md)「Exit Criteria を脅かすかで仕分ける」でいえば #120 は**脅かす側**だが、**#98 のスコープの中では直せない**(値付けの設計判断であり、[GDD02c §1](../03-gdd/02c-price-and-budget.md) を書き換える設計タスクになる)。WIP の規律からも、#98 の実装と並行して回す対象ではない。
+
+### B-3. 本タスクが「経済が発散していないこと」を保証しないと明記する
+
+**`Errand.Surplus` を `long` にすると 60 日走行は緑に戻るが、それは型が広いあいだ通るだけである。** [process/03](../process/03-corrections.md) 規則1 の「広い保証」そのものなので、**緑が何を意味しないかを書き残す。**
+
+- **`TradePipelineTests.ObservationsDoNotGrowWithoutBound` の doc コメントに 1 段落足すこと。** 「本テストは `Knowledge` の件数の上界しか見ない。**同じ 60 日走行で提示価格が 6 桁へ発散し売り注文が 2 件へ枯れることを、本テストは検出しない**([#120](https://github.com/stama72/visionary/issues/120))」
+- **帯を見る検出器は本タスクで足さない。** 足せば赤になる(実際に発散しているため)。検出器は #120 が処方と一緒に持つ
+- **PR 説明にも書くこと。** 「テストは緑だが、M0 の経済は 60 日で発散する。#120」
+
+> **これを書かないと、次に 60 日走行を読んだ者が「上界のテストが通っているから経済は健全」と読む。** 発散を見つけたのは `OverflowException` という偶然であり、それを `long` で消した以上、**偶然の報せも無くなる。**
 
 ## 編集してよい文書
 
@@ -477,8 +515,9 @@ worktree をまたいだ所有権の宣言。**ここに挙がっていない文
 ## 完了条件
 
 - [ ] 「落ちるべき条件」のテストが全て緑
-- [ ] **#14・#17・#21 に変異を当てて落ちることを確認し、当てた変異と結果を残した**
+- [ ] **#14・#17・#21・#29 に変異を当てて落ちることを確認し、当てた変異と結果を残した**
 - [ ] `dotnet build Visionary.sln -c Release` が警告0
 - [ ] `dotnet test Visionary.sln -c Release` が緑
 - [ ] `dotnet format Visionary.sln --verify-no-changes --severity warn` が通る
 - [ ] レビュアーエージェントの指摘が解消済み
+- [ ] **`ObservationsDoNotGrowWithoutBound` の doc コメントに「本テストは価格の発散を検出しない([#120](https://github.com/stama72/visionary/issues/120))」を足した**(別表 B-3)
