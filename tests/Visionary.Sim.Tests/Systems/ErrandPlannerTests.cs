@@ -262,6 +262,11 @@ public sealed class ErrandPlannerTests
     /// (GDD02d §2.2)ので、買い手から見て中心への外出が価値を持つ ── 「行かない」から
     /// 「中心へ行く」へ規則が反転した。
     /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>39e367a</c>、M-4)。</b><c>TryCheapestEstimate</c> の窓口の枝を消す変異は
+    /// 期待どおり赤になった。
+    /// </remarks>
     [Fact]
     public void PrimaryItemLinesCreateAnErrandToTheCentre()
     {
@@ -350,6 +355,11 @@ public sealed class ErrandPlannerTests
     /// すべて異なる値にし、w=75 を挟むことで3値のどれが使われたかを一意に判別できる配置にする
     /// (段1=300を正しく使えば w≤300 で余剰0、行かない。段1を誤って飛ばし記憶50や床1を使えば
     /// w&gt;価格で余剰が生まれ、行ってしまう)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>39e367a</c>、M-9)。</b>段1(距離≤Rの枝)を消す変異は期待どおり赤になった。
+    /// 落ちたのはこの1件だけ ── 段1を守っているのは本テストだけである。
     /// </remarks>
     [Fact]
     public void WindowEstimateUsesTodaysPriceWithinTheVisionRadius()

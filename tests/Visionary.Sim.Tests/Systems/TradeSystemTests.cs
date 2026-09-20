@@ -1092,6 +1092,14 @@ public sealed class TradeSystemTests
     /// が実際値0(計画側の余剰が750&lt;費用1000で行かない判定になり、区画2が訪問されず
     /// 約定自体が起きない)で失敗した(赤を確認)。変異を戻して緑に復帰させた。
     /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>39e367a</c>、M-5)。</b><c>TradeSystem</c> 段5bで <c>BuyerBudget.QuantityInUnits</c> を
+    /// 外す変異を当てたところ本テストを含む5件が赤になった。<b>本テストは耐久の換算を
+    /// 直接見ている意図的な検出器であり、これが主たる守り手である</b>
+    /// (<see cref="SellerReferenceIsTakenBeforeTheSellableStockGate"/> の
+    /// 前提行が拾うのは副産物としての巻き添えにすぎない)。
+    /// </remarks>
     [Fact]
     public void ErrandPlannerAndSettlementAgreeOnQuantity()
     {
@@ -1492,6 +1500,11 @@ public sealed class TradeSystemTests
     /// <b>後</b>のBの流動資金(105)でCashCapが計算され、Bの必需(穀物)のゲートが誤って開くことを
     /// 期待する(タスク仕様)。
     /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>39e367a</c>、M-6)。</b>段4を段5の先頭へ畳む変異は期待どおり赤になった
+    /// (<a href="https://github.com/stama72/visionary/issues/107">#107</a> の閉じる条件の実測)。
+    /// </remarks>
     [Fact]
     public void DemandIsBuiltBeforeAnyHouseholdShops()
     {
@@ -1571,6 +1584,10 @@ public sealed class TradeSystemTests
     /// <c>RunOneHouseholdsExport</c> を呼ぶ変異(段6を段5へ畳む)を当てると、Aが自分の順番で
     /// 閾在庫を残して即座に輸出してしまい、Bが着いたときには在庫が閾在庫(1)まで減っていることを
     /// 期待する(タスク仕様)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>39e367a</c>、M-7)。</b>段6を段5の末尾へ畳む変異は期待どおり赤になった。
     /// </remarks>
     [Fact]
     public void ExportRunsAfterEveryHouseholdHasShopped()
@@ -1655,6 +1672,11 @@ public sealed class TradeSystemTests
     /// 販売在庫15はこの閾を超えないため輸出が起きなくなり、本テストの表明(在庫12・数量3の
     /// 外部Sale)が崩れることを期待する。<b>取り違えても例外は出ない</b>
     /// ([GDD02c §1.2](../../../docs/03-gdd/02c-price-and-budget.md)末尾)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>39e367a</c>、M-11)。</b>段6が<c>MarketReference.TryBuyer</c>を呼び直す変異は
+    /// 期待どおり赤になった。
     /// </remarks>
     [Fact]
     public void ExportUsesTheSellerSideMarketReference()
@@ -1748,6 +1770,20 @@ public sealed class TradeSystemTests
     /// 変わらない(<c>Market</c>への書き込みは<c>continue</c>の下のまま)ので、値付けのテストは
     /// この実装ミスを検出しない。
     /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>39e367a</c>、M-12)。</b>段1の相場基準の算出を<c>sellableStock &lt;= 0</c>の
+    /// <c>continue</c>の下へ戻す変異は期待どおり赤になった。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>39e367a</c>、M-5)。</b><c>BuyerBudget.QuantityInUnits</c>(耐久の換算)を外す変異は
+    /// 本テストを含む5件を赤にした。<b>耐久の換算を守っているテストは本テストだけではない</b> ──
+    /// <see cref="ErrandPlannerAndSettlementAgreeOnQuantity"/> が耐久の換算を直接見ている
+    /// 意図的な検出器であり、こちらが主たる守り手である(下の<c>Quantity == 1</c>に付けた
+    /// レビュー3巡目の注記は、R-6が段1の相場基準の位置を拘束しているという事実自体は
+    /// 実測どおりだが、「換算を守っているテストは他に無い」という前提は本実測で否定された)。
+    /// </remarks>
     [Fact]
     public void SellerReferenceIsTakenBeforeTheSellableStockGate()
     {
@@ -1819,10 +1855,16 @@ public sealed class TradeSystemTests
         // 前提: household0が実際に工具を1個買っている(段5b、耐久)。
         //
         // レビュー3巡目: このQuantity == 1は、本テストの主題(段1の相場基準の位置)とは
-        // 別に、BuyerBudget.QuantityInUnits(耐久の換算)も拘束している。この換算を守って
-        // いるテストは他に無いため、この行をQuantity >= 1へ緩めると換算の崩れ(1 → 50個)を
-        // 検出できなくなる ── R-6の主題からは妥当な整理に見えるため気付きにくい。意図した
-        // 設計ではなく、3巡目のレビューが見つけた偶然の拘束である。
+        // 別に、BuyerBudget.QuantityInUnits(耐久の換算)も拘束している。この行をQuantity >= 1へ
+        // 緩めると本テストからは換算の崩れ(1 → 50個)を検出できなくなる ── R-6の主題からは
+        // 妥当な整理に見えるため気付きにくい。意図した設計ではなく、3巡目のレビューが見つけた
+        // 偶然の拘束である。
+        //
+        // 訂正(2026-09-21、mutator の変異M-5の実測)。「この換算を守っているテストは他に無い」
+        // という前回の記述は実測で否定された ── ErrandPlannerAndSettlementAgreeOnQuantity が
+        // 耐久の換算を直接見ている意図的な検出器であり、そちらが主たる守り手である
+        // (M-5は本テストを含む5件を赤にした)。上のQuantity == 1がR-6の副産物として換算も
+        // 拘束しているという事実自体は変わらない。
         Assert.Contains(
             world.Ledgers[0],
             entry => entry.Direction == LedgerDirection.Purchase

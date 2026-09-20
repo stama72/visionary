@@ -97,8 +97,9 @@ public sealed class TradePipelineTests
     /// Σ(外部 <c>Sale</c> の額) − Σ(外部 <c>Purchase</c> の額)。GDD02d §4.1 の恒等式そのもの。
     /// </summary>
     /// <remarks>
-    /// <b>M-1(実測されたら書く)。</b><c>TradeSettlement.ExecuteExport</c> の記帳を落とす
-    /// (資金と在庫だけ動かす)変異が本テストを赤にすることを期待する(タスク仕様)。
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>39e367a</c>、M-3)。</b><c>TradeSettlement.ExecuteExport</c> の記帳を落とす
+    /// (資金と在庫だけ動かす)変異は期待どおり赤になった。
     /// </remarks>
     [Fact]
     public void MoneyChangesOnlyByTheExternalLedger()
@@ -414,6 +415,12 @@ public sealed class TradePipelineTests
     /// 歯止めは <see href="https://github.com/stama72/visionary/issues/120">#120</see>。
     /// <b>定数とシードは動かさない。</b>
     /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>39e367a</c>)。</b>#38 の M-1・M-4・M-5・M-6・M-7 の5つすべてで本テストが赤になった。
+    /// 60日走行を毎日見る固定検出器は<b>どんな摂動でも赤になりうる</b> ──
+    /// 本テストが赤になったことを、特定の契約が壊れた証拠として読んではならない。
+    /// </remarks>
     [Fact]
     public void OfferPricesStayWithinTheBandOverSixtyDays()
     {
@@ -642,6 +649,12 @@ public sealed class TradePipelineTests
     /// 増えた(窓口の輸入・輸出が入り経済が枯れなくなったため) ── そのうち最初に現れるものを
     /// 使う。この実測値も、輸出入の帯([#120](https://github.com/stama72/visionary/issues/120))が
     /// 変われば動く。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>39e367a</c>)。</b>#38 の M-1・M-4・M-5・M-6・M-7 の5つすべてで本テストが赤になった。
+    /// 60日走行を毎日見る固定検出器は<b>どんな摂動でも赤になりうる</b> ──
+    /// 本テストが赤になったことを、特定の契約が壊れた証拠として読んではならない。
     /// </remarks>
     [Fact]
     public void UnaffordableNecessityCountsOnlyTheFundsShortfall()

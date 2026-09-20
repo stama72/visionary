@@ -116,6 +116,11 @@ public sealed class StoreChoiceTests
     /// M-2: <c>IsWithinReach</c> の呼び出しを外して常に候補にする変異は、3つ目の枝(候補0件)を
     /// 崩す(全世帯が移動せずに輸入でき、空間の摩擦が輸入の側から抜ける。タスク仕様)。
     /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>39e367a</c>、M-2)。</b>期待どおり赤になった。落ちたのはこの1件だけ ──
+    /// 到達判定(<c>IsWithinReach</c>)を守っているのは本テストだけである。
+    /// </remarks>
     [Fact]
     public void WindowIsACandidateOnlyWhenTheCentreIsReachable()
     {

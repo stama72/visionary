@@ -253,6 +253,11 @@ public sealed class ObservationsTests
     /// <c>household.DistrictId == District.ExternalMarketDistrictId</c> のため両者が同値になり、
     /// 緑のまま通ってしまう。<b>本テストがその取り違えの検出器である。</b>
     /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>39e367a</c>、M-8)。</b><c>LocationId</c> を観測者の区画へ取り違える変異は期待どおり
+    /// 赤になった。落ちたのはこの1件だけ(#12 は緑のまま) ── 1巡目の指摘が実測で裏付けられた。
+    /// </remarks>
     [Fact]
     public void WindowObservationRecordsTheCentreNotTheObserversDistrict()
     {
