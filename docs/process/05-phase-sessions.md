@@ -148,7 +148,16 @@ pwsh scripts/pipeline.ps1 -Status
 
 **差分で見えるものは機械が見ている。** フェーズ2 が `PIPELINE: DONE` を出しても、**フェーズ2 起動直前の `HEAD` から見て `docs/03-gdd/` `docs/04-tdd/` `docs/adr/` に差分があれば止める。** 基準が `master` でないのは、フェーズ1 が仕様を凍らせるときに GDD を直すのが正当な仕事で、その変更が既にブランチ上にあるためである。フェーズ3 は文書を触るのが仕事なので検査しない。
 
-**`RED` も一部を機械が見る。** フェーズ2 が `DONE` を出した時点で `git status --porcelain` が空でなければ止める。拾うのは2つ — **コミットし忘れ**(検証した状態と PR になる状態が違う)と、**戻し忘れた変異**である。後者は W2-08 で実際に残った([#110](https://github.com/stama72/visionary/issues/110))。変異は [ADR-0013](../adr/0013-mutation-measurement-separated.md) で使い捨て worktree の中に閉じたが、**閉じたことを確かめるのは規律ではなくこの検査である。** `.pipeline/` と `.claude/worktrees/` は `.gitignore` 済みなので、使い捨て worktree 自身は現れない。
+**`RED` も一部を機械が見る。** フェーズ2 が `DONE` を出した時点で `git status --porcelain` が空でなければ止める。拾うのは2つ — **コミットし忘れ**(検証した状態と PR になる状態が違う)と、**戻し忘れた変異**である。後者は W2-08 で実際に残った([#110](https://github.com/stama72/visionary/issues/110))。`.pipeline/` と `.claude/worktrees/` は `.gitignore` 済みなので、[ADR-0013](../adr/0013-mutation-measurement-separated.md) の使い捨て worktree 自身は現れない。
+
+**この検査が見るのは、`DONE` を出した瞬間に残っている汚れだけである。** 次はいずれも素通しする:
+
+- 走行中に本体へ変異を当てて、**戻した**場合(#110 の「変異作業中は並行走行の信号が鈍る」は、この検査では消えない)
+- 変異を**コミットしてしまった**場合
+- `HALT` で終わった場合(検査は `DONE` の枝にしかない)
+- **開発者が手で `/impl` を回したとき**(`pipeline.ps1` を通らない)
+
+**「変異が使い捨て worktree の中に閉じている」ことを機械は確かめていない。** そこは [`mutator`](../../.claude/agents/mutator.md) 憲章の規律である。
 
 止まると**デスクトップ通知が飛び**、スクリプトは終了コード 2 で終わる。**`PIPELINE: DONE` も `HALT` も出さずに終わったフェーズは、停止扱いにする**(`NO-SENTINEL`)。フェーズが殺された・落ちた場合も合図が残らないので、同じ扱いになる。
 
