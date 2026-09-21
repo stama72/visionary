@@ -1214,6 +1214,7 @@ public sealed class TradePipelineTests
         bool hasMinDay = false;
         int minCount = 0;
         long minDay = 0;
+        string minDayToolInventorySnapshot = string.Empty;
         long totalToolOfferCount = 0;
 
         for (int day = 1; day <= 60; day++)
@@ -1228,6 +1229,9 @@ public sealed class TradePipelineTests
                 hasMinDay = true;
                 minCount = toolOfferCount;
                 minDay = day;
+                // 違反日その日の工房在庫を控える。走行後に1回走査すると最終日の在庫になり、
+                // 違反日の在庫と読み違える(レビュー指摘)。
+                minDayToolInventorySnapshot = ToolInventorySnapshot(world);
             }
         }
 
@@ -1245,7 +1249,7 @@ public sealed class TradePipelineTests
             minCount >= 1,
             $"seed={seed} day={minDay}: 工具の売り注文が{minCount}件(0件の日があった。留保が"
                 + "効いていない/鍛冶の在庫が1個まで痩せた/生産が止まった可能性)。"
-                + ToolInventorySnapshot(world));
+                + minDayToolInventorySnapshot);
     }
 
     /// <summary>
