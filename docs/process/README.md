@@ -18,6 +18,7 @@
 - [docs/tasks/](../tasks/) — タスク仕様のファイル名とテンプレート(**使い捨て層**)。**状態一覧は GitHub の issue へ移した**([ADR-0006](../adr/0006-issue-driven-task-management.md) 論点1)
 - [`.claude/agents/`](../../.claude/agents/) — 各エージェントの憲章(**実行される仕様**)
 - [`.claude/commands/learn.md`](../../.claude/commands/learn.md) — 学習セッションの枠づけ
+- [`.claude/agents/reviewer.md`](../../.claude/agents/reviewer.md) / [`.claude/agents/implementer.md`](../../.claude/agents/implementer.md) / [`.claude/agents/mutator.md`](../../.claude/agents/mutator.md) — 実装工程の憲章(位置づけは [01](01-review.md) / [02](02-task-spec.md) / [05](05-phase-sessions.md))
 - [`.claude/agents/adviser.md`](../../.claude/agents/adviser.md) — 全般アドバイザーの憲章(設計・プロセス工程で `reviewer` の代わりに使う)
 - [`.claude/agents/adviser-economy.md`](../../.claude/agents/adviser-economy.md) — 経済アドバイザーの憲章(全般より先に呼ぶ)
 - [`.claude/agents/propagator.md`](../../.claude/agents/propagator.md) — 機械的な波及の憲章(設計セッションが本文を書き、波及だけを出す)
