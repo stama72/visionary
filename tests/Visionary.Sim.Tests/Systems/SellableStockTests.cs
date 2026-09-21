@@ -72,6 +72,12 @@ public sealed class SellableStockTests
     /// <summary>
     /// 【核心】テスト表 #4。鍛冶の工房在庫0・1のどちらでも販売在庫が0(負にしない)。
     /// </summary>
+    /// <remarks>
+    /// <b>変異M-6の実測</b>(<c>mutator</c>、2026-09-21、HEAD <c>0da66a4</c>)。
+    /// <c>SellableStock.Of</c> の <c>max(0, …)</c> を外すと、toolStock=0 のケースが赤
+    /// (Expected 0 / Actual -1)。同じ境界で <see cref="SellableStockIsWorkshopInventoryMinusReserve"/>
+    /// の toolStock=0 のケースも赤になる(433件中2件)。toolStock=1 のケースは影響を受けない。
+    /// </remarks>
     [Theory]
     [InlineData(0)]
     [InlineData(1)]

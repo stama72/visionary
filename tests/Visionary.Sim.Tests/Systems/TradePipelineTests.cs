@@ -1197,6 +1197,20 @@ public sealed class TradePipelineTests
     /// <remarks><b>最初の違反で止めない。</b>60日を走り切り、最小件数とその日を記録して最後に
     /// 1回だけ assert する(<see cref="SettledPricesAtTheCentreStayWithinTheBandOverSixtyDays"/>
     /// が「最初の違反で止まると超過の上限が測れない」で採った規律と同じ)。</remarks>
+    /// <remarks>
+    /// <b>変異M-1の実測</b>(<c>mutator</c>、2026-09-21、HEAD <c>0da66a4</c>)。<c>SellableStock.
+    /// ReserveQuantity</c> が常に0を返す(留保を消す)変異を当てると、本テストはシード7のみ赤で、
+    /// シード1・2・3・42 は緑のままだった。<b>これは検出器の壊れではなく、期待の向きが逆になる
+    /// ためである。</b> 留保がある世界では工房在庫1→販売在庫0で段1が売り注文を立てないので
+    /// 「0件の日」は在庫が1個まで痩せた兆候になるが、M-1 で留保そのものを消すと工房在庫1でも
+    /// 売り注文は立つため、0件になるのは在庫が0の日だけになる ── 変異は本テストの下限を
+    /// 満たしやすくする方向に働く。留保の核心は
+    /// <see cref="SmithNeverRunsOutOfToolsOverSixtyDays"/>(全5シード赤)が担保する。**本テストの
+    /// 断定は、どの変異(M-1〜M-6)でも担保されていない**(将来この下限を緩めても mutator の
+    /// 測定結果は変わらない)。この穴は issue へ落とした(W2-14 タスク仕様「M-1がテスト10を
+    /// 動かさない理由」)。それでも本テストは「鍛冶の生産が完全に止まったこと」の検出器として
+    /// 意味を持つので外さない。
+    /// </remarks>
     [Theory]
     [InlineData(1)]
     [InlineData(2)]
@@ -1270,6 +1284,18 @@ public sealed class TradePipelineTests
     /// 1つ目(生産の復帰)は本テストでは満たさない ── 資金と入力の枯渇による停止は留保と無関係
     /// であり、直すには値付け・購入判定・資金の側に触れる(#148決定1が却下した範囲)。この実測は
     /// [#30](https://github.com/stama72/visionary/issues/30) の懸念2へ渡した。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異M-1の実測</b>(<c>mutator</c>、2026-09-21、HEAD <c>0da66a4</c>)。<c>SellableStock.
+    /// ReserveQuantity</c> が常に0を返す(留保を消す)変異を当てると、本テストは全5シード
+    /// (1/2/3/7/42)が赤になった ── 留保の核心はこのテストが担保する。
+    /// </remarks>
+    /// <remarks>
+    /// <b>健全な鍛冶の工房在庫[工具]の定常値の実測</b>(2026-09-21、60日走行、シード
+    /// 1/2/3/7/42。day 60 時点)。seed=1: household2=4, household3=4。seed=2: household3=4,
+    /// household7=4。seed=3: household1=6, household7=6。seed=7: household2=4, household9=4。
+    /// seed=42: household0=4, household2=6。#148 の紙の予測(留保1 + 閾在庫3 = 4)は seed=3 の
+    /// 2戸と seed=42 の1戸で6になり食い違う(値・原因の推測はどちらも実測していないので書かない)。
     /// </remarks>
     [Theory]
     [InlineData(1)]

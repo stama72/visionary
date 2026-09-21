@@ -2154,6 +2154,11 @@ public sealed class TradeSystemTests
     /// 【核心】W2-14 タスク仕様テスト表 #5。工房在庫1の鍛冶は工具の売り注文を出さない
     /// (<c>world.Market</c> にキーが立たない)。2なら立つ(規則6の具体例)。
     /// </summary>
+    /// <remarks>
+    /// <b>変異M-2の実測</b>(<c>mutator</c>、2026-09-21、HEAD <c>0da66a4</c>)。段1の販売在庫を
+    /// <c>household.WorkshopInventory[outputItemId]</c> の直読みに戻すと、toolStock=1 のケース
+    /// のみ赤(433件中1件)。
+    /// </remarks>
     [Theory]
     [InlineData(1, false)]
     [InlineData(2, true)]
@@ -2174,6 +2179,22 @@ public sealed class TradeSystemTests
     /// 通すと、帳簿の輸出行の数量が3、残る工房在庫が1。工房在庫1の鍛冶は輸出行が立たない
     /// (販売在庫0で段6が早期returnする)。
     /// </summary>
+    /// <remarks>
+    /// <b>変異M-3の実測</b>(<c>mutator</c>、2026-09-21、HEAD <c>0da66a4</c>)。段6の販売在庫を
+    /// <c>seller.WorkshopInventory[outputItemId]</c> の直読みに戻し、あわせて
+    /// <c>TradeSettlement.ExecuteExport</c> の番人の検査を外すと、本テストは
+    /// <c>Assert.Equal</c> の失敗(Expected 1 / Actual 0。ケース1の残り工房在庫の断定)で赤に
+    /// なる ── 断定そのものが変異を捉えている。同時に
+    /// <see cref="TradeSettlementTests.SettlementRejectsAQuantityThatBreaksTheReserve"/>(番人
+    /// 除去の副作用)と <see cref="SellerReferenceIsTakenBeforeTheSellableStockGate"/> も赤に
+    /// なる(433件中3件)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>破産中の鍛冶の実測</b>(2026-09-21、60日走行・シード1/2/3/7/42)。5シードいずれも
+    /// 60日間で <c>IsBankrupt</c> が真になった鍛冶は現れなかった。破産中の挙動は本テストが
+    /// 合成で担保しているので、現れないこと自体は欠陥ではない(W2-14 タスク仕様「実測して
+    /// doc コメントへ転記すること」)。
+    /// </remarks>
     [Fact]
     public void ExportLeavesTheReservedToolEvenWhenBankrupt()
     {
@@ -2233,6 +2254,15 @@ public sealed class TradeSystemTests
     /// 【核心】W2-14 タスク仕様テスト表 #7。工房在庫2・留保1の売り手から買い手が買えるのは
     /// 1個まで(段5bの切り詰め)。約定後の工房在庫が1。
     /// </summary>
+    /// <remarks>
+    /// <b>変異M-4の実測</b>(<c>mutator</c>、2026-09-21、HEAD <c>0da66a4</c>)。段5bの切り詰めを
+    /// <c>Math.Min(affordableQuantity, seller!.WorkshopInventory[line.ItemId])</c> に戻し、
+    /// あわせて <c>TradeSettlement.Execute</c> の番人の検査を外すと、本テストは
+    /// <c>Assert.Equal</c> の失敗(Expected 1 / Actual 0。約定後の工房在庫の断定)で赤になる ──
+    /// 断定そのものが変異を捉えている。同時に
+    /// <see cref="TradeSettlementTests.SettlementRejectsAQuantityThatBreaksTheReserve"/>
+    /// (番人除去の副作用)も赤になる(433件中2件)。
+    /// </remarks>
     [Fact]
     public void BuyerCannotBuyTheSmithsReservedTool()
     {

@@ -236,6 +236,10 @@ public sealed class StoreChoiceTests
     /// (<see cref="SellableStock"/> の等式分岐は品目が <see cref="Item.Tools"/> なら職業に
     /// 依らないので、<see cref="Definition"/>(Millerのレシピ)のままで検査できる)。
     /// </summary>
+    /// <remarks>
+    /// <b>変異M-5の実測</b>(<c>mutator</c>、2026-09-21、HEAD <c>0da66a4</c>)。候補判定を
+    /// <c>seller.WorkshopInventory[itemId] &lt;= 0</c> に戻すと、本テストのみ赤(433件中1件)。
+    /// </remarks>
     [Fact]
     public void SmithWithOnlyTheReservedToolIsNotACandidate()
     {
