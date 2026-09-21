@@ -21,3 +21,9 @@ Thumbs.db
 
 # フェーズ連鎖の生ログ(ADR-0010)。停止したときに読むもので、Git 管理しない
 .pipeline/
+
+# Claude Code が作る作業用 worktree(パイプライン実行中の並行タスクはここに置く)
+.claude/worktrees/
+
+# scripts/usage-rates.py を import したときに落ちるバイトコード
+__pycache__/

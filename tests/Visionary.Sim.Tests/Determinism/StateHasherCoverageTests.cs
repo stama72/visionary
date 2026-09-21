@@ -144,7 +144,8 @@ public sealed class StateHasherCoverageTests
         {
             "Id", "DistrictId", "Occupation", "HeadNpcId", "MemberNpcIds",
             "LiquidFunds", "HouseholdInventory", "WorkshopInventory", "IsBankrupt",
-            "PurchaseUnitCostAverage", "ToolWearCount", "UnmetConsumption",
+            "PurchaseUnitCostAverage", "ToolWear", "UnmetConsumption",
+            "UnaffordableNecessityCount", "ErrandLaborLossPermille", "ProductionRuns",
         }),
         (typeof(MarketKey), new[] { "ItemId", "SellerId" }),
         (typeof(TrustKey), new[] { "From", "To" }),
@@ -161,6 +162,7 @@ public sealed class StateHasherCoverageTests
         (typeof(LedgerEntry), new[]
         {
             "CounterpartyId", "ItemId", "Quantity", "UnitPrice", "OccurredAt", "Terms", "CreditDueAt",
+            "Direction",
         }),
     };
 

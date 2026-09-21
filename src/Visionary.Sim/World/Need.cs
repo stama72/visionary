@@ -6,10 +6,8 @@ namespace Visionary.Sim;
 /// ニーズ(GDD01 §3.2 / TDD01 §3.2)。W1 では型の宣言のみで、生成ロジックは持たない。
 /// </summary>
 /// <remarks>
-/// 種別(<see cref="TypeCode"/>)と理由(<see cref="ReasonCode"/>)は GDD01 §3.2 で
-/// 「在庫不足/金銭不足/労働力不足/建設意欲/イベント/病気…」のように末尾が「…」で
-/// 閉じられておらず、確定した列挙がまだ無い。ここでは int のプレースホルダとして持ち、
-/// 区分が確定した時点で専用の enum に差し替える(W2以降)。
+/// <see cref="TypeCode"/> と <see cref="ReasonCode"/> は W2 で変わる。今の仮の形と
+/// 正すべき方向は TDD01 §3.6「W1 で置いた仮決め」の表が持つ(ここに複製しない)。
 /// </remarks>
 public readonly record struct Need
 {
@@ -17,8 +15,7 @@ public readonly record struct Need
     public int TypeCode { get; init; }
 
     /// <summary>
-    /// 不足している主体。在庫・資金・帳簿が世帯へ移ったため、不足の主体も世帯である
-    /// (TDD01 §3.2 / GDD02 §6.2.1)。
+    /// 不足している主体。世帯である理由は TDD01 §3.2「経済主体は世帯である」が持つ。
     /// </summary>
     public int TargetHouseholdId { get; init; }
 

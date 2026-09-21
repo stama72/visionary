@@ -1,3 +1,5 @@
+using Visionary.Sim.Numerics;
+
 namespace Visionary.Sim;
 
 /// <summary>品目と数量の組(GDD02 §2.3)。レシピの入力・出力に使う。</summary>
@@ -18,7 +20,7 @@ public readonly record struct ItemQuantity
 /// </summary>
 /// <remarks>
 /// <b>入力0件を許すのは GDD02 §2.3 の決定である。</b>M0 の5職業はすべて財の投入を持つが、
-/// GDD11 の貿易商と GDD12 の農村職業が戻ったときに発火する分岐(GDD02 §8.1.1 の原価の
+/// GDD11 の貿易商と GDD12 の農村職業が戻ったときに発火する分岐(GDD02a §5 の原価の
 /// 2分岐)がこれに対応する。構造としては残すが、M0 で通る経路ではない。
 /// </remarks>
 public sealed class Recipe
@@ -32,7 +34,7 @@ public sealed class Recipe
     /// <summary>入力。0件を許す(GDD02 §2.3。M0 に該当する職業は無い)。</summary>
     public ItemQuantity[] Inputs { get; }
 
-    /// <summary>所要労働‰。1000‰ = 親方1人日相当(GDD02 §5.2)。</summary>
+    /// <summary>所要労働‰。1000‰ = 親方1人日相当(GDD02a §2)。</summary>
     public int LaborPermille { get; }
 
     public Recipe(Occupation occupation, ItemQuantity[] outputs, ItemQuantity[] inputs, int laborPermille)
@@ -53,7 +55,7 @@ public sealed class Recipe
         if (laborPermille < 1)
         {
             throw new ArgumentOutOfRangeException(
-                nameof(laborPermille), laborPermille, "所要労働‰は1以上(GDD02 §5.2)。");
+                nameof(laborPermille), laborPermille, "所要労働‰は1以上(GDD02a §2)。");
         }
 
         Occupation = occupation;
@@ -62,6 +64,41 @@ public sealed class Recipe
         Outputs = outputs.ToArray();
         Inputs = inputs.ToArray();
         LaborPermille = laborPermille;
+    }
+
+    /// <summary>
+    /// 生産能力(実行回数)= floor( floor(労働力合計‰ × 設備係数‰ ÷ 1000) ÷ 所要労働‰ )(GDD02a §1)。
+    /// </summary>
+    /// <remarks>
+    /// <b>両方の除算を切り下げる。</b>端数の労働力ではレシピを1回完成できない —
+    /// <see cref="IntegerMath.ApplyPermille"/>(切り上げ)を内側に使うと存在しない労働力で
+    /// 生産したことになる(GDD02a §1 の「切り上げ規約の意図的な例外」)。
+    /// <see cref="Systems.ProductionSystem"/>(日次の実行回数)と <see cref="WorldDefinition"/>
+    /// (目標在庫の物差し)の両方がこのメソッドを呼ぶ ── 式を書き分けると、片方の丸めを
+    /// 直したとき他方が黙ってずれる(タスク仕様「生産能力の式は1か所にしか置かない」)。
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="laborPermille"/> または <paramref name="equipmentPermille"/> が負のとき。
+    /// </exception>
+    public int CapacityRuns(int laborPermille, int equipmentPermille)
+    {
+        if (laborPermille < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(laborPermille), laborPermille, "労働力合計‰は非負(GDD02a §2)。");
+        }
+
+        if (equipmentPermille < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(equipmentPermille), equipmentPermille, "設備係数‰は非負(GDD02a §3)。");
+        }
+
+        // 中間の積はlong(労働力合計‰×設備係数‰はintを超えうる)。
+        long effectiveLaborPermille = IntegerMath.FloorDiv(
+            (long)laborPermille * equipmentPermille, IntegerMath.PermilleScale);
+
+        return checked((int)IntegerMath.FloorDiv(effectiveLaborPermille, LaborPermille));
     }
 
     private static void ValidateQuantities(ItemQuantity[] items, string paramName)
@@ -79,7 +116,7 @@ public sealed class Recipe
     /// 同じ <see cref="ItemQuantity.ItemId"/> が2度現れることを拒む。
     /// </summary>
     /// <remarks>
-    /// 「穀物2 + 穀物3 → …」が通ると、GDD02 §8.1.1 の原価 Σ_j(単価 × 数量_j) が
+    /// 「穀物2 + 穀物3 → …」が通ると、GDD02a §5 の原価 Σ_j(単価 × 数量_j) が
     /// 同じ品目を2度数えることになる。
     /// </remarks>
     private static void ValidateNoDuplicateItemIds(ItemQuantity[] items, string paramName)

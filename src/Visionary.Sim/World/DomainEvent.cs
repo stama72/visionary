@@ -7,13 +7,8 @@ namespace Visionary.Sim;
 /// W1 では型の宣言のみ。
 /// </summary>
 /// <remarks>
-/// TDD01 §3.4 が列挙するイベント(<c>TradeExecuted</c>, <c>TrustChanged{from,to,delta,reason}</c>,
-/// <c>NeedCreated</c>, <c>PromiseBroken{e,penalty}</c>, <c>UnfairPriceSuspected{trade,detectorObservation}</c>,
-/// <c>PenaltyApplied</c> など)は種類ごとにペイロードの形が異なり、一覧も「など」で閉じていない。
-/// W1には経済システム(Production〜Rumor)がまだ無く実際に発行される経路も無いため、
-/// <see cref="World.EventLog"/> が型として成立する最小限として、種別コード + 汎用ペイロード
-/// (int/long)のフラットな形を仮に置く。イベントごとの正式なフィールド構成は、
-/// それらを実際に発行するシステムと合わせて設計し直す(W2以降)。
+/// この平坦な形は W2 で変わる。今の仮の形と正すべき方向は
+/// TDD01 §3.6「W1 で置いた仮決め」の表が持つ(ここに複製しない)。
 /// </remarks>
 public readonly record struct DomainEvent
 {

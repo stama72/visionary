@@ -1,6 +1,8 @@
 name: 未決事項(判断待ち)
 description: まだ決まっていないこと。決めると何が進むかを書く
-labels: ["needs-decision"]
+# needs-decision は判断が要ることの表明。優先順位は P2 を既定にし、
+# 「いま判断する価値があるか」は P0/P1 への付け替えで表す(process/04「ラベル > 補助」)。
+labels: ["needs-decision", "P2"]
 body:
   - type: markdown
     attributes:
@@ -8,6 +10,8 @@ body:
         **未決事項を持つのは issue だけです**([ADR-0006](../blob/master/docs/adr/0006-issue-driven-task-management.md))。
         ただし**値・閾値の初期値**と**他分冊へのルーティング**は未決事項ではありません。
         仕分けは [docs/process/04-issue-driven.md](../blob/master/docs/process/04-issue-driven.md)「未決事項の扱い」を見てください。
+
+        **作成後に `type:*` ラベルを1つ付けてください。**
   - type: textarea
     id: question
     attributes:
@@ -19,7 +23,7 @@ body:
     id: impact
     attributes:
       label: 決めないと何が詰まるか
-      description: "**優先順位の根拠になる欄。** 何も詰まらないなら P2 か、issue にしない。"
+      description: "**優先順位の根拠になる欄。** 何も詰まらないなら P2 のままにするか、issue にしない。"
     validations:
       required: true
   - type: input

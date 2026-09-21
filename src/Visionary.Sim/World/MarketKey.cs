@@ -9,7 +9,7 @@ namespace Visionary.Sim;
 /// </remarks>
 /// <param name="ItemId">品目 Id(GDD02 §2.2)。</param>
 /// <param name="SellerId">
-/// 売り手の<b>世帯</b> Id。都市外市場の売り注文はここに実体化しない(GDD02 §10.2)ので、
+/// 売り手の<b>世帯</b> Id。都市外市場の売り注文はここに実体化しない(GDD02d §2.1)ので、
 /// <see cref="HouseholdState.ExternalMarketSellerId"/> がこのキーに現れることはない。
 /// </param>
 public readonly record struct MarketKey(int ItemId, int SellerId) : IComparable<MarketKey>

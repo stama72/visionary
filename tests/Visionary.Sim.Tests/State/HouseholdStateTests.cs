@@ -36,7 +36,7 @@ public sealed class HouseholdStateTests
     /// 構成員は NpcId 昇順・重複なし・世帯主を含む(GDD08 §2.1 / ADR-0002 の列挙順規約)。
     /// </summary>
     /// <remarks>
-    /// 検証を省くと、世帯内の処理順(GDD02 §6.2.1 の購入の決済順)が入力の並び次第になり、
+    /// 検証を省くと、世帯内の処理順(GDD02b §3.2 の購入の決済順)が入力の並び次第になり、
     /// 同じ世界から違う結果が出る。<b>ただし防げるのは構築時だけである</b> —
     /// <c>MemberNpcIds</c> は配列なので、受け取った側が並べ替えれば昇順は崩れる。
     /// </remarks>
@@ -88,7 +88,7 @@ public sealed class HouseholdStateTests
     }
 
     /// <summary>
-    /// 破産中フラグは 0 / 1 以外を受け付けない(GDD02 §6.2.2)。
+    /// 破産中フラグは 0 / 1 以外を受け付けない(GDD02b §3.3)。
     /// </summary>
     /// <remarks>
     /// doc が「0 / 1」と断定している以上、素の <c>{ get; set; }</c> だと「検証されている」と
@@ -141,8 +141,8 @@ public sealed class HouseholdStateTests
     /// 都市外市場の窓口 Id が、ありうるどの世帯 Id よりも大きいこと(TDD01 §3.2)。
     /// </summary>
     /// <remarks>
-    /// 売り手 Id 昇順の走査で合成した候補が最後に来ることが、GDD02 §10.2 の
-    /// 「実質コストが同値なら都市内の売り手が選ばれる」を支えている。世帯数から導く値に
+    /// 売り手 Id 昇順の走査で合成した候補が最後に来ることが、GDD02d §2.1 の
+    /// 「実効価格が同値なら都市内の売り手が選ばれる」を支えている。世帯数から導く値に
     /// 変えると、世帯数を増やした実験で既存の世帯 Id と衝突する。
     /// </remarks>
     [Fact]
@@ -153,15 +153,38 @@ public sealed class HouseholdStateTests
 
     /// <summary>
     /// テスト表 #26(#34)。負のカウンタは <c>FloorDiv(摩耗, N)</c> が負の商を返し、
-    /// 工具在庫が増えてしまう(<see cref="HouseholdState.ToolWearCount"/> の doc 参照)。
+    /// 工具在庫が増えてしまう(<see cref="HouseholdState.ToolWear"/> の doc 参照)。
     /// </summary>
     [Fact]
-    public void ToolWearCountRejectsNegativeValues()
+    public void ToolWearRejectsNegativeValues()
     {
         var household = new HouseholdState(
             id: 0, districtId: 0, headNpcId: 0, memberNpcIds: new[] { 0 }, itemCount: 0);
 
-        Assert.Throws<ArgumentOutOfRangeException>(() => household.ToolWearCount = -1);
+        Assert.Throws<ArgumentOutOfRangeException>(() => household.ToolWear = -1);
+    }
+
+    /// <summary>
+    /// テスト表 #15(#96)。<see cref="HouseholdState.ErrandLaborLossPermille"/> と
+    /// <see cref="HouseholdState.ProductionRuns"/> も同じく検証なしの自動プロパティにする
+    /// 実装ミスを捕まえる。
+    /// </summary>
+    [Theory]
+    [InlineData("errandLaborLoss")]
+    [InlineData("productionRuns")]
+    public void NewHouseholdFieldsRejectNegativeValues(string field)
+    {
+        var household = new HouseholdState(
+            id: 0, districtId: 0, headNpcId: 0, memberNpcIds: new[] { 0 }, itemCount: 0);
+
+        Action assign = field switch
+        {
+            "errandLaborLoss" => () => household.ErrandLaborLossPermille = -1,
+            "productionRuns" => () => household.ProductionRuns = -1,
+            _ => throw new ArgumentOutOfRangeException(nameof(field), field, "未知のフィールド。"),
+        };
+
+        Assert.Throws<ArgumentOutOfRangeException>(assign);
     }
 
     /// <summary>#34: <see cref="HouseholdState.UnmetConsumption"/> は品目数ぶん0で確保される。</summary>

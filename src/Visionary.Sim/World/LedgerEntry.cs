@@ -9,6 +9,16 @@ public enum LedgerTerms
     Credit = 1,
 }
 
+/// <summary>約定を記帳した側から見た向き(GDD01 §4.4 / TDD01 §3.2)。</summary>
+public enum LedgerDirection
+{
+    /// <summary>買った(流動資金が減る)。</summary>
+    Purchase = 0,
+
+    /// <summary>売った(流動資金が増える)。</summary>
+    Sale = 1,
+}
+
 /// <summary>
 /// 帳簿(取引履歴、GDD01 §4.4 / TDD01 §3.2)の1行。約定価格の真実はここが持つ
 /// (TDD01 §3.2)。<b>所有者は世帯である</b> — 資金の増減と突合するため、個人別に持つと
@@ -24,7 +34,7 @@ public readonly record struct LedgerEntry
 {
     /// <summary>
     /// 取引相手の<b>世帯</b> Id。都市外市場が相手の取引では
-    /// <see cref="HouseholdState.ExternalMarketSellerId"/>(GDD02 §10)。
+    /// <see cref="HouseholdState.ExternalMarketSellerId"/>(GDD02d §2.1)。
     /// </summary>
     public int CounterpartyId { get; init; }
 
@@ -41,4 +51,7 @@ public readonly record struct LedgerEntry
 
     /// <summary><see cref="Terms"/> が <see cref="LedgerTerms.Credit"/> のときのみ意味を持つ返済期日。</summary>
     public Tick CreditDueAt { get; init; }
+
+    /// <summary>この行を記帳した側から見た売買の向き(#37)。数量の符号では表さない。</summary>
+    public LedgerDirection Direction { get; init; }
 }

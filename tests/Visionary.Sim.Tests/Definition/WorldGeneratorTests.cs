@@ -1,10 +1,11 @@
 using Visionary.Sim.Determinism;
 using Visionary.Sim.Randomness;
+using Visionary.Sim.Tests.Systems;
 
 namespace Visionary.Sim.Tests.Definition;
 
 /// <summary>
-/// <see cref="WorldGenerator"/>(GDD02 §2.2・§2.4・§4.3・§8.1)の初期配置の検査。
+/// <see cref="WorldGenerator"/>(GDD02 §2.2・§2.4・§4.3 / GDD02c §1)の初期配置の検査。
 /// </summary>
 /// <remarks>
 /// 構造制約の検査(#1・#2・#4・#7、タスク仕様の番号)は masterSeed を1〜200まで回す。
@@ -51,7 +52,7 @@ public sealed class WorldGeneratorTests
     /// 【核心】同じ職業の2世帯の区画Idが異なる(200シード)。
     /// </summary>
     /// <remarks>
-    /// 崩れると、当該品目の売り手が1区画に集まり、GDD02 §12-4(区画間の価格差が消えない)が
+    /// 崩れると、当該品目の売り手が1区画に集まり、GDD02 §8-4(区画間の価格差が消えない)が
     /// 「消える」のではなく最初から存在しなくなる。
     /// </remarks>
     [Fact]
@@ -156,7 +157,7 @@ public sealed class WorldGeneratorTests
     }
 
     /// <summary>
-    /// 1品目の売り手が1世帯になると GDD02 §8.1.1 の相場基準が「他の売り手の観測0件」に落ち、
+    /// 1品目の売り手が1世帯になると GDD02c §1.2 の相場基準が「他の売り手の観測0件」に落ち、
     /// 同節が名指しで警告する純粋な自己ループが成立する。
     /// </summary>
     [Fact]
@@ -182,7 +183,7 @@ public sealed class WorldGeneratorTests
     }
 
     /// <summary>
-    /// 工具を与えないと GDD02 §5.3 の設備係数が全世帯0‰になり初日から全生産が停止する。
+    /// 工具を与えないと GDD02a §3 の設備係数が全世帯0‰になり初日から全生産が停止する。
     /// 鍛冶自身も工具が無いと工具を作れないので回復経路が無く、GDD02 §4.2「詰みは作らない」に反する。
     /// </summary>
     [Fact]
@@ -194,7 +195,7 @@ public sealed class WorldGeneratorTests
     }
 
     /// <summary>
-    /// GDD02 §8.1「与えないと初日の原価が0になる」、§8.1.1「0が恒久に固定され、下流の原価が
+    /// GDD02a §5.1「与えないと初日の原価が0になる」、§5.1「0が恒久に固定され、下流の原価が
     /// 移動平均で0へ向かい、原価下限が消えて半減ループに歯止めがなくなる」経路を初日に踏まない。
     /// </summary>
     [Fact]
@@ -229,10 +230,12 @@ public sealed class WorldGeneratorTests
             var recipe = definition.Recipes[(int)household.Occupation];
 
             // 自職業のレシピの入力から期待される在庫量をテスト側で組み立てる(核心印)。
+            // #96: × 必要数量ではなく × 1日の投入量(DailyInputQuantity)。
             var expectedByItemId = new int[definition.ItemCount];
             foreach (var input in recipe.Inputs)
             {
-                expectedByItemId[input.ItemId] = definition.InitialWorkshopInputDays * input.Quantity;
+                expectedByItemId[input.ItemId] = definition.InitialWorkshopInputDays
+                    * definition.DailyInputQuantity(household.Occupation, input.ItemId);
             }
 
             expectedByItemId[Item.Tools] += definition.InitialToolStock;
@@ -245,8 +248,41 @@ public sealed class WorldGeneratorTests
     }
 
     /// <summary>
+    /// テスト表 #21。<c>InitialWorkshopInputDays = 3</c>・穀物2→小麦粉1・生産能力7の定義 →
+    /// 水車小屋番の工房在庫[穀物] = 42(= 3 × DailyInputQuantity(穀物) = 3 × 14)。
+    /// 同じシードで2回生成すると配置が一致する(M0 以外の定義でも決定論が保たれること)。
+    /// </summary>
+    [Fact]
+    public void WorldGeneratorSeedsWorkshopInputsFromDailyInputQuantity()
+    {
+        var recipe = new Recipe(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = Item.Flour, Quantity = 1 } },
+            inputs: new[] { new ItemQuantity { ItemId = Item.Grain, Quantity = 2 } },
+            laborPermille: 185); // 1300‰ ÷ 185‰ = 7実行/日
+
+        var definition = EconomySystemTestFixtures.BuildDefinition(
+            recipe,
+            laborPermilleByRank: new[] { 1000, 800, 300 },
+            initialWorkshopInputDays: 3);
+
+        Assert.Equal(7, definition.ProductionCapacity(Occupation.Miller));
+        Assert.Equal(14, definition.DailyInputQuantity(Occupation.Miller, Item.Grain));
+
+        var first = WorldGenerator.Generate(definition, new RandomSource(1));
+        var second = WorldGenerator.Generate(definition, new RandomSource(1));
+
+        // 水車小屋番(Occupation.Miller、添字0)の世帯を探す(HouseholdsPerOccupation=2なので
+        // 複数居るが、どちらも同じ値になるはずなので先頭を見る)。
+        var millerHousehold = first.Households.First(h => h.Occupation == Occupation.Miller);
+        Assert.Equal(42, millerHousehold.WorkshopInventory[Item.Grain]);
+
+        Assert.Equal(StateHasher.Compute(first), StateHasher.Compute(second));
+    }
+
+    /// <summary>
     /// 資金を配り忘れて0のままにする、または定義ではない定数を書く実装ミスを捕まえる。
-    /// 初日から全世帯が GDD02 §6.3 の予算制約に張り付き、#34 の取引が一度も成立しない。
+    /// 初日から全世帯が GDD02b §4 の予算制約に張り付き、#34 の取引が一度も成立しない。
     /// </summary>
     [Fact]
     public void EveryHouseholdStartsWithTheDefinedLiquidFunds()
@@ -261,7 +297,7 @@ public sealed class WorldGeneratorTests
 
     /// <summary>
     /// 世帯在庫と工房在庫の取り違え / 0のまま放置 / 別の配列(取得原価など)を書き込む実装ミスを
-    /// 捕まえる。GDD02 §8.1 の必需品の初期在庫が消えると、#34 の消費が初日に欠乏を起こす。
+    /// 捕まえる。GDD02 §9.2 の必需品の初期在庫が消えると、#34 の消費が初日に欠乏を起こす。
     /// </summary>
     [Fact]
     public void HouseholdInventoryIsSeededFromTheDefinition()
@@ -286,7 +322,7 @@ public sealed class WorldGeneratorTests
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b><c>SkillPermille</c>(熟練度‰)と GDD02 §5.2 の労働力係数‰(親方1000 / 徒弟300、
+    /// <b><c>SkillPermille</c>(熟練度‰)と GDD02a §2 の労働力係数‰(親方1000 / 徒弟300、
     /// M0 の世帯合計1300‰固定)は別物である。</b>単位(‰)も形(階層別の表)も同型だが、
     /// 労働力係数は本タスクでは持たない(<c>WorldDefinition</c> に労働力係数の欄は無い) —
     /// 持つのは #34 である。GDD08 §9 は熟練度を M0 の対象外とし、§4.2 の生産性式は

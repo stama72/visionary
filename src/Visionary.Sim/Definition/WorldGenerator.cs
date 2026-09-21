@@ -4,7 +4,7 @@ using Visionary.Sim.Time;
 namespace Visionary.Sim;
 
 /// <summary>
-/// GDD02 §2.2・§2.4・§4.3・§8.1 の初期世界を組み立てる。
+/// GDD02 §2.2・§2.4・§4.3 / GDD02c §1 の初期世界を組み立てる。
 /// </summary>
 /// <remarks>
 /// <para>
@@ -28,7 +28,7 @@ public static class WorldGenerator
     // 例えばHouseholdsPerOccupationがDistrict.Countを超える定義は構造的に満たせない。
     private const int MaxPlacementAttempts = 1000;
 
-    /// <summary>GDD02 §2.2・§2.4・§4.3・§8.1 の初期世界を1つ生成する。</summary>
+    /// <summary>GDD02 §2.2・§2.4・§4.3 / GDD02c §1 の初期世界を1つ生成する。</summary>
     public static World Generate(WorldDefinition definition, RandomSource random)
     {
         // definitionの妥当性はここでは検査しない — WorldDefinitionのコンストラクタが
@@ -82,8 +82,12 @@ public static class WorldGenerator
 
             foreach (var input in recipe.Inputs)
             {
+                // × 1日の投入量(生産能力 × 必要数量)。旧は「× 必要数量」(1実行/日 の前提)
+                // だったが、生産能力が1実行/日 に固定されなくなった(#96)ため、こちらでないと
+                // 生産能力が2以上の職業の初日が入力切れで生産停止する(タスク仕様 §6)。
                 household.WorkshopInventory[input.ItemId] =
-                    definition.InitialWorkshopInputDays * input.Quantity;
+                    definition.InitialWorkshopInputDays
+                        * definition.DailyInputQuantity(occupations[householdId], input.ItemId);
             }
 
             // += で足すのは、#28がレシピを変えて工具を入力に持つ職業が現れたときに、

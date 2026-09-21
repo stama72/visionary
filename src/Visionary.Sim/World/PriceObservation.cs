@@ -29,7 +29,7 @@ public readonly record struct PriceObservation
     /// 誰の売り値を見たか。<b>世帯 Id である</b>(TDD01 §3.2「売り手は世帯である」)。NpcId ではない。
     /// </summary>
     /// <remarks>
-    /// GDD01 §4.1 の定義に売り手の欄は無いが、GDD02 §8.1.1「売り手ごとに最新の1件」と
+    /// GDD01 §4.1 の定義に売り手の欄は無いが、GDD02c §1.2「売り手ごとに最新の1件」と
     /// GDD06 §3.1「有効な記憶」の両方が売り手の同定を要求する(TDD01 §3.6)。
     /// 都市外市場の窓口で観測した場合は <see cref="HouseholdState.ExternalMarketSellerId"/>。
     /// </remarks>

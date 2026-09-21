@@ -1,7 +1,6 @@
 ---
 description: フェーズ3(文書更新とPR)として枠づけする。コードは触らない
 argument-hint: <issue番号>
-model: sonnet
 ---
 
 このセッションは **フェーズ3 — 文書更新と PR** です([ADR-0009](../../docs/adr/0009-phase-scoped-sessions.md) / 運用は [docs/process/05-phase-sessions.md](../../docs/process/05-phase-sessions.md))。
@@ -35,6 +34,7 @@ model: sonnet
    | レビュー N巡 | 巡ごとの件数は引き継ぎメモ、各指摘の内容と対応は**コミット本文** |
    | 切り出したもの | この間に立てた issue |
    | 検証 | build / test / format を**再実行**し、変異の結果はコミットか doc コメントから |
+   | 変異の実測 | 引き継ぎメモの **`mutator` の件数**(当てた数 / 期待と食い違った数)。[ADR-0013](../../docs/adr/0013-mutation-measurement-separated.md) の検証条件なので、**0 件でも「0 件」と書く** |
    | 仕様品質の先行指標 | 引き継ぎメモの件数。**採れなかったなら採れなかったと書く** |
 
    **検証の節に、必ずもう1行入れてください** — 「**引き継ぎメモの不足で止まった・やり直した回数: N 件**」(0 件なら「0 件」と書く)。[ADR-0009](../../docs/adr/0009-phase-scoped-sessions.md) の検証条件です。**書かなければ、0 件だったのか誰も記録しなかったのかが区別できません。**
@@ -42,6 +42,21 @@ model: sonnet
 3. **引き継ぎメモを削除する。** 転記が終わった時点で正は PR 説明です。同じブランチの最後のコミットで消すので、PR の差分には現れません
 4. **`gh pr create`。** 本文の末尾に `🤖 Generated with [Claude Code](https://claude.com/claude-code)` を付ける
 5. **issue の後始末。** `Closes #$ARGUMENTS` を本文に入れ、切り出した issue にラベルを付ける
+
+### ラベルは `gh` CLI で付け、付いたことを確かめる
+
+**手段を1つに固定します。** 毎回選び直すと、通らない経路を引いて**ラベルの無い issue が残ります**([#102](https://github.com/stama72/visionary/issues/102))。
+
+```
+gh issue edit <番号> --add-label "type:impl" --add-label "P2"
+gh issue view <番号> --json labels
+```
+
+- **`mcp__github__issue_write` を使わない。** 無人実行の許可一覧に無いので必ず弾かれます(同じ理由で、PR を読むのも `mcp__github__pull_request_read` ではなく `gh pr view` です — W2-07 の走行でここに 4 回払っています)
+- **ラベルは1つずつ `--add-label` で渡す。** コロンを含む名前(`type:process`)はそのまま引用符で通ります
+- **付けたら `gh issue view --json labels` で確かめる。** 確かめないと、静かに付かなかった場合に誰も気付きません
+
+型(`type:*`)と優先度(`P*`)の意味は [04-issue-driven](../../docs/process/04-issue-driven.md)。**自動付与はしません** — 静かに壊れる機械を増やさないという決定です。
 
 ## 「気付いたら直す」
 

@@ -4,7 +4,7 @@ namespace Visionary.Sim;
 /// 職業(GDD02 §2.4)。
 /// </summary>
 /// <remarks>
-/// <b>値は GDD02 §2.4 の採番そのもの</b>(§6.3 と GDD08 §9 の「同値なら職業 Id 昇順」が
+/// <b>値は GDD02 §2.4 の採番そのもの</b>(GDD02b §4.2 と GDD08 §9 の「同値なら職業 Id 昇順」が
 /// この値に依存する)。<see cref="Randomness.RandomStream"/> /
 /// <see cref="Determinism.StateHasher"/> の区分タグと同じく<b>振り直してはならない</b>。
 /// <see cref="HouseholdState"/> の欄として比較・代入される値であって配列の添字ではないため

@@ -21,8 +21,18 @@ public static class District
     /// <summary>区画数。</summary>
     public const int Count = GridSide * GridSide;
 
-    /// <summary>都市外市場は中心の区画に固定(GDD02 §4.3・§10)。</summary>
+    /// <summary>都市外市場は中心の区画に固定(GDD02 §4.3 / GDD02d §2.1)。</summary>
     public const int ExternalMarketDistrictId = 4;
+
+    /// <summary>
+    /// 視界半径 R(GDD06 §3.1)。単位: 区画。<see cref="WorldDefinition"/> に置かない
+    /// (GDD02 §9.2「視界半径 R は値ではなく構造」)。
+    /// </summary>
+    /// <remarks>
+    /// R=0 なら誰も他区画の店を知れず、R=2 なら中心の区画(4)の世帯が初日から全区画を
+    /// 見通す ── いずれも GDD06 §3.1 の「情報の摩擦」が構造として成立しなくなる。
+    /// </remarks>
+    public const int VisionRadius = 1;
 
     /// <summary>行(0〜<see cref="GridSide"/>-1)。区画Idは行優先(GDD02 §4.3)。</summary>
     public static int RowOf(int districtId)
@@ -42,8 +52,10 @@ public static class District
     }
 
     /// <summary>
-    /// 2区画間のマンハッタン距離(0〜4)。GDD06 §2 の実質コストに乗る唯一の空間の摩擦の
-    /// 数値表現(GDD02 §4.3)。
+    /// 2区画間のマンハッタン距離(0〜4)。GDD06 §2 の<b>外出の費用と労働損失</b>に乗る唯一の
+    /// 空間の摩擦の数値表現(GDD02 §4.3)。
+    /// <b>実効価格には乗らない</b> ── 移動は外出ごとの固定費であり、品目ごと・単位ごとには
+    /// 払わない(GDD06 §2「便益と費用の分離」。#98 で旧「実質コスト」の割り戻しは消えた)。
     /// </summary>
     public static int Distance(int fromDistrictId, int toDistrictId)
     {

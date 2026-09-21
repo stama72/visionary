@@ -46,7 +46,7 @@ public static class IntegerMath
     /// <remarks>
     /// <see cref="CeilDiv(long, long)"/> と対称。C# の <c>/</c> は0方向への切り捨てなので、
     /// 商が負(被除数と除数が異符号)で、かつ割り切れないときだけ -1 する必要がある。
-    /// GDD02 §5.2 は生産能力の除算を「切り上げ規約の意図的な例外」としており、
+    /// GDD02a §1 は生産能力の除算を「切り上げ規約の意図的な例外」としており、
     /// このヘルパーはその意図を型で表す(#34)。
     /// </remarks>
     /// <exception cref="DivideByZeroException">除数が0のとき。</exception>

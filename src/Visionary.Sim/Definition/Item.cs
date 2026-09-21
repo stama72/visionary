@@ -20,7 +20,7 @@ public static class Item
     public const int Firewood = 5;  // 薪。中間。必需 + 生産入力
     public const int Bread = 6;     // パン。最終・必需
     public const int Beer = 7;      // ビール。最終・嗜好
-    public const int Tools = 8;     // 工具。最終・耐久(GDD02 §5.3)
+    public const int Tools = 8;     // 工具。最終・耐久(GDD02a §3)
 
     /// <summary>品目数。</summary>
     public const int Count = 9;
