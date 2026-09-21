@@ -238,8 +238,8 @@ public sealed class ErrandPlanner
         }
 
         // 世帯の走査が終わったあとに窓口の見積もりを比べる(GDD02d §2.2)。都市内の店と違って
-        // 「売り注文が無いので候補から外す」枝は無い ── 窓口は毎日すべての1次産品を並べる。
-        if (isTargetDistrict(District.ExternalMarketDistrictId) && _definition.IsPrimaryItem(itemId))
+        // 「売り注文が無いので候補から外す」枝は無い ── 窓口は毎日すべての品目を並べる(#149)。
+        if (isTargetDistrict(District.ExternalMarketDistrictId))
         {
             int windowPrice = EstimateWindowPrice(world, buyer, itemId);
 
@@ -257,22 +257,19 @@ public sealed class ErrandPlanner
     /// <summary>
     /// 窓口の見積もり価格(GDD02d §2.2)。1. 距離(買い手区画, 中心) ≤ R → その日の外部売値。
     /// 2. 有効な記憶(<see cref="HouseholdState.ExternalMarketSellerId"/> かつ品目一致で最新)。
-    /// 3. <see cref="ExternalMarket.UnknownPriceFloor"/>。<c>EffectivePrice.Calculate</c>(trust: 0)を
-    /// 通してから返す(都市内の店と同じ)。
+    /// 3. 未知価格の床 ── 1次産品は <see cref="ExternalMarket.UnknownPriceFloor"/>(外部買値を
+    /// 持たないため)、都市生産品は <see cref="WorldDefinition.ExternalBuyPrice"/>(床を持つので
+    /// 通常どおり床で見積もる)。<c>EffectivePrice.Calculate</c>(trust: 0)を通してから返す
+    /// (都市内の店と同じ)。
     /// </summary>
-    /// <remarks>
-    /// <b>既存の <see cref="TryEstimateOfferPrice"/> の3段目(<c>ExternalBuyPrice</c>)を1次産品で
-    /// 通してはならない</b> ── 1次産品は外部買値を持たず <see cref="ArgumentException"/> を投げる
-    /// (タスク仕様)。窓口の経路はこの別関数に閉じる。
-    /// </remarks>
     private int EstimateWindowPrice(World world, HouseholdState buyer, int itemId)
     {
         int offerPrice;
 
         if (District.Distance(buyer.DistrictId, District.ExternalMarketDistrictId) <= District.VisionRadius)
         {
-            // 1. 今日の知覚。IsPrimaryItem(itemId)は呼び出し側(TryCheapestEstimate)が既に
-            // 確かめているので、ここでは無条件にTryOfferPriceを呼んでよい(常にtrueを返す)。
+            // 1. 今日の知覚。TryOfferPriceはM0では常にtrueを返す(ExternalMarket.TryOfferPrice
+            // のdocコメント参照)。
             ExternalMarket.TryOfferPrice(_definition, world.Now, itemId, out offerPrice);
         }
         else
@@ -307,8 +304,13 @@ public sealed class ErrandPlanner
                 }
             }
 
-            // 3. 床(最小の正の価格)。
-            offerPrice = hasMemory ? latestPrice : ExternalMarket.UnknownPriceFloor;
+            // 3. 未知価格の床。1次産品は外部買値を持たないのでUnknownPriceFloor、
+            // 都市生産品は外部買値(床)そのものを使う(GDD02d §2.2)。
+            offerPrice = hasMemory
+                ? latestPrice
+                : _definition.IsPrimaryItem(itemId)
+                    ? ExternalMarket.UnknownPriceFloor
+                    : _definition.ExternalBuyPrice(itemId);
         }
 
         return EffectivePrice.Calculate(offerPrice, trust: 0, _definition.TrustDiscountPermille);
@@ -344,6 +346,23 @@ public sealed class ErrandPlanner
         return true;
     }
 
+    /// <remarks>
+    /// <b>不変条件: <paramref name="itemId"/> に1次産品を渡してはならない。</b>3段目の床
+    /// (<c>:396</c> 付近)は <see cref="WorldDefinition.ExternalBuyPrice"/> を読むが、これは
+    /// 都市生産品だけが持つ値であり、1次産品を渡すと <see cref="WorldDefinition"/> 側の検査が
+    /// 例外を投げる。ここを守っているのは呼び出し元(<see cref="TryCheapestEstimate"/>)の
+    /// <see cref="OutputsItem"/> のゲートである ── 都市内の売り手はどのレシピかの出力しか
+    /// 売らない(=1次産品を売る都市内の売り手は存在しない)ので、このメソッドへ来る
+    /// <paramref name="itemId"/> は構造的に都市生産品しかありえない。
+    /// <para>
+    /// <b>これは <see cref="EstimateWindowPrice"/> の3段目(<c>:311</c> 付近)とは別の話である。</b>
+    /// 窓口は1次産品(<see cref="ExternalMarket.UnknownPriceFloor"/>)と都市生産品
+    /// (<see cref="WorldDefinition.ExternalBuyPrice"/>)の両方を扱うので<b>そちらは
+    /// <see cref="WorldDefinition.IsPrimaryItem"/> で分けるのが正しい</b>
+    /// (GDD02d §2.2 が要求している)。都市内の売り手(このメソッド)と窓口
+    /// (<see cref="EstimateWindowPrice"/>)を混同して、こちらにも品目分岐を持ち込まないこと。
+    /// </para>
+    /// </remarks>
     private bool TryEstimateOfferPrice(
         World world, HouseholdState buyer, int itemId, int sellerId, int sellerDistrictId, out int offerPrice)
     {

@@ -192,16 +192,25 @@ public sealed class ObservationsTests
     }
 
     /// <summary>
-    /// 【核心】テスト表 #12(#38)。中心が視界内の世帯の <c>Knowledge</c> に、1次産品(M0の穀物・
-    /// 木材・鉄鉱石・木炭の4件)が予約Id・区画4・当日価格で入る。世帯全員(親方・徒弟)に同じ
-    /// レコードが入る。
+    /// テスト表 #12(#38)・#15(#149 追随)。中心が視界内の世帯の <c>Knowledge</c> に、
+    /// M0の全9品目(1次産品4件+都市生産品5件、品目Id昇順)が予約Id・区画4・当日価格で入る。
+    /// 世帯全員(親方・徒弟)に同じレコードが入る。
     /// </summary>
     /// <remarks>
-    /// 都市生産品も作る・<c>LocationId</c> を観測者の区画にする・世帯主だけに配る、
-    /// いずれの実装ミスでも本テストが落ちる(タスク仕様)。
+    /// <b>#149 追随。</b>旧テストは1次産品4件だけを期待していた(窓口が1次産品しか並べなかった
+    /// ため)。窓口が都市生産品も並べるようになった(#149)ので、期待を全9品目へ広げた ──
+    /// 品目フィルタが戻ると観測が9件から4件へ減り、<c>Assert.Equal(expectedItems.Length, …)</c>
+    /// で落ちる。<c>LocationId</c> を観測者の区画にする・世帯主だけに配る実装ミスでも落ちる
+    /// (タスク仕様)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>afb4ddd</c>、M-4)。</b>赤。<c>Assert.Equal</c> 失敗(Expected 9 / Actual 4)。
+    /// <see cref="WindowObservationsCoverCityGoods"/> の doc コメントに転記した5件失敗の
+    /// うちの1件である。期待と実測の食い違いは無かった。
     /// </remarks>
     [Fact]
-    public void WindowObservationIsBornForEveryPrimaryItem()
+    public void WindowObservationIsBornForEveryItem()
     {
         const int HeadNpcId = 0;
         const int ApprenticeNpcId = 1;
@@ -217,7 +226,8 @@ public sealed class ObservationsTests
 
         Observations.CollectWindow(definition, world, world.Households[0], Array.Empty<int>());
 
-        var expectedItems = new[] { Item.Grain, Item.Timber, Item.IronOre, Item.Charcoal };
+        // 品目Id昇順(0..Item.Count-1)。M0では0〜3が1次産品、4〜8が都市生産品。
+        var expectedItems = Enumerable.Range(0, Item.Count).ToArray();
         var season = GameDate.FromTick(world.Now).Season;
 
         foreach (int npcId in new[] { HeadNpcId, ApprenticeNpcId })
@@ -242,7 +252,58 @@ public sealed class ObservationsTests
     }
 
     /// <summary>
-    /// 別表R-1(レビュー1巡目)。#12(<see cref="WindowObservationIsBornForEveryPrimaryItem"/>)の
+    /// 【核心】テスト表 #14(#149)。中心が視界内の世帯に、都市生産品5品目(小麦粉・薪・パン・
+    /// ビール・工具)の窓口観測(<c>SellerId</c> = 予約Id・<c>Price</c> = 導出した外部売値)が
+    /// 生まれる。
+    /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>afb4ddd</c>、M-4: <c>Observations.CollectWindow</c> の
+    /// <c>if (!definition.IsPrimaryItem(itemId)) continue;</c> を戻す変異)。</b>赤。5件失敗。
+    /// 本テストは <c>Assert.Equal</c> 失敗(Expected 5 / Actual 0)。
+    /// <see cref="WindowObservationIsBornForEveryItem"/>(Expected 9 / Actual 4)も同じ変異で
+    /// 落ちた。副作用で
+    /// <c>TradePipelineTests.UnaffordableNecessityCountsOnlyTheFundsShortfall</c> /
+    /// <c>TradeSystemTests.ExportUsesTheSellerSideMarketReference</c> /
+    /// <c>TradeSystemTests.SellerReferenceIsTakenBeforeTheSellableStockGate</c> も落ちた。
+    /// 期待と実測の食い違いは無かった。
+    /// </remarks>
+    [Fact]
+    public void WindowObservationsCoverCityGoods()
+    {
+        const int HeadNpcId = 0;
+
+        var definition = WorldDefinition.M0;
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+        world.Households[0] = new HouseholdState(
+            id: 0, districtId: District.ExternalMarketDistrictId, headNpcId: HeadNpcId,
+            memberNpcIds: new[] { HeadNpcId }, itemCount: Item.Count);
+
+        EconomySystemTestFixtures.AdvanceClockOnly(world, ticks: 5 * 24);
+
+        Observations.CollectWindow(definition, world, world.Households[0], Array.Empty<int>());
+
+        var season = GameDate.FromTick(world.Now).Season;
+        var cityGoods = new[] { Item.Flour, Item.Firewood, Item.Bread, Item.Beer, Item.Tools };
+
+        var cityGoodObservations = world.Knowledge[HeadNpcId]
+            .Where(o => !definition.IsPrimaryItem(o.ItemId))
+            .OrderBy(o => o.ItemId)
+            .ToArray();
+
+        Assert.Equal(cityGoods.Length, cityGoodObservations.Length);
+
+        for (int i = 0; i < cityGoods.Length; i++)
+        {
+            var observation = cityGoodObservations[i];
+            Assert.Equal(cityGoods[i], observation.ItemId);
+            Assert.Equal(HouseholdState.ExternalMarketSellerId, observation.SellerId);
+            Assert.Equal(definition.ExternalSellPrice(cityGoods[i], season), observation.Price);
+        }
+    }
+
+    /// <summary>
+    /// 別表R-1(レビュー1巡目)。#12(<see cref="WindowObservationIsBornForEveryItem"/>)の
     /// 補強。中心区画<b>以外</b>に居て、かつ中心が視界内の世帯が得た窓口の観測の
     /// <c>LocationId</c> が観測者の区画ではなく <see cref="District.ExternalMarketDistrictId"/> で
     /// あることを確かめる。
@@ -342,6 +403,18 @@ public sealed class ObservationsTests
     /// 床10・相場基準200の売れていない売り手が200を提示する)。GDD02c §1.2 の囲み(「ラチェットの
     /// 停止であって復元力ではない。止まる水準は経路依存である」)のとおり。
     /// </remarks>
+    /// <remarks>
+    /// <b>配置の変更(2026-09-21、#149)。</b>household0 は当初区画4(中心)に置かれていたが、
+    /// #149 で窓口が都市生産品(小麦粉)も売るようになったため、中心に居る household0 は
+    /// 窓口自身の観測(<see cref="MarketReference.TrySeller"/> が畳む「他の売り手」の1件、
+    /// 決定5)も相場基準の材料に取り込んでしまい、本テストが検証したい「household1の観測1件
+    /// + 自分の前日約定」だけの単純な平均(床のまま)にならなくなった(実測: 相場基準が
+    /// 床の2倍相当まで上がり、係数1400‰適用後の期待値が2→3に変わる)。窓口の折り込みは
+    /// #149の現行仕様どおりであり(MarketReferenceは変えない)、<b>本テストの判別力(1日目の
+    /// 観測が2日目に使えること)とは無関係な経路</b>なので、household0 を区画0(中心から距離2、
+    /// 視界R=1の外)へ移し、窓口が構造的に不活性な世界に置き直す。household1 との距離は
+    /// 引き続き1(観測範囲内)を保つ。
+    /// </remarks>
     [Fact]
     public void ObservationBecomesUsableOnTheNextDayNotToday()
     {
@@ -353,7 +426,7 @@ public sealed class ObservationsTests
 
         var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
         world.Households[0] = new HouseholdState(
-            id: 0, districtId: 4, headNpcId: 0, memberNpcIds: new[] { 0 }, itemCount: Item.Count);
+            id: 0, districtId: 0, headNpcId: 0, memberNpcIds: new[] { 0 }, itemCount: Item.Count); // 距離2(窓口の視界外)
         world.Households[0].Occupation = Occupation.Miller;
         // 出荷目標在庫(5)より少なく持たせる ── 相場基準が立ったとき、在庫比‰ が1000からずれて
         // 提示価格が床と異なる値になるようにする(床は原価に依らない定数になったため。GDD02c §1)。

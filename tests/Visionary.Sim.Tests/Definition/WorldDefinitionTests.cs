@@ -38,7 +38,8 @@ public sealed class WorldDefinitionTests
         int? toolLifeLaborDays = null,
         int? equipmentPermilleWithoutTools = null,
         int? disposableHours = null,
-        int? trustDiscountPermille = null)
+        int? trustDiscountPermille = null,
+        int? tradeMarginPermille = null)
     {
         var m0 = WorldDefinition.M0;
 
@@ -76,7 +77,8 @@ public sealed class WorldDefinitionTests
             toolLifeLaborDays: toolLifeLaborDays ?? m0.ToolLifeLaborDays,
             equipmentPermilleWithoutTools: equipmentPermilleWithoutTools ?? m0.EquipmentPermilleWithoutTools,
             disposableHours: disposableHours ?? m0.DisposableHours,
-            trustDiscountPermille: trustDiscountPermille ?? m0.TrustDiscountPermille);
+            trustDiscountPermille: trustDiscountPermille ?? m0.TrustDiscountPermille,
+            tradeMarginPermille: tradeMarginPermille ?? m0.TradeMarginPermille);
     }
 
     // WorldDefinitionは外部価格表を公開しない(private でよい、タスク仕様)。この
@@ -205,8 +207,8 @@ public sealed class WorldDefinitionTests
     /// <summary>
     /// 上流(GDD02d §2.2)の決定を写し間違える実装ミスを捕まえる(本タスクが実際に
     /// 鉄鉱石を20と書いた誤りそのもの)。§2.2は「1次産品の仕入単価は外部売値に固定される」
-    /// 「外部売値が1次産品の価格の天井になる」と決定しており、天井を超える取得原価は
-    /// 都市内の誰も支払えない。
+    /// 「外部売値が価格の天井になる」と決定しており(#149で都市生産品にも及ぶよう反転した
+    /// 現行文。1次産品に限る記述ではない)、天井を超える取得原価は都市内の誰も支払えない。
     /// </summary>
     /// <remarks>
     /// <b>この検査を <see cref="WorldDefinition"/> のコンストラクタに持ち込まない。</b>
@@ -224,6 +226,40 @@ public sealed class WorldDefinitionTests
         Assert.Equal(9, cost[Item.Timber]);
         Assert.Equal(14, cost[Item.IronOre]);
         Assert.Equal(12, cost[Item.Charcoal]);
+    }
+
+    /// <summary>
+    /// テスト表 #5(#149)。M0 で都市生産品5品目の外部売値(天井)が校正表(GDD02d §4.4)と一致する
+    /// (小麦粉112 / 薪20 / パン108 / ビール144 / 工具580)。床が季節で動かない以上、天井も
+    /// 動かない(GDD02d §5)ので、4季節すべてで同じ値になることもあわせて確かめる。
+    /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>afb4ddd</c>、M-2)。</b>赤。<c>Assert.Equal</c>失敗(Expected 112 / Actual 56、
+    /// 以下同様の食い違いが続く)。<see cref="M0CalibrationTests.TradeMarginIsPositive"/>
+    /// ほか、この変異で落ちた6件のうちの1件である。期待と実測の食い違いは無かった。
+    /// </remarks>
+    [Fact]
+    public void ExternalSellPriceOfCityGoodsIsDerivedFromBuyPrice()
+    {
+        var definition = WorldDefinition.M0;
+
+        var expected = new (int ItemId, int ExpectedCeiling)[]
+        {
+            (Item.Flour, 112),
+            (Item.Firewood, 20),
+            (Item.Bread, 108),
+            (Item.Beer, 144),
+            (Item.Tools, 580),
+        };
+
+        foreach (var (itemId, expectedCeiling) in expected)
+        {
+            foreach (var season in new[] { Season.Spring, Season.Summer, Season.Autumn, Season.Winter })
+            {
+                Assert.Equal(expectedCeiling, definition.ExternalSellPrice(itemId, season));
+            }
+        }
     }
 
     /// <summary>
@@ -378,6 +414,20 @@ public sealed class WorldDefinitionTests
             () => BuildDefinition(trustDiscountPermille: -1));
         Assert.Throws<ArgumentOutOfRangeException>(
             () => BuildDefinition(trustDiscountPermille: 1000));
+    }
+
+    /// <summary>
+    /// テスト表 #7(#149)。交易マージン‰(<see cref="WorldDefinition.TradeMarginPermille"/>)が
+    /// 0・-1を拒む(GDD02d §3.2 条件(f)。「導出の形で守る」ので、守るべきはマージンが正である
+    /// ことである)。
+    /// </summary>
+    [Fact]
+    public void WorldDefinitionRejectsNonPositiveTradeMargin()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => BuildDefinition(tradeMarginPermille: 0));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => BuildDefinition(tradeMarginPermille: -1));
     }
 
     // ── ここから #96 タスク仕様「落ちるべき条件」の新規テスト。
@@ -616,8 +666,10 @@ public sealed class WorldDefinitionTests
         Assert.Equal(10, definition.ExternalSellPrice(Item.Timber, Season.Winter));
         Assert.Equal(15, definition.ExternalSellPrice(Item.Charcoal, Season.Summer));
 
-        // 都市生産品(Bread)に対して呼ぶと例外。
-        Assert.Throws<ArgumentException>(() => definition.ExternalSellPrice(Item.Bread, Season.Spring));
+        // 都市生産品(Bread)に対して呼んでも例外を投げない(#149。GDD02d §2.1 の反転が解け、
+        // 都市生産品も外部買値から導出した外部売値(天井)を持つ)。
+        var exception = Record.Exception(() => definition.ExternalSellPrice(Item.Bread, Season.Spring));
+        Assert.Null(exception);
     }
 
     /// <summary>

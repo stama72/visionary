@@ -109,6 +109,42 @@ public sealed class M0CalibrationTests
     }
 
     /// <summary>
+    /// 【核心】テスト表 #4(#149)。(f) 交易マージン‰が正であり、都市生産品5品目すべてで
+    /// 全4季節にわたって外部売値(天井) &gt; 外部買値(床)(GDD02d §4.3 条件(f))。
+    /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>afb4ddd</c>、M-2: <c>ExternalSellPrice</c> の都市生産品の枝を
+    /// <c>ApplyPermille(買値, PermilleScale)</c> にする=マージン0相当)。</b>赤。6件失敗。
+    /// 本テストは assert で失敗した(失敗メッセージ本文:
+    /// <c>(f) 品目4・Spring: 天井56が床56を超えない。</c>)。期待と実測の食い違いは無かった。
+    /// </remarks>
+    [Fact]
+    public void TradeMarginIsPositive()
+    {
+        Assert.True(Definition.TradeMarginPermille > 0, "(f) 交易マージン‰が正でない。");
+
+        for (int itemId = 0; itemId < Definition.ItemCount; itemId++)
+        {
+            if (Definition.IsPrimaryItem(itemId))
+            {
+                continue; // (f)は都市生産品ごとの条件(タスク仕様)。
+            }
+
+            int floor = Definition.ExternalBuyPrice(itemId);
+
+            foreach (var season in AllSeasons)
+            {
+                int ceiling = Definition.ExternalSellPrice(itemId, season);
+
+                Assert.True(
+                    ceiling > floor,
+                    $"(f) 品目{itemId}・{season}: 天井{ceiling}が床{floor}を超えない。");
+            }
+        }
+    }
+
+    /// <summary>
     /// テスト表 #22。(a) 都市生産品ごとに年平均の供給 ≥ 需要(生産能力 ≥ 需要)。
     /// </summary>
     /// <remarks>

@@ -353,111 +353,264 @@ public sealed class TradePipelineTests
     }
 
     /// <summary>
-    /// 【核心】W2-11 タスク仕様テスト表 #6。M0・シード1・60日。<b>毎日</b>、<c>world.Market</c> の
-    /// 全件が <c>床 × BandMultiplier</c> 以下であることを確かめる。この検出器が確かめているのは
-    /// 「60日を通じて提示価格が床の20倍を超えない」という事実だけである。
+    /// 【核心】W2-13 タスク仕様テスト表 #1-a・#1-b・#2・#3。M0・シード1/2/3/7/42・60日。判定対象は
+    /// <c>world.Ledgers</c> の約定価格(<c>UnitPrice</c>)。
     /// </summary>
     /// <remarks>
-    /// <b>帯の定数(20倍)の根拠 ── 緑側。</b>本実装での実測(2026-09-20、M0・60日・シード1/2/3)で
-    /// 頭打ちを入れたときの最大はシード1のパン500(床54の9.26倍、12日目)、シード2はパン435
-    /// (床54の8.06倍、14日目)。<b>シード3はタスク仕様「設計の前提」の記載(工具444・1.53倍)と
-    /// 食い違い、実際にはシード1・2と同じくパンが最大になる(パン195、床54の3.61倍、11日目。
-    /// 工具444・1.53倍は15日目以降パンが市場から消えた後に定常する値であり、60日全体の最大では
-    /// ない)。</b>いずれにせよ20倍を超えないので帯の定数そのものは動かさない。実測(最大9.26倍)に
-    /// 対して2倍強の余裕がある。
+    /// <b>断定は2段に分ける(2026-09-21の訂正。フェーズ1)。</b>初版は「都市生産品の約定すべてが
+    /// ×2以下」という1本の断定だったが、[GDD02c §1](../../../docs/03-gdd/02c-price-and-budget.md)
+    /// の囲み・[GDD02d §2.2](../../../docs/03-gdd/02d-external-market-and-money.md) の囲みが
+    /// 「周縁の売り手は窓口へ行く手間のぶんだけ外部売値を上回っても売れる」と定めており、
+    /// 周縁の約定が天井を上回ることは仕様の範囲内である。
+    /// <list type="bullet">
+    /// <item><b>1-a(構造)</b>: 買い手の区画が中心(<see cref="District.ExternalMarketDistrictId"/>)
+    /// である <c>Purchase</c> 行に限り、都市生産品の約定単価が
+    /// <c>ExternalBuyPrice(itemId) × BandMultiplier</c>(= 2)以下。中心の買い手には
+    /// <see cref="ExternalMarket.IsWithinReach"/> が常に真を返すので窓口が必ず候補に入り、
+    /// <see cref="StoreChoice"/> は <c>&lt;</c> で比べる(同値なら都市内)ため、実効価格は
+    /// 外部売値を超えられない(タスク仕様「1-aが構造的に成り立つ根拠」)。</item>
+    /// <item><b>1-b(水準)</b>: 全区画の都市生産品の約定が
+    /// <c>ExternalBuyPrice(itemId) × PeripheralBandMultiplier</c> 以下。1-aが赤なら実装か
+    /// モデルの欠陥、1-bが赤なら水準の問題であり、区別できない1本の断定にしない。</item>
+    /// </list>
     /// </remarks>
     /// <remarks>
-    /// <b>帯の定数(20倍)の根拠 ── 赤側。</b>タスク仕様「設計の前提」によれば、素の master
-    /// (頭打ち無し)はビールが20日目に床72の21.6倍に達し、<b>60日目には725,771(床の約1万倍)に
-    /// 達する</b>。この検出器は60日を<b>毎日</b>見る形なので、M-1(頭打ちを外す変異)に対する
-    /// 実際の余裕は2〜3桁ある ── <c>BandMultiplier</c> を30や50にしても、M-1は数日遅れて必ず
-    /// 赤になる。<b>「20倍」は20日目という早い時点でM-1を捕まえるための値であって、M-1の検出
-    /// そのものが20日目に依存しているわけではない</b>(21.6対20の8%という数字は「20日目で捕まえる」
-    /// という早さの余裕であり、検出器全体の余裕ではない)。
-    /// <see href="https://github.com/stama72/visionary/issues/38">#38</see> のフェーズ2が
-    /// <c>BandMultiplier</c> を実測して動かしてよいこと(下のテスト本体および本タスク仕様の
-    /// 配線表)は変わらない。
+    /// <b>旧検出器(<c>OfferPricesStayWithinTheBandOverSixtyDays</c>、W2-11)を置き換える。</b>
+    /// 旧検出器は <c>world.Market</c>(その日の提示価格)を毎日見て床の20倍を上限にしていた。
+    /// <b>提示価格は天井を上回ってよい</b>(GDD02 §8-5)ので、判定対象をそのまま <c>world.Market</c>
+    /// に残して閾値だけ変えると、仕様が許している値で赤になる。<b>置き換えるのは閾値だけでは
+    /// なく、判定対象そのものである</b>(タスク仕様)。
     /// </remarks>
     /// <remarks>
-    /// <b>パンの9.26倍は不具合ではない。</b>パン屋は毎日売れている(約定がある)ので§1.1の頭打ちを
-    /// 受けず、完売枝のラチェットで上がる。§1.1は「約定が無い日は上げない」であって水準の復元力
-    /// ではない(GDD02c §1.2の囲み)。帯の定数がパンで決まっているのはこのためで、他4品目には緩い。
+    /// <b>「毎日」から「走行後に1回」へ変えてよい理由。</b>旧検出器が毎日見ていたのは
+    /// <c>world.Market</c>(その日の提示価格。翌日に上書きされる)を見ていたからである。
+    /// <c>world.Ledgers</c> は<b>追記のみで剪定されない</b>ので、60日走行後に1回走査すれば
+    /// 全日が対象になる。この理由を書かずに1回走査へ変えると、次の読者は「最終日しか見ていない」
+    /// と読む(タスク仕様118行目)。
     /// </remarks>
     /// <remarks>
-    /// <b>毎日見る形を doc コメントで固定する。</b>15日目以降は売り注文が2件(工具)に落ち、
-    /// パン・ビールは市場から消えるので、<b>最終日だけ見ると発散した品目を見ずに緑になりうる</b>
-    /// (この変異は最終日だけ見る形では落ちない)。<b>毎日</b>、その時点の <c>world.Market</c> の
-    /// 全件を確かめること。
+    /// <b>最初の違反で止まらない。</b>60日の全行を走査して最大比(約定単価 ÷ 床)を求め、
+    /// 最後に1回だけ assert する(タスク仕様「周縁の緩みの定数」節)。
     /// </remarks>
     /// <remarks>
-    /// <b>この検出器が緑であることは「帯が保たれる経済」を意味しない。</b>
-    /// <see href="https://github.com/stama72/visionary/issues/38">#38</see>(都市外市場の窓口)が
-    /// 無い世界では生産0/日・約定0/日・売り注文2件で平らになるので、緑が保証するのは式の代数
-    /// だけである。本テストは TDD01 §5.2 の発散・硬直の判定関数ではない(あちらは約定価格の
-    /// 中央値・120日窓で <see href="https://github.com/stama72/visionary/issues/41">#41</see> が
-    /// 持つ)。<b>GDD02 §8-1 を満たしたことにはならない。</b>
+    /// <b>訂正(2026-09-21、レビュー1巡目)。</b>最大比の追跡(=どの行を assert 対象に選ぶか)を
+    /// 浮動小数点の比較で行っていたのは誤りだった ── 「表示用」ではなく<b>合否に効く</b>
+    /// (どの行が「最悪」として選ばれるかを決めている)。#120 を閉じる検出器そのものに
+    /// 浮動小数点の比較を残す理由が無いため、<c>a/b &gt; c/d ⟺ a*d &gt; c*b</c>
+    /// (両辺とも正の<c>int</c>なので不等号の向きは保たれる)による整数の交差乗算へ直した。
+    /// 積は<c>long</c>で受ける(下記コード参照。<c>int.MaxValue</c>同士の積でも
+    /// <c>long.MaxValue</c>未満に収まるためオーバーフローしない)。<b>失敗メッセージに比を
+    /// 出すための整形だけ</b>は<c>double</c>を使う ── 比較・選択が整数で終わった後に
+    /// メッセージ組み立てのためだけに換算するので、合否には影響しない。
     /// </remarks>
     /// <remarks>
-    /// <b>変異の実測(2026-09-20、<c>mutator</c> による測定、対象コミット <c>87d4837</c>)。</b>
-    /// §1.1 の頭打ちを削除する変異(M-1)、<c>TradeSystem</c> 段1が <c>OfferPrice.Calculate</c> の
-    /// 第6引数を <c>true</c> 定数に固定する変異(M-2)の両方で本体が赤になった。M-1 の
-    /// 失敗メッセージ: <c>day=15 itemId=6 sellerId=9 price=1162 floor=54 band&lt;= 1080
-    /// ratio=21.519</c>。<b>最初に帯を破ったのは床54の品目(パン)の15日目である</b>が、これは
-    /// 上の「帯の定数(20倍)の根拠 ── 赤側」に書いた「素の master はビールが20日目に床72の
-    /// 21.6倍」と矛盾しない ── <b>この検出器は最初の違反で止まる</b>ので、先に20倍へ届いた品目
-    /// (パン)が先に検出される。60日目の値(725,771)と、
-    /// <see href="https://github.com/stama72/visionary/issues/38">#38</see> のフェーズ2が
-    /// <c>BandMultiplier</c> を実測して動かしてよいことは変わらない。
+    /// <b><c>PeripheralBandMultiplier</c> の実測(2026-09-21、フェーズ2)。</b>M0・60日走行での
+    /// 全区画の最大比(約定単価 ÷ 床): seed1=2.5, seed2=2.3, seed3=2.425925…, seed7=2.018518…,
+    /// seed42=2.5。最大値2.5の約2倍 = 5 を <c>PeripheralBandMultiplier</c> に置いた
+    /// (4を超えていないので、置かずに止まる条件には当たらない)。
     /// </remarks>
     /// <remarks>
-    /// <b><c>BandMultiplier = 20</c> が成り立つのはシード1だけである。</b>#38 の実測
-    /// (2026-09-20)でシード2は60日で67.20倍(37日目・薪・床10・価格672)。シードを足すと赤になる。
-    /// 歯止めは <see href="https://github.com/stama72/visionary/issues/120">#120</see>。
-    /// <b>定数とシードは動かさない。</b>
+    /// <b>#149 の M-1 の定義(2026-09-21 の訂正。レビュー2巡目の象限I-b)。</b>本ファイル・
+    /// 本テストプロジェクト内には他タスクの「M-1」が別に存在する
+    /// (<see cref="UnaffordableNecessityCountsOnlyTheFundsShortfall"/> の remarks が指す
+    /// #38 の M-1、<see cref="ExternalMarketTests"/> の M-1)── ここで言う M-1a/M-1b は
+    /// **#149 のタスク仕様が定義するものだけ**を指す。
+    /// <para>
+    /// **初版の M-1(早期 return だけを戻す変異)は検出器として空洞だった。**
+    /// <c>ExternalMarket.TryOfferPrice</c> の早期 return は <c>offerPrice = 0</c> を置くが、
+    /// <c>ErrandPlanner</c> は戻り値を捨てて <c>EffectivePrice.Calculate(0, …)</c> へ渡すため、
+    /// 提示価格1以上の検査で例外が飛び、帯の断定(1-a)には一度も到達しない見込みである
+    /// (中心の近くの世帯が必需品の需要行を持つ日に必ず踏むため、5シードとも例外になる見込み)。
+    /// 「赤」とだけ転記すると「天井が中心の約定を構造的に縛っていることが実測で確かめられた」
+    /// と読まれるが、実際に確かめられるのは「例外を投げた」ことだけである。旧版の根拠
+    /// (#120 の「シード2 は28日目に床の20倍」)も、旧検出器が <c>world.Market</c>(提示価格)で
+    /// 測った値であり、#1-a が見る <c>world.Ledgers</c> の中心区画の買い手の <c>Purchase</c> 行とは
+    /// 別物だったため誤りだった。
+    /// </para>
+    /// <para>
+    /// **したがって M-1 は2形で実測する。** <c>mutator</c> は各形について、赤/緑だけでなく
+    /// 「失敗の形」(帯の断定の assert か、例外か。例外なら型と発生箇所)を報告する。
+    /// <list type="bullet">
+    /// <item><b>M-1a</b>(初版どおり): <c>ExternalMarket.TryOfferPrice</c> の先頭に
+    /// <c>if (!definition.IsPrimaryItem(itemId)) { offerPrice = 0; return false; }</c> **だけ**を
+    /// 戻す。期待は赤だが、**帯の断定に到達しない見込み**(例外による赤)であり、**核心の
+    /// 受け入れには使わない**。到達しないこと自体が実測の対象である。</item>
+    /// <item><b>M-1b</b>(核心): #149 が外した3つの品目ゲートを同時に戻す(= #149 以前の
+    /// 状態) ── <c>ExternalMarket.TryOfferPrice</c> の早期 return /
+    /// <c>ErrandPlanner:242</c> の <c>&amp;&amp; _definition.IsPrimaryItem(itemId)</c> /
+    /// <c>Observations.CollectWindow</c> の
+    /// <c>if (!definition.IsPrimaryItem(itemId)) continue;</c>。**受け入れ条件は「赤」では
+    /// なく「帯の断定(1-a)の assert で赤」であること**、かつどのシードが赤になったかを
+    /// 報告に含める。</item>
+    /// </list>
+    /// M-1b が緑、または例外で赤になった場合は、天井が何にも守られていないことになるので、
+    /// 転記せずに止まって報告する(タスク仕様の規定)。
+    /// </para>
     /// </remarks>
     /// <remarks>
     /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
-    /// <c>39e367a</c>)。</b>#38 の M-1・M-4・M-5・M-6・M-7 の5つすべてで本テストが赤になった。
-    /// 60日走行を毎日見る固定検出器は<b>どんな摂動でも赤になりうる</b> ──
-    /// 本テストが赤になったことを、特定の契約が壊れた証拠として読んではならない。
+    /// <c>afb4ddd</c>)。</b>期待と実測の食い違いは0件だった(裁定は不要)。
+    /// <para>
+    /// <b>M-1a(核心の受け入れには使わない形)。</b>赤。31件失敗。<b>失敗の形は全件
+    /// <see cref="ArgumentOutOfRangeException"/></b>(<c>EffectivePrice.cs:38</c>、
+    /// <c>offerPrice &lt;= 0</c>)。本テストは5シードすべて失敗したが、<b>帯の断定
+    /// (<c>:557</c> の <c>Assert.True</c>)には一度も到達していない</b>。他に
+    /// <c>ToolsAreTradedInThePipeline</c> / <c>SpatialFrictionSurvives</c> /
+    /// <c>ObservationsDoNotGrowWithoutBound</c> /
+    /// <c>LedgersReconcileWithLiquidFundsForEveryHousehold</c> なども同一例外で落ちた。
+    /// <b>2巡目の読み(早期 return だけでは帯の断定に到達しない)が実測で裏付いた。</b>
+    /// <b>この形の「赤」は天井について何も語らない</b> ── 落ちたテストのどれも、天井を
+    /// 「守っている」ことの証拠にはならない。</para>
+    /// <para>
+    /// <b>M-1b(核心)。</b>赤。14件失敗。本テストは<b>5シードすべてが<c>:557</c>の帯の断定の
+    /// <c>Assert.True</c>で落ちた(例外ではない)</b>。最大比(約定単価÷床):
+    /// seed1=5.100 / seed2=4.870 / seed3=6.900 / seed7=11.000 / seed42=5.130。
+    /// 失敗メッセージの実例(seed7): <c>seed=7 itemId=5 day=40 districtId=4(中心):
+    /// 約定単価(110)が床(10)×2を上回った(最大比=11.000)。</c> 初版が根拠にしていた
+    /// 「シード2」も実測で赤である(ただし根拠としてではなく実測としてであり、初版の
+    /// 引用の仕方——旧検出器の値を援用した点——が正しかったことにはならない)。他に落ちた
+    /// 9件: <c>ExternalMarketTests.WindowOfferPriceAppliesTheSeasonCoefficient</c> /
+    /// <c>StoreChoiceTests.BuyerAtTheCentreChoosesTheWindowWhenLocalOffersExceedTheCeiling</c> /
+    /// <c>StoreChoiceTests.CitySellerWinsTheTieAgainstTheWindowForCityGoods</c> /
+    /// <see cref="UnaffordableNecessityCountsOnlyTheFundsShortfall"/> /
+    /// <c>TradeSystemTests.ExportUsesTheSellerSideMarketReference</c> /
+    /// <c>TradeSystemTests.SellerReferenceIsTakenBeforeTheSellableStockGate</c> /
+    /// <c>ErrandPlannerTests.WindowIsACandidateForCityGoods</c> /
+    /// <c>ObservationsTests.WindowObservationsCoverCityGoods</c> /
+    /// <c>ObservationsTests.WindowObservationIsBornForEveryItem</c>。
+    /// </para>
+    /// <para>
+    /// M-2〜M-4 の実測結果は、それぞれが守るテスト
+    /// (<see cref="M0CalibrationTests.TradeMarginIsPositive"/> ・
+    /// <see cref="WorldDefinitionTests.ExternalSellPriceOfCityGoodsIsDerivedFromBuyPrice"/> ・
+    /// <c>ErrandPlannerTests.UnknownWindowPriceOfCityGoodsUsesTheFloor</c> ・
+    /// <c>ObservationsTests.WindowObservationsCoverCityGoods</c> /
+    /// <c>ObservationsTests.WindowObservationIsBornForEveryItem</c>)の doc コメントへ転記した。
+    /// </para>
     /// </remarks>
-    [Fact]
-    public void OfferPricesStayWithinTheBandOverSixtyDays()
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(7)]
+    [InlineData(42)]
+    public void SettledPricesAtTheCentreStayWithinTheBandOverSixtyDays(long seed)
     {
-        const int BandMultiplier = 20; // 倍。床に対する提示価格の帯の上限(このテストの検出器の閾値)。
+        // 倍。GDD02d §3「帯 = [床, 床×2]」。ExternalSellPriceを読まない ── 検出器を交易マージン‰
+        // から独立させる(タスク仕様テスト表 #3。マージンを動かしても本テストの閾値は動かない)。
+        const int BandMultiplier = 2;
+
+        // 倍。周縁の緩みの検出器の閾値(仕様値ではない。上記docコメントの実測値から
+        // 「最大比2.5倍の約2倍」で置いた。GDD02c §1・GDD02d §2.2の「周縁は手間のぶん緩い」を
+        // 数値の上界として実測しただけであり、GDD由来の定数ではない)。
+        const int PeripheralBandMultiplier = 5;
 
         var definition = WorldDefinition.M0;
-        var world = WorldGenerator.Generate(definition, new RandomSource(1));
+        var world = WorldGenerator.Generate(definition, new RandomSource(seed));
 
-        var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(1));
+        var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(seed));
+        scheduler.Advance(world, ticks: 60 * 24);
 
-        for (int day = 1; day <= 60; day++)
+        bool anyCityGoodSettlement = false;
+        bool anyCentreBuyerPurchase = false;
+
+        // 1-b(水準・全区画)の最悪候補。
+        bool hasWorstAny = false;
+        int worstAnyPrice = 0, worstAnyFloor = 1, worstAnyItemId = 0, worstAnyDistrictId = 0;
+        long worstAnyDay = 0;
+
+        // 1-a(構造・中心の買い手)の最悪候補。
+        bool hasWorstCentre = false;
+        int worstCentrePrice = 0, worstCentreFloor = 1, worstCentreItemId = 0;
+        long worstCentreDay = 0;
+
+        foreach (var household in world.Households)
         {
-            scheduler.Advance(world, ticks: 24);
-
-            // 1次産品は市場に載らない(TradeSystem段1が出力品目だけをMarketへ書く構造的な
-            // 保証。WorldDefinition.ExternalBuyPriceは1次産品に対して例外を投げるので、
-            // ここでitemIdの種別を分岐する必要は無い)。
-            foreach (var entry in world.Market)
+            foreach (var entry in world.Ledgers[household.Id])
             {
-                int floorPrice = definition.ExternalBuyPrice(entry.Key.ItemId);
-                int bandUpperBound = floorPrice * BandMultiplier;
+                if (entry.Direction != LedgerDirection.Purchase)
+                {
+                    // Ledgersは記帳した側から見た向きを持つ(売った側の行は別の世帯に立つ)ので、
+                    // 買い手の区画を見たい本テストはPurchase行だけを対象にする。
+                    continue;
+                }
 
-                // 失敗メッセージは事実(日・品目・売り手・価格・床・倍率)だけを出す ── 赤になった
-                // 原因を断定しない。§1.1の頭打ちが原因とは限らない(完売枝のラチェット、または
-                // 帯の定数の再実測が要る可能性もある)。
-                Assert.True(
-                    entry.Value <= bandUpperBound,
-                    $"day={day} itemId={entry.Key.ItemId} sellerId={entry.Key.SellerId} "
-                        + $"price={entry.Value} floor={floorPrice} band<= {bandUpperBound} "
-                        + $"ratio={(double)entry.Value / floorPrice:F3}");
+                if (definition.IsPrimaryItem(entry.ItemId))
+                {
+                    continue; // 判定対象は都市生産品の行だけ(タスク仕様)。
+                }
+
+                anyCityGoodSettlement = true;
+
+                int floor = definition.ExternalBuyPrice(entry.ItemId);
+                long day = entry.OccurredAt.DayIndex;
+
+                // 整数の交差乗算で比較する(a/b > c/d ⟺ a*d > c*b。floor・worstAnyFloorは
+                // ExternalBuyPriceの検査により1以上なので符号は変わらない)。積はintを超えうる
+                // ので long で受ける ── 両辺ともint.MaxValueでも積はlong.MaxValue未満に収まる
+                // (2^31未満の2乗は2^62未満、long.MaxValueは2^63−1)。
+                if (!hasWorstAny || (long)entry.UnitPrice * worstAnyFloor > (long)worstAnyPrice * floor)
+                {
+                    hasWorstAny = true;
+                    worstAnyPrice = entry.UnitPrice;
+                    worstAnyFloor = floor;
+                    worstAnyItemId = entry.ItemId;
+                    worstAnyDistrictId = household.DistrictId;
+                    worstAnyDay = day;
+                }
+
+                if (household.DistrictId != District.ExternalMarketDistrictId)
+                {
+                    continue; // 1-a(構造)は中心の買い手だけを見る。
+                }
+
+                anyCentreBuyerPurchase = true;
+
+                // 上と同じ整数の交差乗算。
+                if (!hasWorstCentre
+                    || (long)entry.UnitPrice * worstCentreFloor > (long)worstCentrePrice * floor)
+                {
+                    hasWorstCentre = true;
+                    worstCentrePrice = entry.UnitPrice;
+                    worstCentreFloor = floor;
+                    worstCentreItemId = entry.ItemId;
+                    worstCentreDay = day;
+                }
             }
         }
+
+        // 空振り防止(テスト表 #2)。(i)都市生産品の約定が1件以上、(ii)そのうち中心区画の
+        // 買い手のPurchaseが1件以上 ── 経済が止まって0件で緑になること、および1-aの母集団が
+        // 空で緑になることを防ぐ。
+        Assert.True(
+            anyCityGoodSettlement,
+            $"seed={seed}: 60日回しても都市生産品の約定が1件も無い(値の問題の可能性)。");
+        Assert.True(
+            anyCentreBuyerPurchase,
+            $"seed={seed}: 60日回しても中心区画の買い手のPurchaseが1件も無い"
+                + "(配置か窓口の配線の問題の可能性)。");
+
+        // 1-a: 構造。中心の買い手はBandMultiplier(=2)以下でなければならない。
+        Assert.True(
+            worstCentrePrice <= worstCentreFloor * BandMultiplier,
+            $"seed={seed} itemId={worstCentreItemId} day={worstCentreDay} "
+                + $"districtId={District.ExternalMarketDistrictId}(中心): "
+                + $"約定単価({worstCentrePrice})が床({worstCentreFloor})×{BandMultiplier}を上回った"
+                + $"(最大比={(double)worstCentrePrice / worstCentreFloor:F3})。");
+
+        // 1-b: 水準。全区画はPeripheralBandMultiplier以下でなければならない。
+        Assert.True(
+            worstAnyPrice <= worstAnyFloor * PeripheralBandMultiplier,
+            $"seed={seed} itemId={worstAnyItemId} day={worstAnyDay} "
+                + $"districtId={worstAnyDistrictId}: 約定単価({worstAnyPrice})が "
+                + $"床({worstAnyFloor})×{PeripheralBandMultiplier}を上回った"
+                + $"(最大比={(double)worstAnyPrice / worstAnyFloor:F3})。");
     }
 
     /// <summary>
     /// テスト表 #24。60日回した後、<c>Knowledge</c> の総件数が
-    /// NPC数 × (世帯数 − 1) × (保持期間 + 1) 以下。
+    /// NPC数 × (保持期間 + 1) × (世帯数 − 1 + 品目数) 以下(#149 訂正後。窓口の枠を含む。
+    /// 下記remarks参照)。
     /// </summary>
     /// <remarks>
     /// <b>W2-09 追随(2026-09-20)。</b>境界を「NPC1人につき、他の世帯(売り手候補)ごとに
@@ -468,19 +621,57 @@ public sealed class TradePipelineTests
     /// </remarks>
     /// <remarks>
     /// <b>本テストは <see cref="World.Knowledge"/> の件数の上界しか見ない。</b>価格の側は
-    /// <see cref="OfferPricesStayWithinTheBandOverSixtyDays"/>(W2-11)が見るようになった。
+    /// <see cref="SettledPricesAtTheCentreStayWithinTheBandOverSixtyDays"/>(W2-13)が見るようになった。
     /// <b>売り注文が2件へ枯れることは引き続き本テストは検出しない</b>
     /// (<see href="https://github.com/stama72/visionary/issues/38">#38</see> の窓口が入った後に
     /// #120 が締める)。<c>Errand.Surplus</c> を<see cref="long"/>にしたことで60日走行は緑に戻るが、
     /// それは型が広いあいだ通るだけであり、値付け(GDD02c §1)の発散そのものを止めたわけではない。
     /// </remarks>
     /// <remarks>
-    /// <b>実測値(2026-09-20、W2-11の実装での再実測)。</b>M0・シード1・60日で
-    /// <c>totalKnowledge</c> = 210。<c>upperBound</c> の式自体は構造(NPC数・世帯数・保持期間)だけで
-    /// 決まり価格には依らないが、<c>totalKnowledge</c>(60日走行の実測値)は「売り注文が2件へ
-    /// 枯れる」現行の経済に従属している。<see href="https://github.com/stama72/visionary/issues/38">#38</see>
-    /// が入って売り注文が枯れなくなれば <c>totalKnowledge</c> は再び動きうる
-    /// (<c>upperBound</c> を超えないことは構造上保たれる)。
+    /// <b>実測値(2026-09-21、W2-13の実装での再実測)。</b>M0・シード1・60日で
+    /// <c>totalKnowledge</c> = 1200(#149 前は210)。<c>upperBound</c> は1440(訂正前の式)に対して
+    /// 83%まで来ており、余裕は17%しかない。
+    /// </remarks>
+    /// <remarks>
+    /// <b>訂正(2026-09-21、#149・仕様の訂正。フェーズ2)。</b>旧remarksは「窓口の観測が売り手
+    /// 自身の相場基準の材料にもなり、日々の観測の<b>生成頻度そのものが上がっている</b>」と
+    /// 書いていたが、これは事実と合っていない ── <see cref="MarketReference"/> は観測を
+    /// <b>消費するだけで生成しない</b>。また旧upperBoundの式(NPC数×(世帯数−1)×(保持期間+1))は
+    /// 「構造だけで決まる」と書いていたが誤りだった。式の(世帯数−1)に窓口が入っておらず、
+    /// 窓口は「1売り手=1品目」ではなく1日に全品目の観測を生む(#149)ため、式は構造上界では
+    /// なく経験的な線だった。<b>本テストは上界の式に窓口の枠を足して構造上界に戻す側を
+    /// 採った</b>(上記コード参照。経験的な線のまま残す代替案は採らなかった)。
+    /// <para>
+    /// <b>実際に効いた要因を実測で切り分けた。</b>M0・シード1・60日の総数1200のうち、
+    /// 窓口由来(<c>SellerId == HouseholdState.ExternalMarketSellerId</c>)が720、世帯由来
+    /// (通常の売り手を見た観測)が480。窓口由来720は品目ごとに均等(1品目あたり80件)で、
+    /// 1次産品4品目ぶん320・都市生産品5品目ぶん400に分かれる。
+    /// <list type="bullet">
+    /// <item><b>要因(a) 観測対象の品目数の増加。</b>都市生産品ぶんの400件は、#149以前は
+    /// 窓口がそもそも都市生産品を観測させなかったので<b>まったく存在し得なかった</b>
+    /// (品目フィルタの直接の効果)。</item>
+    /// <item><b>要因(b) 中心への外出頻度の増加。</b>世帯由来だけで480あり、これは
+    /// <b>#149前の総数(210)を単独で上回る</b>。世帯由来の観測は窓口の品目フィルタとは
+    /// 無関係(他の世帯を見た観測であって窓口を見た観測ではない)なので、品目数の増加
+    /// (2.25倍)ではこの480という値そのものを一切説明できない。窓口が都市生産品の候補になり
+    /// 中心への外出そのものが増えたこと(ErrandPlannerの品目ゲートを外した効果)が、世帯由来・
+    /// 窓口由来の両方を押し上げている。
+    /// </item>
+    /// </list>
+    /// <b>したがって「2.25倍(品目数の比)」だけでは210→1200(5.7倍)を説明できない</b>という
+    /// 指摘は正しく、要因(a)(400件、品目数の増加)と要因(b)(外出頻度の増加。世帯由来480件が
+    /// その直接の証拠)の両方が効いている。
+    /// </para>
+    /// <para>
+    /// <b>訂正(2026-09-21、レビュー3巡目)。</b>両要因の厳密な寄与の切り分け(#149前のコードでの
+    /// 窓口由来・世帯由来の内訳)について、上の版は「旧コードが残っていないため再現できない」と
+    /// 書いたが、これは事実として誤りだった。#149前のコードは <c>master</c>
+    /// (<c>5da7e51</c> / マージコミット <c>2828bf8</c>)に残っており、<c>git worktree add</c> して
+    /// 同じ計測を当てれば内訳は再現できる。**測っていない**というだけであり、測れないのではない。
+    /// 本テストで測り直してはいない ── 要因の切り分けは<c>upperBound</c>の式の正当性(構造上界
+    /// であること)には効かず、式は品目数・世帯数・NPC数・保持期間という構造だけで決まるため、
+    /// 実測の内訳の値そのものに依存しない。
+    /// </para>
     /// </remarks>
     [Fact]
     public void ObservationsDoNotGrowWithoutBound()
@@ -493,17 +684,28 @@ public sealed class TradePipelineTests
 
         long totalKnowledge = world.Knowledge.Sum(observations => (long)observations.Count);
 
-        // NPC1人が知りうる売り手は自分の世帯を除く(世帯数−1)戸まで。各売り手について
-        // 保持期間+1日ぶん(Observations.Expireが「差 > 保持期間」で消すので、差0〜保持期間の
-        // (保持期間+1)日ぶんが同時に残りうる)。
+        // NPC1人が知りうる「都市内の」売り手は自分の世帯を除く(世帯数−1)戸まで。各売り手は
+        // 自分の出力品目1件しか持たない(Recipeが出力1件を保証)ので、1日1件×保持期間+1日ぶん
+        // (Observations.Expireが「差 > 保持期間」で消すので、差0〜保持期間の(保持期間+1)日ぶんが
+        // 同時に残りうる)。
+        //
+        // 訂正(2026-09-21、#149・仕様の訂正)。窓口はこの(世帯数−1)に入っていない別枠であり、
+        // かつ「1売り手=1品目」ではなく1日に全品目(ItemCount件)の観測を生む(#149で都市生産品
+        // まで並べるようになったため)。窓口の枠を落とすと式は構造上界ではなく経験的な線になる
+        // ため、窓口の枠(NPC1人につき品目数×(保持期間+1)日ぶん)を足して構造上界に戻した
+        // (選択肢は2つ提示されており、こちらを採った。窓口を1つの「売り手」として数える
+        // (世帯数−1)戸の枠とは独立に足すのは、窓口が実在の世帯Idを持たず、通常の売り手の
+        // 「1日1件」という制約も受けないため)。
+        long realSellerCount = definition.HouseholdCount - 1;
+        long windowItemCount = definition.ItemCount; // 窓口は1日に全品目を観測させうる(#149)。
         long upperBound = (long)definition.NpcCount
-            * (definition.HouseholdCount - 1)
-            * (definition.ObservationRetentionDays + 1);
+            * (definition.ObservationRetentionDays + 1)
+            * (realSellerCount + windowItemCount);
 
         Assert.True(
             totalKnowledge <= upperBound,
             $"Knowledgeの総件数({totalKnowledge})が上限({upperBound})を超えた"
-                + "(保持期間の失効が効いていない可能性)。");
+                + "(保持期間の失効が効いていない可能性、または窓口の観測件数の想定が崩れた可能性)。");
     }
 
     /// <summary>
@@ -656,24 +858,31 @@ public sealed class TradePipelineTests
     /// 60日走行を毎日見る固定検出器は<b>どんな摂動でも赤になりうる</b> ──
     /// 本テストが赤になったことを、特定の契約が壊れた証拠として読んではならない。
     /// </remarks>
+    /// <remarks>
+    /// <b>#149 追随(2026-09-21)。窓口が都市生産品も売るようになり経済の形がまた変わったため、
+    /// 自然発生する日・世帯が動いた</b>(実測: 世帯Id6、8日目に自然発生する。世帯Id2、12日目では
+    /// もう自然発生しない ── 12日目時点で既に世帯Id6の資金不足が7日目から続いていたため、
+    /// <c>Assert.Equal(0, …)</c> が11日目時点で崩れていた)。0→1→0のきれいな遷移を持つ最初の
+    /// 組を60日走査して選び直した。この実測値も、窓口が絡む変更が入れば再び動きうる。
+    /// </remarks>
     [Fact]
     public void UnaffordableNecessityCountsOnlyTheFundsShortfall()
     {
         var definition = WorldDefinition.M0;
 
-        // 資金不足のケース(シード1・操作なし。世帯Id2、12日目に自然発生する。上のremarks参照)。
+        // 資金不足のケース(シード1・操作なし。世帯Id6、8日目に自然発生する。上のremarks参照)。
         {
             var world = WorldGenerator.Generate(definition, new RandomSource(1));
             var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(1));
 
-            scheduler.Advance(world, ticks: 11 * 24); // 11日目まで。
-            Assert.Equal(0, world.Households[2].UnaffordableNecessityCount);
+            scheduler.Advance(world, ticks: 7 * 24); // 7日目まで。
+            Assert.Equal(0, world.Households[6].UnaffordableNecessityCount);
 
-            scheduler.Advance(world, ticks: 24); // 12日目。資金不足が1件自然発生する。
-            Assert.Equal(1, world.Households[2].UnaffordableNecessityCount);
+            scheduler.Advance(world, ticks: 24); // 8日目。資金不足が1件自然発生する。
+            Assert.Equal(1, world.Households[6].UnaffordableNecessityCount);
 
-            scheduler.Advance(world, ticks: 24); // 13日目。毎日上書きする(GDD02b §3.3)ので0に戻る。
-            Assert.Equal(0, world.Households[2].UnaffordableNecessityCount);
+            scheduler.Advance(world, ticks: 24); // 9日目。毎日上書きする(GDD02b §3.3)ので0に戻る。
+            Assert.Equal(0, world.Households[6].UnaffordableNecessityCount);
         }
 
         // 在庫切れのケース。木工2戸の薪(工房在庫)と入力の木材(工房在庫)を0にして生産による

@@ -11,8 +11,9 @@ public sealed class StoreChoiceTests
 
     /// <summary>
     /// 1次産品(#38用)。<see cref="Definition"/> のレシピ(Miller: Flour←Grain、Baker〜Smith
-    /// (UnusedRecipe): Grain←Timber)のどれも Timber を出力しない ── ItemA(Grain)は
-    /// UnusedRecipe が出力するため都市生産品であり、窓口の候補にならない。
+    /// (UnusedRecipe): Grain←Timber)のどれも Timber を出力しない。<b>ItemA(Grain)は
+    /// UnusedRecipe が出力するため都市生産品である</b>(#149 で窓口も候補になった。
+    /// テスト表 #10・#11 参照)。
     /// </summary>
     private const int PrimaryItem = Item.Timber;
 
@@ -172,18 +173,61 @@ public sealed class StoreChoiceTests
         Assert.Equal(SellerId, selected.SellerId); // 窓口(ExternalMarketSellerId)ではなく都市内。
     }
 
-    /// <summary>テスト表 #7(#38)。都市生産品では窓口が候補に出ない。</summary>
+    /// <summary>
+    /// 【核心】テスト表 #10(#149)。都市内の提示価格が外部売値(天井)を上回るとき、中心区画に
+    /// 居る買い手が選ぶのは窓口(<see cref="HouseholdState.ExternalMarketSellerId"/>)であり、
+    /// 実効価格は外部売値(導出した天井)そのもの。
+    /// </summary>
+    /// <remarks>
+    /// <b>#38当時のテスト(<c>WindowIsNotACandidateForCityGoods</c>)を置き換える。</b>
+    /// 「都市生産品では窓口が候補に出ない」は#149が反転させた規則そのものである
+    /// (窓口は全品目を並べる。タスク仕様「作るもの2」)。
+    /// </remarks>
     [Fact]
-    public void WindowIsNotACandidateForCityGoods()
+    public void BuyerAtTheCentreChoosesTheWindowWhenLocalOffersExceedTheCeiling()
     {
-        // ItemA(Grain)はUnusedRecipeが出力する都市生産品。買い手を中心区画に置いても、
-        // 都市内に売り手が居なければ候補0件のはず(窓口は1次産品しか並べない)。
-        var world = BuildWorld(District.ExternalMarketDistrictId);
+        const int SellerId = 1;
+
+        // 買い手・都市内の売り手ともに中心区画(窓口も自動的に候補になる)。
+        var world = BuildWorld(District.ExternalMarketDistrictId, District.ExternalMarketDistrictId);
+        world.Households[SellerId].WorkshopInventory[ItemA] = 10;
+
+        ExternalMarket.TryOfferPrice(Definition, world.Now, ItemA, out int ceiling);
+        world.Market[new MarketKey(ItemA, SellerId)] = ceiling + 1; // 天井を上回る提示価格。
+
         var storeChoice = new StoreChoice(Definition);
+        var buyer = world.Households[0];
 
-        bool found = storeChoice.TrySelect(world, world.Households[0], ItemA, Array.Empty<int>(), out _);
+        bool found = storeChoice.TrySelect(world, buyer, ItemA, Array.Empty<int>(), out var selected);
 
-        Assert.False(found);
+        Assert.True(found);
+        Assert.Equal(HouseholdState.ExternalMarketSellerId, selected.SellerId);
+        Assert.Equal(ceiling, selected.UnitEffectivePrice); // trust=0なので実効価格=提示価格。
+    }
+
+    /// <summary>
+    /// テスト表 #11(#149)。都市生産品でも、都市内の提示価格が外部売値(天井)と同値のときは
+    /// 都市内の売り手が選ばれる(<see cref="CitySellerWinsTheTieAgainstTheWindow"/> と同じ規則を
+    /// 都市生産品で確かめる)。
+    /// </summary>
+    [Fact]
+    public void CitySellerWinsTheTieAgainstTheWindowForCityGoods()
+    {
+        const int SellerId = 1;
+
+        var world = BuildWorld(District.ExternalMarketDistrictId, District.ExternalMarketDistrictId);
+        world.Households[SellerId].WorkshopInventory[ItemA] = 10;
+
+        ExternalMarket.TryOfferPrice(Definition, world.Now, ItemA, out int ceiling);
+        world.Market[new MarketKey(ItemA, SellerId)] = ceiling; // 天井と同値。
+
+        var storeChoice = new StoreChoice(Definition);
+        var buyer = world.Households[0];
+
+        bool found = storeChoice.TrySelect(world, buyer, ItemA, Array.Empty<int>(), out var selected);
+
+        Assert.True(found);
+        Assert.Equal(SellerId, selected.SellerId); // 窓口(ExternalMarketSellerId)ではなく都市内。
     }
 
     /// <summary>テスト表 #24(既存を維持)。販売在庫0の店は候補外。自分の売り注文も候補外。</summary>
