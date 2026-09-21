@@ -18,6 +18,16 @@ public static class MarketReference
     /// 列挙順が保証されず ADR-0002 に触れる(合計そのものは順序に依らないが、規約を型で守る)。
     /// 同一tickに同一売り手の観測が2件あるときは後に追加されたほう(走査で <c>&gt;=</c>)を採る。
     /// </remarks>
+    /// <remarks>
+    /// <b>窓口(<see cref="HouseholdState.ExternalMarketSellerId"/>)の観測もこの畳み込みに入る
+    /// (決定5、#149タスク仕様)。</b>窓口は売り手 Id を予約した売り手であり
+    /// (<a href="../../../docs/03-gdd/02d-external-market-and-money.md">GDD02d §2.1</a>)、
+    /// その観測も通常どおり生まれる(同 §2.2「視界半径の例外は置かない」)。GDD02c §1.2 の表が
+    /// 定める「他の売り手ごとに最新の1件」は売り手 Id を持つものすべてを対象にしており、
+    /// 窓口を除外する読みは無い。<b>したがって窓口を取り込むのが現行仕様であり、ここは変えない</b>
+    /// ── ただし#149で窓口が都市生産品も並べるまで、この経路は構造的に不活性だった(1次産品の
+    /// 観測しか無かった)ことは事実である。
+    /// </remarks>
     public static bool TrySeller(
         IReadOnlyList<PriceObservation> headObservations,
         int itemId,

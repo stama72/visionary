@@ -162,7 +162,10 @@ public sealed class TradeSystemTests
 
         var definition = BuildShoppingDefinition(breadFloor: 10);
         var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
-        AddHousehold(world, id: 0, districtId: 4, Occupation.Miller);
+        // 区画0(中心ではない)。#149で窓口が都市生産品も観測するようになったため、中心区画
+        // (District.ExternalMarketDistrictId)に置くと窓口自身の観測がMarketReference.TrySellerの
+        // 「他の売り手」に混ざり、本テストが検証したい「他の売り手の観測だけ」の構成が崩れる。
+        AddHousehold(world, id: 0, districtId: 0, Occupation.Miller);
         // 出荷目標在庫ちょうど(生産能力1×出力数量1×出荷日数1 = 1)に合わせる ── 在庫比を
         // 1000‰(価格係数1000‰)に保ち、相場基準がそのまま提示価格に出るようにする。
         world.Households[0].WorkshopInventory[Item.Bread] = 1;
@@ -212,12 +215,16 @@ public sealed class TradeSystemTests
             breadFloor: 10, necessityTargetStockDays: TargetStockDaysFor(Item.Bread));
         var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
 
+        // 区画0(中心ではない)。#149で窓口の観測が都市生産品にも及ぶため、中心区画に置くと
+        // 窓口自身の観測がMarketReference.TrySellerの「他の売り手」に混ざる(SellerAnchorsOn…と
+        // 同じ理由)。
+
         // household0: 売り手(パン)。1日目に床(10)で1個売れるだけの在庫を持つ。
-        AddHousehold(world, id: 0, districtId: 4, Occupation.Miller, liquidFunds: 0);
+        AddHousehold(world, id: 0, districtId: 0, Occupation.Miller, liquidFunds: 0);
         world.Households[0].WorkshopInventory[Item.Bread] = 2;
 
         // household1: 買い手。1日目に床(10)で1単位だけ買える資金を持つ。
-        AddHousehold(world, id: 1, districtId: 4, Occupation.Woodworker, liquidFunds: 10);
+        AddHousehold(world, id: 1, districtId: 0, Occupation.Woodworker, liquidFunds: 10);
 
         var system = new TradeSystem(definition);
         var sellerKey = new MarketKey(Item.Bread, 0);
@@ -277,7 +284,9 @@ public sealed class TradeSystemTests
 
         var definition = BuildShoppingDefinition(breadFloor: 10, isExportEnabled: false);
         var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
-        AddHousehold(world, id: 0, districtId: 4, Occupation.Miller);
+        // 区画0(中心ではない)。#149で窓口の観測が都市生産品にも及ぶため(SellerAnchorsOn…と
+        // 同じ理由。isExportEnabled: falseは輸出だけを止め、窓口の観測・提示は止めない)。
+        AddHousehold(world, id: 0, districtId: 0, Occupation.Miller);
         // 出荷目標在庫ちょうど(1)に合わせる ── 破産中でなければ在庫比1000‰(健全時の係数1000‰)に
         // なる配置で、破産中の固定係数500‰との差が観測できるようにする。
         world.Households[0].WorkshopInventory[Item.Bread] = 1;
@@ -350,7 +359,9 @@ public sealed class TradeSystemTests
         // 本体: 1日目は誰も買わないので売れ残る(hasSettled=false)。
         {
             var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
-            AddHousehold(world, id: 0, districtId: 4, Occupation.Miller);
+            // 区画0(中心ではない)。#149で窓口の観測が都市生産品にも及ぶため(SellerAnchorsOn…と
+            // 同じ理由)。
+            AddHousehold(world, id: 0, districtId: 0, Occupation.Miller);
             world.Households[0].WorkshopInventory[Item.Bread] = 1;
 
             var system = new TradeSystem(definition);
@@ -369,7 +380,9 @@ public sealed class TradeSystemTests
         // 対照: 2日目を回す前に自分の約定(Sale)を帳簿へ直接置く。
         {
             var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
-            AddHousehold(world, id: 0, districtId: 4, Occupation.Miller);
+            // 区画0(中心ではない)。#149で窓口の観測が都市生産品にも及ぶため(SellerAnchorsOn…と
+            // 同じ理由)。
+            AddHousehold(world, id: 0, districtId: 0, Occupation.Miller);
             world.Households[0].WorkshopInventory[Item.Bread] = 1;
 
             var system = new TradeSystem(definition);
@@ -421,7 +434,9 @@ public sealed class TradeSystemTests
         int RunAndGetPrice(int householdInventoryBread)
         {
             var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
-            AddHousehold(world, id: 0, districtId: 4, Occupation.Miller);
+            // 区画0(中心ではない)。#149で窓口の観測が都市生産品にも及ぶため(SellerAnchorsOn…と
+            // 同じ理由)。
+            AddHousehold(world, id: 0, districtId: 0, Occupation.Miller);
             // 出荷目標在庫ちょうど(1)。世帯在庫(householdInventoryBread)は別軸として与える。
             world.Households[0].WorkshopInventory[Item.Bread] = 1;
             world.Households[0].HouseholdInventory[Item.Bread] = householdInventoryBread;
@@ -467,8 +482,10 @@ public sealed class TradeSystemTests
         var definition = BuildShoppingDefinition(breadFloor: 10);
         var world = new World(npcCount: 3, householdCount: 1, itemCount: Item.Count);
         world.Npcs[HeadNpcId].Rank = NpcRank.Master;
+        // 区画0(中心ではない)。#149で窓口の観測が都市生産品にも及ぶため(SellerAnchorsOn…と
+        // 同じ理由)。
         world.Households[0] = new HouseholdState(
-            id: 0, districtId: 4, headNpcId: HeadNpcId, memberNpcIds: new[] { HeadNpcId }, itemCount: Item.Count);
+            id: 0, districtId: 0, headNpcId: HeadNpcId, memberNpcIds: new[] { HeadNpcId }, itemCount: Item.Count);
         world.Households[0].Occupation = Occupation.Miller;
         world.Households[0].WorkshopInventory[Item.Bread] = 1; // 出荷目標在庫ちょうど(係数1000‰)。
 
@@ -691,6 +708,28 @@ public sealed class TradeSystemTests
         // ケースBと同じ配置。
         var definition = BuildExportAndShoppingDefinition(travelHoursPerDistrict: 1);
         var world = BuildExportAndShoppingWorld(definition, exporterDistrictId: 0, sellerDistrictId: 8);
+
+        // 配置の変更(2026-09-21、#149)。この定義の必需(穀物、Item.Grain)は
+        // <see cref="EconomySystemTestFixtures.UnusedRecipe"/>(Baker用の埋めレシピ)がitemId0を
+        // 出力に持つため、「どのレシピも出力しない」1次産品の定義から外れ、都市生産品として
+        // 扱われる(#149前は窓口が都市生産品を並べなかったため無害だった構成上の偶然)。
+        // #149で窓口が都市生産品も並べるようになると、買い手(区画0)から見て窓口(距離2)は
+        // district8(距離4)より近く、記憶が無ければ3段目(未知価格の床=1)がdistrict8の
+        // 見積もりとタイになるため、より近い窓口が1周目で選ばれてしまい、本テストが見たい
+        // 「買い物(district8、往復8時間)と輸出(窓口、往復4時間)が別区画で加算される」という
+        // 構成そのものが崩れる(判別力が窓口に吸収される)。<b>買い手に窓口の穀物価格の記憶
+        // (高値999)を持たせ、窓口を穀物の候補としては実質的に外した</b>(district8の床=1は
+        // 動かしていない)。
+        EconomySystemTestFixtures.AdvanceClockOnly(world, ticks: 24);
+        world.Knowledge[0].Add(new PriceObservation
+        {
+            ItemId = Item.Grain,
+            LocationId = 0,
+            Price = 999,
+            SellerId = HouseholdState.ExternalMarketSellerId,
+            ObservedAt = Tick.Zero,
+            Source = ObservationSource.Direct,
+        });
 
         EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
 
@@ -959,6 +998,26 @@ public sealed class TradeSystemTests
     /// 数量の解が減る)で失敗し、<c>homeQuantity</c>(距離0、常に2)と食い違った(赤を確認)。
     /// 変異を戻して緑に復帰させた。
     /// </remarks>
+    /// <remarks>
+    /// <b>配置の変更(2026-09-21、#149)。</b>買い手(Woodworker)は自分のレシピ(<c>UnusedRecipe</c>)の
+    /// 入力(木材)と耐久(工具)も毎日買う。#149前は窓口が都市生産品(パン)を並べなかったので
+    /// この背景需要は無害だったが、#149後は2つの経路で本テストの比較が崩れる(判別力が窓口に
+    /// 吸収される):
+    /// <list type="bullet">
+    /// <item>窓口(距離2、district2のパンと同じ費用)は「パン単独」のdistrict2よりパン+木材+
+    /// 工具をまとめて買える分だけ総価値が高くなり、1周目に窓口がdistrict2に勝って、遠方の
+    /// 買い手がdistrict2の床(10)ではなく窓口の実際の天井(20)でパンを買ってしまう。
+    /// → <b>買い手に窓口のパンの値の記憶(高値999)を持たせ、窓口をパンの候補としては
+    /// 実質的に外した。</b></item>
+    /// <item>中心に住む買い手(home)は窓口が常に距離0(追加の外出費用が要らない)なので工具を
+    /// 「無料で」買えるが、遠方の買い手(distant)は同じ工具を買うには単独で追加の外出をする
+    /// 価値が無い(窓口の総価値からパンを除いた分だけでは費用を超えない)。この非対称性は
+    /// パンの比較とは無関係な副作用である。
+    /// → <b>両世帯の木材・工具の背景需要を中立化した</b>(<see cref="BuildExportAndShoppingWorld"/>
+    /// と同じ配合: 木材100,000・工具5)。</item>
+    /// </list>
+    /// district2の床10・窓口の天井の導出式そのものは動かしていない。
+    /// </remarks>
     [Fact]
     public void BudgetGateUsesTheEffectivePriceOnly()
     {
@@ -970,6 +1029,10 @@ public sealed class TradeSystemTests
         AddHousehold(homeWorld, id: 0, districtId: 4, Occupation.Woodworker, liquidFunds: 1000);
         AddHousehold(homeWorld, id: 1, districtId: 4, Occupation.Miller);
         homeWorld.Households[1].WorkshopInventory[Item.Bread] = 100;
+        // 買い手自身の入力(木材)・耐久(工具)の需要を中立化する(下記remarks参照。本テストの
+        // 関心はパンだけである)。
+        homeWorld.Households[0].WorkshopInventory[Item.Timber] = 100_000;
+        homeWorld.Households[0].WorkshopInventory[Item.Tools] = 5;
 
         EconomySystemTestFixtures.RunDays(homeWorld, new TradeSystem(definition), days: 1);
 
@@ -981,6 +1044,19 @@ public sealed class TradeSystemTests
         AddHousehold(distantWorld, id: 0, districtId: 0, Occupation.Woodworker, liquidFunds: 1000);
         AddHousehold(distantWorld, id: 1, districtId: 2, Occupation.Miller); // District.Distance(0,2)=2
         distantWorld.Households[1].WorkshopInventory[Item.Bread] = 100;
+        distantWorld.Households[0].WorkshopInventory[Item.Timber] = 100_000;
+        distantWorld.Households[0].WorkshopInventory[Item.Tools] = 5;
+
+        EconomySystemTestFixtures.AdvanceClockOnly(distantWorld, ticks: 24);
+        distantWorld.Knowledge[0].Add(new PriceObservation
+        {
+            ItemId = Item.Bread,
+            LocationId = 0,
+            Price = 999,
+            SellerId = HouseholdState.ExternalMarketSellerId,
+            ObservedAt = Tick.Zero,
+            Source = ObservationSource.Direct,
+        });
 
         EconomySystemTestFixtures.RunDays(distantWorld, new TradeSystem(definition), days: 1);
 
@@ -1018,6 +1094,15 @@ public sealed class TradeSystemTests
     /// 実際値なし(Collection was empty。観測が買い物の副産物になり、0個しか買えなかった
     /// 区画の観測が生まれない経路)で失敗した(赤を確認)。変異を戻して緑に復帰させた。
     /// </remarks>
+    /// <remarks>
+    /// <b>配置の変更(2026-09-21、#149)。</b>窓口が都市生産品(パン)も売るようになると、遠方の
+    /// 買い手(Baker、区画0)は自分のUnusedRecipe(木材の入力)・耐久(工具)の背景需要ぶん窓口の
+    /// 総価値がdistrict2(パン単独)より高くなり、district2そのものを一度も訪問しなくなる ──
+    /// 本テストの前提(訪問はしたが1個も買えなかった)が成立しなくなる(判別力が窓口に吸収
+    /// される)。<b>買い手の木材・工具の背景需要を中立化し、窓口のパンの値の記憶(高値999)を
+    /// 持たせて窓口を実質的に外した</b>(<see cref="BuildExportAndShoppingWorld"/>と同じ配合・
+    /// 手法)。断定そのものは元のまま(Miller在庫0のまま・観測は生まれる)である。
+    /// </remarks>
     [Fact]
     public void ObservationsCoverEveryVisitedDistrictEvenWithoutAPurchase()
     {
@@ -1039,6 +1124,24 @@ public sealed class TradeSystemTests
 
         // 遠方の買い手。Household Id昇順でdepleterより後に処理される。
         AddHousehold(world, id: DistantBuyerId, districtId: 0, Occupation.Baker, liquidFunds: 1000);
+        // 配置の変更(2026-09-21、#149)。上記docコメントのとおり窓口が候補に入ると、遠方の
+        // 買い手はBaker自身のUnusedRecipe(木材の入力)・耐久(工具)の背景需要ぶん窓口の総価値が
+        // district2より高くなり、district2そのものを一度も訪問しなくなる ── 本テストの前提
+        // (訪問はしたが1個も買えなかった)がそもそも成立しなくなる。買い手の木材・工具の背景
+        // 需要を中立化し(<see cref="BuildExportAndShoppingWorld"/>と同じ配合)、窓口のパンの
+        // 値の記憶(高値999)を持たせて、窓口をパンの候補としては実質的に外した。
+        world.Households[DistantBuyerId].WorkshopInventory[Item.Timber] = 100_000;
+        world.Households[DistantBuyerId].WorkshopInventory[Item.Tools] = 5;
+        EconomySystemTestFixtures.AdvanceClockOnly(world, ticks: 24);
+        world.Knowledge[DistantBuyerId].Add(new PriceObservation
+        {
+            ItemId = Item.Bread,
+            LocationId = 0,
+            Price = 999,
+            SellerId = HouseholdState.ExternalMarketSellerId,
+            ObservedAt = Tick.Zero,
+            Source = ObservationSource.Direct,
+        });
 
         EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
 
@@ -1099,6 +1202,18 @@ public sealed class TradeSystemTests
     /// 直接見ている意図的な検出器であり、これが主たる守り手である</b>
     /// (<see cref="SellerReferenceIsTakenBeforeTheSellableStockGate"/> の
     /// 前提行が拾うのは副産物としての巻き添えにすぎない)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>配置の変更(2026-09-21、#149)。</b>耐久(工具)の組は、買い手(Woodworker)の
+    /// レシピ(<c>UnusedRecipe</c>)が木材(Timber、1次産品)を入力に取るため、窓口(距離2、
+    /// district2のToolsと同じ費用)へ木材を安価に大量補充しに行く強い誘因が元々あった。
+    /// #149で窓口がTools(都市生産品)も並べるようになると、買い手のTools見積もり(窓口の
+    /// 記憶が無ければ床1500、district2の見積もりと同値)がタイになり、木材目当てで
+    /// 1周目に確定する窓口の訪問だけでToolsの需要が(タイの価格で)「満たされた」ことになって、
+    /// 2周目にdistrict2を追加する限界価値が0になる ── 本テストが見たい外出
+    /// (district2でTools、q_個=2)が一度も起きなくなる(判別力が窓口に吸収される)。
+    /// <b>買い手に窓口のToolsの値の記憶(高値999999)を持たせ、窓口をToolsの候補としては
+    /// 実質的に外した</b>(SellerFloorPrice=1500そのものは動かしていない)。
     /// </remarks>
     [Fact]
     public void ErrandPlannerAndSettlementAgreeOnQuantity()
@@ -1196,6 +1311,27 @@ public sealed class TradeSystemTests
                 LocationId = 0,
                 Price = MarketReferencePrice,
                 SellerId = 999, // 実在しない売り手。参照は売り手を問わず平均するので無関係でよい。
+                ObservedAt = Tick.Zero,
+                Source = ObservationSource.Direct,
+            });
+
+            // 配置の変更(2026-09-21、#149)。窓口はTools(都市生産品)も並べるようになったため、
+            // 買い手の見積もり(距離2、Rの外)は窓口も候補にする。窓口の記憶が無いと3段目
+            // (未知価格の床)= SellerFloorPrice(1500)と同値になり district2 の見積もりと
+            // タイになる。買い手はどのみち窓口へ木材(Timber、1次産品)を買いに行く
+            // (UnusedRecipe(Woodworker)の入力補充。この誘因は#149と無関係に既に強い)ため、
+            // 窓口の訪問はTools抜きでも1周目で確定してしまい、Toolsの窓口見積もりが
+            // district2と同値である以上、2周目でdistrict2を追加する限界価値が0になって
+            // 本テストが見たい外出(district2、Tools)が一度も起きなくなる(判別力が窓口に
+            // 吸収される)。<b>買い手に窓口のToolsの値の記憶(高値。SellerFloorPriceを
+            // 大きく上回る)を持たせ、窓口をToolsの候補としては実質的に外す</b> ──
+            // SellerFloorPrice(1500、テストの構成値)そのものは動かさない。
+            world.Knowledge[0].Add(new PriceObservation
+            {
+                ItemId = Item.Tools,
+                LocationId = 0,
+                Price = 999_999,
+                SellerId = HouseholdState.ExternalMarketSellerId,
                 ObservedAt = Tick.Zero,
                 Source = ObservationSource.Direct,
             });
@@ -1661,22 +1797,36 @@ public sealed class TradeSystemTests
     /// 別表(続き)R-5(レビュー2巡目)。段6の閾在庫は<b>売り手側(速い側、
     /// <see cref="MarketReference.TrySeller"/>)</b>の相場基準で決まり、買い手側(遅い側、
     /// <see cref="MarketReference.TryBuyer"/>)を読み直してはならない(GDD02c §1.2末尾)。
-    /// 2日目に、他の売り手の観測(20)だけの平均(<c>TryBuyer</c>=20)と、それに自分の前日の
-    /// 約定単価(2)を混ぜた平均(<c>TrySeller</c>=<c>CeilDiv(22,2)</c>=11)が異なる値になる構成を
-    /// 作り、閾在庫を挟む位置(12〜20の間、15)に販売在庫を置く。
+    /// 2日目に、他の売り手の観測だけの平均(<c>TryBuyer</c>)と、それに自分の前日の
+    /// 約定単価(2)を混ぜた平均(<c>TrySeller</c>)が異なる値になる構成を作り、閾在庫を挟む
+    /// 位置に販売在庫を置く。
     /// </summary>
     /// <remarks>
     /// <b>M-11(実測されたら書く)。</b>段6が<c>hasSellerReference</c>/<c>sellerReference</c>を
     /// 捨てて<c>MarketReference.TryBuyer</c>を呼び直す変異(タスク仕様が名指し)を当てると、
     /// 相場基準が20(買い手側)になり閾在庫が20(出荷目標在庫10の2倍・上限)へ跳ね上がる。
-    /// 販売在庫15はこの閾を超えないため輸出が起きなくなり、本テストの表明(在庫12・数量3の
+    /// 販売在庫18はこの閾を超えないため輸出が起きなくなり、本テストの表明(在庫16・数量2の
     /// 外部Sale)が崩れることを期待する。<b>取り違えても例外は出ない</b>
     /// ([GDD02c §1.2](../../../docs/03-gdd/02c-price-and-budget.md)末尾)。
     /// </remarks>
     /// <remarks>
     /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
     /// <c>39e367a</c>、M-11)。</b>段6が<c>MarketReference.TryBuyer</c>を呼び直す変異は
-    /// 期待どおり赤になった。
+    /// 期待どおり赤になった(この実測は下記#149追随の期待値変更より前に行われている。
+    /// 変異が壊す不変条件そのものは変わっていない)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>#149 追随(2026-09-21)。期待値の変更。</b>本テストの世帯は「段6のIsWithinReachを
+    /// 常に真にする」ため中心区画に固定しており(上記コメント)、これは動かせない。
+    /// #149で窓口が都市生産品(パン)も売るようになったため、中心に居るこの世帯は毎日
+    /// 窓口自身のパン価格(この定義では20)も観測するようになり(決定5、
+    /// <see cref="MarketReference.TrySeller"/>が畳む「他の売り手」に窓口が加わる)、
+    /// 元々手で仕込んだ他の売り手の観測(20)に加えて窓口の観測(20)も1日目の終わりに
+    /// 積まれる。<c>TrySeller</c>の平均は{20(other), 20(window), 2(own settled)}の3項
+    /// (<c>CeilDiv(42,3)</c>=14)になり、旧来の2項平均(11)ではなくなった ── 閾在庫は
+    /// 12→16に変わる。<c>TryBuyer</c>側は窓口の観測も同値(20)なので平均は変わらず20のまま
+    /// (判別力は保たれる)。販売在庫を15→18(新しい閾16と20の間)、期待在庫を12→16、
+    /// 期待数量を3→2へ実測して置き直した。
     /// </remarks>
     [Fact]
     public void ExportUsesTheSellerSideMarketReference()
@@ -1735,20 +1885,20 @@ public sealed class TradeSystemTests
             Direction = LedgerDirection.Sale,
         });
 
-        // 2日目の朝、閾在庫(売り手側12/買い手側20)の間に来る在庫(15)を直接与える
+        // 2日目の朝、閾在庫(売り手側16/買い手側20)の間に来る在庫(18)を直接与える
         // (段5の買い物は本テストの関心の外)。
-        world.Households[0].WorkshopInventory[Item.Bread] = 15;
+        world.Households[0].WorkshopInventory[Item.Bread] = 18;
 
         EconomySystemTestFixtures.RunDays(world, system, days: 1); // 2日目
 
-        // 売り手側の相場基準(11)を使えば閾在庫12・超過分3が輸出される。
-        Assert.Equal(12, world.Households[0].WorkshopInventory[Item.Bread]);
+        // 売り手側の相場基準(14)を使えば閾在庫16・超過分2が輸出される。
+        Assert.Equal(16, world.Households[0].WorkshopInventory[Item.Bread]);
         Assert.Contains(
             world.Ledgers[0],
             entry => entry.Direction == LedgerDirection.Sale
                 && entry.CounterpartyId == HouseholdState.ExternalMarketSellerId
                 && entry.ItemId == Item.Bread
-                && entry.Quantity == 3
+                && entry.Quantity == 2
                 && entry.UnitPrice == 10);
     }
 
@@ -1784,10 +1934,42 @@ public sealed class TradeSystemTests
     /// レビュー3巡目の注記は、R-6が段1の相場基準の位置を拘束しているという事実自体は
     /// 実測どおりだが、「換算を守っているテストは他に無い」という前提は本実測で否定された)。
     /// </remarks>
+    /// <remarks>
+    /// <b>初期条件の組み直し(2026-09-21、#149・仕様の訂正。フェーズ2)。</b>household0は
+    /// 「段6のIsWithinReachを常に真にする」ため中心区画に固定されており動かせず、距離0では
+    /// <see cref="ErrandPlanner.EstimateWindowPrice"/>が常に「今日の知覚」を使うため記憶での
+    /// 窓口の無効化も効かない。#149で窓口が工具も売るようになった結果、household0は中心に
+    /// 居るだけで1日目から窓口の工具の当日価格(天井200)を知覚し、旧来の「1日目: 双方とも
+    /// 工具在庫0で何も起きない」という前提そのものが崩れる。<b>保たれるべき判別力は具体値
+    /// (相場基準51・床100・数量1)ではなく順序である</b>(相場基準がsellableStock&lt;=0の
+    /// ゲートより先に取られること)ため、初期条件を次のように組み直した:
+    /// <list type="bullet">
+    /// <item><c>liquidFunds</c>を150に絞った(旧1,000,000)。窓口の1日目の実価格(天井200)は
+    /// 耐久の現金上限ゲート(<c>CashCap=liquidFunds</c>)で弾かれ(200&gt;150)、household1が
+    /// 2日目に床100で出品したときだけ通る(100≦150)。窓口を品目ゲートで外すのではなく
+    /// 資金で塞ぐことで、値付け・見積もりの経路(このテストの対象外)を動かさずに済む。</item>
+    /// <item>他の売り手の観測を1件(100)から3件(997・998・999、いずれも1)へ増やした。
+    /// household0は中心に居るため2日目には窓口自身の工具観測(天井200)も自動的に
+    /// <see cref="MarketReference.TrySeller"/>/<see cref="MarketReference.TryBuyer"/>の
+    /// 「他の売り手」に畳まれる(決定5)。旧来の2件(他1件+自分の前日約定)のままだと
+    /// 窓口の200が混ざって相場基準が101前後になり、閾在庫が2(出荷目標在庫の代用1を上回る)
+    /// になって「相場基準を使う/使わない」の差が消える(<b>組み替えても緑になる</b>=
+    /// 判別力の死)。<see cref="ExternalMarket.ExportThresholdStock"/>を直接呼んで実測した
+    /// ところ、相場基準51(=(1+1+1+200)/4を切り上げ)なら閾在庫0、相場基準を使わない
+    /// フォールバック(出荷目標在庫1)なら閾在庫1になり、どちらも household0 が2日目に
+    /// 買う1個(下記)に対して異なる結果(輸出する/しない)を生む ── <b>判別力は死んでいない</b>。</item>
+    /// <item><c>tolerancePermille</c>を3000へ上げた。相場基準を意図的に低く保った副作用で、
+    /// 買い物側(<see cref="MarketReference.TryBuyer"/>)の許容乖離ゲートが締まりすぎて
+    /// household1からの購入(床100)自体が通らなくなる(相場基準51に既定の許容乖離1000‰を
+    /// 掛けても51 &lt; 100)。許容乖離を広げて購入そのものは通す。</item>
+    /// </list>
+    /// </remarks>
     [Fact]
     public void SellerReferenceIsTakenBeforeTheSellableStockGate()
     {
-        const int OtherSellerId = 999;
+        const int OtherSellerId1 = 997;
+        const int OtherSellerId2 = 998;
+        const int OtherSellerId3 = 999;
 
         var externalBuyPrice = new int[Item.Count];
         externalBuyPrice[Item.Grain] = 1; // UnusedRecipe(Baker等)が出力する都市生産品。0だと構築時に投げる。
@@ -1800,17 +1982,35 @@ public sealed class TradeSystemTests
             laborPermille: 1000);
 
         // shipmentDays=1(既定) → 出荷目標在庫(生産能力1×出力数量1×出荷日数1)=1。
+        //
+        // 配置の変更(2026-09-21、#149・仕様の訂正。フェーズ2)。household0は「段6の
+        // IsWithinReachを常に真にする」ため中心区画に固定されており(下記)、中心では
+        // ErrandPlanner.EstimateWindowPriceが常に「今日の知覚」を使うため、窓口を記憶で
+        // 無効化する手が使えない。窓口が工具(都市生産品)も売るようになった#149以降、
+        // household0は中心に居るだけで毎日窓口の工具価格(床100の天井、200)を観測してしまい
+        // (決定5、MarketReference.TrySellerが畳む)、初期条件をゼロから組み直す必要がある。
+        // tolerancePermilleを大きく上げているのは、後述のとおり相場基準を意図的に低く
+        // 保つ(輸出の閾在庫を0にする)ことの副作用で買い物側の許容乖離ゲートが締まりすぎる
+        // ことを防ぐためである(下記「相場基準の設計」参照)。
         var definition = EconomySystemTestFixtures.BuildDefinition(
             toolsRecipe,
-            externalBuyPriceOverride: externalBuyPrice);
+            externalBuyPriceOverride: externalBuyPrice,
+            tolerancePermille: 3000);
 
         var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
 
         // household0: 工具を作るMiller。段1時点で工具在庫0(相場基準はあるが売り注文は無い)。
         // 中心区画に置く(段6のIsWithinReachを常に真にし、Tの検査を本テストの関心の外にする)。
+        //
+        // liquidFundsを150に絞る(#149前は1,000,000だった)。窓口の今日の実価格(天井200)は
+        // 1日目のうちに耐久の現金上限ゲート(CashCap=liquidFunds)で弾かれ(200>150)、
+        // household1が2日目に床100で出品したときだけ通る(100<=150)。これにより、
+        // #149で新たに生まれた「1日目のうちに窓口から工具を買ってしまう」経路を、窓口を
+        // 品目ゲートで外すのではなく資金で塞ぐ(このテストは値付け・見積もりの経路を
+        // 動かしたくないため)。
         AddHousehold(
             world, id: 0, districtId: District.ExternalMarketDistrictId, Occupation.Miller,
-            liquidFunds: 1_000_000);
+            liquidFunds: 150);
 
         // household1: 工具の売り手。1日目は在庫0(オファーを立てない)。
         AddHousehold(world, id: 1, districtId: District.ExternalMarketDistrictId, Occupation.Miller);
@@ -1819,52 +2019,57 @@ public sealed class TradeSystemTests
 
         EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目: 双方とも工具在庫0。
 
-        // household0の売り手側の相場基準(TrySeller)だけに効く「自分の前日の約定単価」(1)を
-        // 帳簿へ直接置く。耐久の需要(TryBuyer、買い手側)は帳簿を見ないので、この一手で
-        // 「買い物に使う基準」(100)と「輸出の閾在庫に使う基準」(CeilDiv(100+1,2)=51)を
-        // 独立に動かせる。
-        world.Ledgers[0].Add(new LedgerEntry
-        {
-            CounterpartyId = HouseholdState.ExternalMarketSellerId,
-            ItemId = Item.Tools,
-            Quantity = 1,
-            UnitPrice = 1,
-            OccurredAt = Tick.Zero,
-            Terms = LedgerTerms.Cash,
-            Direction = LedgerDirection.Sale,
-        });
-
-        // 他の売り手の観測(100)を1件仕込む。耐久の需要(買い手側)と輸出の閾在庫(売り手側)の
-        // 両方がこれを読むが、平均の取り方が違う(上のLedgerが売り手側だけに混ざる)。
+        // 相場基準の設計(2026-09-21、#149・仕様の訂正)。household0は中心に居るため、1日目の
+        // うちに窓口自身の工具観測(天井200、SellerId=窓口の予約Id)を自動的に得ている
+        // (決定5)。これは「他の売り手」として2日目のMarketReference.TrySeller/TryBuyerの
+        // 両方に畳まれる。旧テストが使った「他の売り手1件(100)+自分の前日約定(1)」の2項では、
+        // 窓口の200が混ざると相場基準が101前後にしかならず、輸出の閾在庫が2(出荷目標在庫の
+        // 代用1を上回る)になって「相場基準を使う/使わない」の差が消える(組み替えても
+        // 緑になる=判別力が死ぬ)。そこで他の売り手をさらに2件(997・998、いずれも安値1)
+        // 追加し、窓口の200を薄める ── 4件(997・998・999・窓口)の平均で相場基準を
+        // 十分低くし、輸出の閾在庫をちょうど0にする(下記assert直前のコメントで実測値を書く)。
+        // TryBuyer(買い物側)も同じ観測集合を読むため相場基準が下がり、床100が「許容乖離
+        // (tolerancePermille=3000)を掛けた相場基準」を上回って買い物のゲートが締まる ──
+        // それを避けるために上でtolerancePermilleを大きく上げてある。
         world.Knowledge[0].Add(new PriceObservation
         {
             ItemId = Item.Tools,
             LocationId = 0,
-            Price = 100,
-            SellerId = OtherSellerId,
+            Price = 1,
+            SellerId = OtherSellerId1,
+            ObservedAt = Tick.Zero,
+            Source = ObservationSource.Direct,
+        });
+        world.Knowledge[0].Add(new PriceObservation
+        {
+            ItemId = Item.Tools,
+            LocationId = 0,
+            Price = 1,
+            SellerId = OtherSellerId2,
+            ObservedAt = Tick.Zero,
+            Source = ObservationSource.Direct,
+        });
+        world.Knowledge[0].Add(new PriceObservation
+        {
+            ItemId = Item.Tools,
+            LocationId = 0,
+            Price = 1,
+            SellerId = OtherSellerId3,
             ObservedAt = Tick.Zero,
             Source = ObservationSource.Direct,
         });
 
         // 2日目の朝、household1に工具在庫を持たせる(段1で相場基準の無いhousehold1は
-        // 床=100で出品する)。
+        // 床=100で出品する。既定の在庫比の下限係数500‰により、相場基準がいくら高くても
+        // 提示価格は床のまま ── OfferPrice.PriceCoefficientPermilleの下限)。
         world.Households[1].WorkshopInventory[Item.Tools] = 50;
 
         EconomySystemTestFixtures.RunDays(world, system, days: 1); // 2日目
 
-        // 前提: household0が実際に工具を1個買っている(段5b、耐久)。
-        //
-        // レビュー3巡目: このQuantity == 1は、本テストの主題(段1の相場基準の位置)とは
-        // 別に、BuyerBudget.QuantityInUnits(耐久の換算)も拘束している。この行をQuantity >= 1へ
-        // 緩めると本テストからは換算の崩れ(1 → 50個)を検出できなくなる ── R-6の主題からは
-        // 妥当な整理に見えるため気付きにくい。意図した設計ではなく、3巡目のレビューが見つけた
-        // 偶然の拘束である。
-        //
-        // 訂正(2026-09-21、mutator の変異M-5の実測)。「この換算を守っているテストは他に無い」
-        // という前回の記述は実測で否定された ── ErrandPlannerAndSettlementAgreeOnQuantity が
-        // 耐久の換算を直接見ている意図的な検出器であり、そちらが主たる守り手である
-        // (M-5は本テストを含む5件を赤にした)。上のQuantity == 1がR-6の副産物として換算も
-        // 拘束しているという事実自体は変わらない。
+        // 前提: household0が実際に工具を1個買っている(段5b、耐久)。実際の資金(150)が
+        // 実効価格(100)の1個ぶんしか無いため(FundsCap=FloorDiv(150,100)=1)、需要側の
+        // 線形解(2個相当)より少なく約定する ── #149前は資金を絞っていなかったので
+        // この経路も新たに踏むようになった。
         Assert.Contains(
             world.Ledgers[0],
             entry => entry.Direction == LedgerDirection.Purchase
@@ -1872,8 +2077,10 @@ public sealed class TradeSystemTests
                 && entry.CounterpartyId == 1
                 && entry.Quantity == 1);
 
-        // 相場基準(51)を使えば閾在庫0・買った1個がそのまま輸出される
-        // (household0の工具在庫が0に戻る)。
+        // 相場基準(実測: (1+1+1+200)/4を切り上げて51)を使えば閾在庫0・買った1個が
+        // そのまま輸出される(household0の工具在庫が0に戻る)。相場基準を使わない
+        // (誤って段6のゲートの後で控えを取る)実装なら、出荷目標在庫(1)が代わりに使われ、
+        // 買った1個は閾を超えず輸出されない(工具在庫は1のまま) ── 本テストはこの差を見る。
         Assert.Equal(0, world.Households[0].WorkshopInventory[Item.Tools]);
         Assert.Contains(
             world.Ledgers[0],

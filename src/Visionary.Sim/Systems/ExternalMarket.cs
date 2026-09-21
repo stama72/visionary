@@ -25,19 +25,18 @@ public static class ExternalMarket
     private const int StockRatioUpperBoundPermille = 2000; // ‰
 
     /// <summary>
-    /// その日の窓口の提示価格(GDD02d §2.1・§2.2)。<paramref name="itemId"/> が都市生産品(1次産品で
-    /// ない)なら false(0 ではない) ── <see cref="WorldDefinition.ExternalSellPrice"/> は都市生産品に
-    /// 対して <see cref="ArgumentException"/> を投げるため、判定をこの関数の中に閉じる。
+    /// その日の窓口の提示価格(GDD02d §2.1・§2.2)。全品目を並べる ── 1次産品は床から、
+    /// 都市生産品は外部買値(床)から導出した天井から(<see cref="WorldDefinition.ExternalSellPrice"/>)。
     /// </summary>
+    /// <remarks>
+    /// <b>戻り値は M0 では常に <c>true</c> である。</b>シグネチャを <c>bool Try…</c> のまま残すのは、
+    /// <see cref="StoreChoice"/> / <see cref="ErrandPlanner"/> を触らずに済ませるためであり
+    /// (決定2、タスク仕様)、GDD11 が窓口を行商人へ置き換えるとき「その日は並ばない」が
+    /// 戻る余地を残す。<b>「false になる日がある」と読んではならない</b>(M0 の間は無い)。
+    /// </remarks>
     public static bool TryOfferPrice(WorldDefinition definition, Tick now, int itemId, out int offerPrice)
     {
         ArgumentNullException.ThrowIfNull(definition);
-
-        if (!definition.IsPrimaryItem(itemId))
-        {
-            offerPrice = 0;
-            return false;
-        }
 
         offerPrice = definition.ExternalSellPrice(itemId, GameDate.FromTick(now).Season);
         return true;
