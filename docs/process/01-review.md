@@ -22,13 +22,17 @@
 | ---- | ---------- |
 | **実装**(コードとテスト) | [レビュアーエージェント](../../.claude/agents/reviewer.md) → 開発者 |
 | **テストの判別力**(変異が落ちるか) | [`mutator`](../../.claude/agents/mutator.md) が実測する([ADR-0013](../adr/0013-mutation-measurement-separated.md)) |
-| **設計・プロセス・文書のみ** | [`/advise`](../../.claude/commands/advise.md)(任意)→ 開発者。束ごとに差分へかける([06-design-sessions](06-design-sessions.md)) |
+| **設計・プロセス・文書のみ** | **設計セッションが呼ぶ** — 専門家([`adviser-economy`](../../.claude/agents/adviser-economy.md))が先、全般([`adviser`](../../.claude/agents/adviser.md))が最後に残りを拾う → 開発者。束ごとに差分へかける([06-design-sessions](06-design-sessions.md)) |
 
-**レビュアーエージェントは実装工程にだけ使う。** 設計・プロセス工程には使わない([ADR-0008](../adr/0008-review-scope-narrowed-to-unnoticeable-defects.md) 論点3)。
+**[`reviewer`](../../.claude/agents/reviewer.md) は実装工程にだけ使う。** 設計・プロセス工程には使わない([ADR-0008](../adr/0008-review-scope-narrowed-to-unnoticeable-defects.md) 論点3)。**役を名指しするのは、設計・プロセス工程もエージェントで回すようになったためである**([#105](https://github.com/stama72/visionary/issues/105))。「エージェントは実装専用」ではない — 工程ごとに別の憲章を持つエージェントが当たる。
 
 **実装工程のレビューは[フェーズ2](05-phase-sessions.md)が回す。** レビュアーを起動するのも、指摘を implementer に渡すのもフェーズ2 のセッションである。
 
-`/advise` は敵対的レビューではない。論点整理とスコープ整理を行い、**象限I-b の4類型**(広い保証 / 参照点の誤り / 上位文書との矛盾 / 却下理由の空洞化)だけを必ず報告する。結論は開発者が出す。
+アドバイザーは敵対的レビューではない。論点整理とスコープ整理を行い、**象限I-b の4類型**(広い保証 / 参照点の誤り / 上位文書との矛盾 / 却下理由の空洞化)だけを必ず報告する。結論は開発者が出す。
+
+**報告する巡は2つで、3巡目は呼ばれても打ち切る**(実装レビューは3つ)。基準は同じ「後から気付けるか」で、2巡目に残るのは**気付けないものと、訂正で新しく入った決定**だけである。**役ごとの対応表は各憲章が持つ**(本書は複製しない)。1巡短いのは、設計はレビューで詰めきれず、使ってみることでしか詰まらないためである(下の「打ち切って実装へ渡す」)。
+
+**2巡目の指摘への訂正は、誰も見ない。** 承知のうえで打ち切っている — 受け皿は「気付いたら直す」と、次のタスクでその文書を使うことである。**巡の本数を決めているのは、この受け皿があるかである。** したがって **ADR を含む束は打ち切らない**(下の「ADR だけは打ち切れない」。凍結後は踏めないので受け皿が無い)。その束の3巡目以降は2巡目の範囲のまま続ける。
 
 ## 「気付いたら直す」
 
@@ -45,7 +49,7 @@
 
 **憲章そのものの正は [`.claude/agents/reviewer.md`](../../.claude/agents/reviewer.md) である。** 本書はその本文を複製しない。理由は憲章が**実行される設定**だからである(詳細は [README「実行される仕様」](README.md#実行される仕様という位置づけ))。
 
-同じことが [`.claude/agents/implementer.md`](../../.claude/agents/implementer.md)、[`.claude/agents/mutator.md`](../../.claude/agents/mutator.md)、[`.claude/commands/learn.md`](../../.claude/commands/learn.md)、[`.claude/commands/advise.md`](../../.claude/commands/advise.md)、[`.claude/commands/impl.md`](../../.claude/commands/impl.md)、[`.claude/commands/wrap.md`](../../.claude/commands/wrap.md) にも当てはまる。
+同じことが [`.claude/agents/implementer.md`](../../.claude/agents/implementer.md)、[`.claude/agents/mutator.md`](../../.claude/agents/mutator.md)、[`.claude/agents/adviser.md`](../../.claude/agents/adviser.md)、[`.claude/agents/adviser-economy.md`](../../.claude/agents/adviser-economy.md)、[`.claude/commands/learn.md`](../../.claude/commands/learn.md)、[`.claude/commands/advise.md`](../../.claude/commands/advise.md)、[`.claude/commands/impl.md`](../../.claude/commands/impl.md)、[`.claude/commands/wrap.md`](../../.claude/commands/wrap.md) にも当てはまる。
 
 ADR-0004 決定(まとめ)にも憲章のリストがあるが、**あれは起案時点(2026-08-27)のスナップショット**である([ADR-0005](../adr/0005-reviewer-scope-includes-spec-defects.md))。
 

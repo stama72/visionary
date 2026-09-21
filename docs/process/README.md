@@ -18,7 +18,9 @@
 - [docs/tasks/](../tasks/) — タスク仕様のファイル名とテンプレート(**使い捨て層**)。**状態一覧は GitHub の issue へ移した**([ADR-0006](../adr/0006-issue-driven-task-management.md) 論点1)
 - [`.claude/agents/`](../../.claude/agents/) — 各エージェントの憲章(**実行される仕様**)
 - [`.claude/commands/learn.md`](../../.claude/commands/learn.md) — 学習セッションの枠づけ
-- [`.claude/commands/advise.md`](../../.claude/commands/advise.md) — 設計アドバイザーの枠づけ(設計・プロセス工程でレビュアーの代わりに使う)
+- [`.claude/agents/adviser.md`](../../.claude/agents/adviser.md) — 全般アドバイザーの憲章(設計・プロセス工程で `reviewer` の代わりに使う)
+- [`.claude/agents/adviser-economy.md`](../../.claude/agents/adviser-economy.md) — 経済アドバイザーの憲章(全般より先に呼ぶ)
+- [`.claude/commands/advise.md`](../../.claude/commands/advise.md) — アドバイザーを手で呼ぶ入口(設計セッションの外で書いた差分用)
 - [`.claude/commands/design.md`](../../.claude/commands/design.md) — 設計セッションの枠づけ(06 の実行される仕様)
 - [`.claude/commands/impl.md`](../../.claude/commands/impl.md) / [`.claude/commands/wrap.md`](../../.claude/commands/wrap.md) — フェーズ2・フェーズ3 の枠づけ
 

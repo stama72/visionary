@@ -234,4 +234,4 @@ pwsh scripts/pipeline.ps1 -Status
 
 仕様を書くまでもない規模なら、そもそも実装タスクではない — [02-task-spec](02-task-spec.md) 規則2(「宣言のみでよい」と書かない)の裏返しである。
 
-**設計・プロセス・文書のみの変更は、この3フェーズに乗らない。** レビュアーではなく [`/advise`](../../.claude/commands/advise.md) と開発者が見る([01-review](01-review.md))。**進め方は [06-design-sessions](06-design-sessions.md) が持つ** — 束ごとに決めて書いてコミットし、引き継ぎメモは書かない。フェーズ1 と設計タスクの境界(却下する選択肢があるか)も同書。
+**設計・プロセス・文書のみの変更は、この3フェーズに乗らない。** [`reviewer`](../../.claude/agents/reviewer.md) ではなく**アドバイザー**と開発者が見る([01-review](01-review.md))。**進め方は [06-design-sessions](06-design-sessions.md) が持つ** — 束ごとに決めて書いてコミットし、引き継ぎメモは書かない。フェーズ1 と設計タスクの境界(却下する選択肢があるか)も同書。

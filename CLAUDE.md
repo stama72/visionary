@@ -90,7 +90,7 @@ dotnet format Visionary.sln               # CIのフォーマット検証を通�
 - **開発プロセスの現行仕様は [docs/process/](docs/process/)** が持つ。運用のフィードバックはまずそこと `.claude/` に反映する。**プロセスについて新たにADRを起こすのは、過去のADRの決定を覆すときに限る**(新しい分野の決定であれば、却下した選択肢に価値があるかで判断する)
 - 新しい規約を作るときは「**これは機械で守れるか**」を必ず問う。機械で守れない規約は、サブエージェントに任せられる範囲を狭める([ADR-0004](docs/adr/0004-ai-driven-development-workflow.md))
 - タスクの状態・優先順位・依存関係は **issue が正**。`docs/tasks/` はタスク仕様のファイルとテンプレートだけを持つ
-- **レビュアーエージェントは実装工程にだけ使う。** 設計・プロセス・文書のみの変更には使わない。そちらは開発者のレビューと [`/advise`](.claude/commands/advise.md)(設計アドバイザー)が担う
+- **[`reviewer`](.claude/agents/reviewer.md) は実装工程にだけ使う。** 設計・プロセス・文書のみの変更には使わない。そちらは開発者のレビューと**アドバイザー**が担う — 経済([`adviser-economy`](.claude/agents/adviser-economy.md))が先、全般([`adviser`](.claude/agents/adviser.md))が最後に残りを拾う。**呼ぶのは設計セッション自身**で、既定は opus([docs/process/06-design-sessions.md](docs/process/06-design-sessions.md)「アドバイザー」)
 - **レビューの守備範囲は「気付けない × 影響大」に限る。** 表記揺れ・リンク切れ・軽微な不整合は**報告しない**。実装レビューは巡ごとに報告してよい象限を狭め、4巡目で打ち切る([docs/process/01-review.md](docs/process/01-review.md))
 - **気付いたら直す。** 守備範囲の外を放置できるのはこの規約があるからである。リンク切れ・表記揺れ・古い件数は、見つけたそのとき、触っているブランチで直す。issue も別 PR も立てない
 - **タスク仕様のテスト節は「落ちるべき条件」を書く。** 目標は通すことではなく、壊したときに落ちること。書き方の規則は [docs/process/02-task-spec.md](docs/process/02-task-spec.md)

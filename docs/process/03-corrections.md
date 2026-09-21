@@ -102,6 +102,6 @@ W1-04 の8件も、**8件中7件はレビュアーが見つけた**(自己点検
 - 規則1 → **広い保証**
 - 規則2 → **却下理由の空洞化**
 
-したがって [`.claude/agents/reviewer.md`](../../.claude/agents/reviewer.md) §0・§4 と [`.claude/commands/advise.md`](../../.claude/commands/advise.md) の両方が見る。
+したがって [`.claude/agents/reviewer.md`](../../.claude/agents/reviewer.md) §0・§4 と [`.claude/agents/adviser.md`](../../.claude/agents/adviser.md) の両方が見る。
 
 **ただし本書の規則は設計セッションが守るためのものであり、レビュアーが見つけるのは二次防衛線である。** レビュアーが見つける限り巡は増える。
