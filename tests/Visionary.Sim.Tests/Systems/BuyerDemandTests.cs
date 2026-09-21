@@ -586,7 +586,8 @@ public sealed class BuyerDemandTests
         TradeSettlement.Execute(
             world, world.Households[0], world.Households[1], DemandPurpose.Durable,
             Item.Tools, quantity: 1, unitEffectivePrice: 400,
-            acquisitionCostSmoothingPermille: definition.AcquisitionCostSmoothingPermille);
+            acquisitionCostSmoothingPermille: definition.AcquisitionCostSmoothingPermille,
+            sellerReserveQuantity: 0);
 
         var after = buyerDemand.Build(
             world, world.Households[0], hasPreviousOutputOfferPrice: true, previousOutputOfferPrice: 20);

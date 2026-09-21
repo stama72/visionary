@@ -81,7 +81,8 @@ public sealed class TradeSettlementTests
 
         TradeSettlement.Execute(
             world, buyer, seller, DemandPurpose.Necessity, ItemA,
-            quantity: 2, unitEffectivePrice: 30, acquisitionCostSmoothingPermille: 250);
+            quantity: 2, unitEffectivePrice: 30, acquisitionCostSmoothingPermille: 250,
+            sellerReserveQuantity: 0);
 
         Assert.Equal(buyerFundsBefore - 60, buyer.LiquidFunds);
         Assert.Equal(sellerFundsBefore + 60, seller.LiquidFunds);
@@ -118,14 +119,16 @@ public sealed class TradeSettlementTests
 
         TradeSettlement.Execute(
             world, world.Households[BuyerId], world.Households[SellerId], DemandPurpose.Necessity,
-            Item.Firewood, quantity: 3, unitEffectivePrice: 5, acquisitionCostSmoothingPermille: 250);
+            Item.Firewood, quantity: 3, unitEffectivePrice: 5, acquisitionCostSmoothingPermille: 250,
+            sellerReserveQuantity: 0);
 
         Assert.Equal(3, world.Households[BuyerId].HouseholdInventory[Item.Firewood]);
         Assert.Equal(0, world.Households[BuyerId].WorkshopInventory[Item.Firewood]);
 
         TradeSettlement.Execute(
             world, world.Households[BuyerId], world.Households[SellerId], DemandPurpose.ProductionInput,
-            Item.Firewood, quantity: 4, unitEffectivePrice: 5, acquisitionCostSmoothingPermille: 250);
+            Item.Firewood, quantity: 4, unitEffectivePrice: 5, acquisitionCostSmoothingPermille: 250,
+            sellerReserveQuantity: 0);
 
         Assert.Equal(3, world.Households[BuyerId].HouseholdInventory[Item.Firewood]); // 変わらない
         Assert.Equal(4, world.Households[BuyerId].WorkshopInventory[Item.Firewood]);
@@ -154,13 +157,15 @@ public sealed class TradeSettlementTests
 
         TradeSettlement.Execute(
             world, world.Households[BuyerId], world.Households[SellerId], DemandPurpose.Necessity,
-            Item.Firewood, quantity: 1, unitEffectivePrice: 999, acquisitionCostSmoothingPermille: 250);
+            Item.Firewood, quantity: 1, unitEffectivePrice: 999, acquisitionCostSmoothingPermille: 250,
+            sellerReserveQuantity: 0);
 
         Assert.Equal(20, world.Households[BuyerId].PurchaseUnitCostAverage[Item.Firewood]);
 
         TradeSettlement.Execute(
             world, world.Households[BuyerId], world.Households[SellerId], DemandPurpose.ProductionInput,
-            Item.Firewood, quantity: 1, unitEffectivePrice: 100, acquisitionCostSmoothingPermille: 250);
+            Item.Firewood, quantity: 1, unitEffectivePrice: 100, acquisitionCostSmoothingPermille: 250,
+            sellerReserveQuantity: 0);
 
         int expected = OfferPrice.UpdatedAcquisitionCost(previousAverage: 20, unitPrice: 100, smoothingPermille: 250);
         Assert.Equal(expected, world.Households[BuyerId].PurchaseUnitCostAverage[Item.Firewood]);
@@ -188,13 +193,15 @@ public sealed class TradeSettlementTests
         // Preferenceでは動かない(用途で分岐する。品目がItem.Toolsであることだけで動いてはならない)。
         TradeSettlement.Execute(
             world, world.Households[BuyerId], world.Households[SellerId], DemandPurpose.Preference,
-            Item.Tools, quantity: 1, unitEffectivePrice: 999, acquisitionCostSmoothingPermille: 250);
+            Item.Tools, quantity: 1, unitEffectivePrice: 999, acquisitionCostSmoothingPermille: 250,
+            sellerReserveQuantity: 0);
         Assert.Equal(20, world.Households[BuyerId].PurchaseUnitCostAverage[Item.Tools]);
 
         // Durableでは動く。
         TradeSettlement.Execute(
             world, world.Households[BuyerId], world.Households[SellerId], DemandPurpose.Durable,
-            Item.Tools, quantity: 1, unitEffectivePrice: 100, acquisitionCostSmoothingPermille: 250);
+            Item.Tools, quantity: 1, unitEffectivePrice: 100, acquisitionCostSmoothingPermille: 250,
+            sellerReserveQuantity: 0);
 
         int expected = OfferPrice.UpdatedAcquisitionCost(previousAverage: 20, unitPrice: 100, smoothingPermille: 250);
         Assert.Equal(expected, world.Households[BuyerId].PurchaseUnitCostAverage[Item.Tools]);
@@ -213,6 +220,65 @@ public sealed class TradeSettlementTests
 
         Assert.Throws<ArgumentOutOfRangeException>(() => TradeSettlement.Execute(
             world, world.Households[BuyerId], world.Households[SellerId], DemandPurpose.Necessity,
-            ItemA, quantity, unitEffectivePrice, acquisitionCostSmoothingPermille: 250));
+            ItemA, quantity, unitEffectivePrice, acquisitionCostSmoothingPermille: 250,
+            sellerReserveQuantity: 0));
+    }
+
+    /// <summary>
+    /// 【核心】W2-14 タスク仕様テスト表 #9。<c>Execute</c> / <c>ExecuteExport</c> のどちらも、
+    /// 留保を割る数量で <see cref="InvalidOperationException"/>。境界(減算後がちょうど留保量)は
+    /// 正常(<c>&lt;</c> であって <c>&lt;=</c> ではない。GDD02c §1.3)。
+    /// </summary>
+    [Fact]
+    public void SettlementRejectsAQuantityThatBreaksTheReserve()
+    {
+        // Execute: 工房在庫2・留保1。境界(quantity=1、減算後1=留保量)は正常に通る。
+        {
+            var world = BuildWorld();
+            world.Households[SellerId].WorkshopInventory[ItemA] = 2;
+
+            TradeSettlement.Execute(
+                world, world.Households[BuyerId], world.Households[SellerId], DemandPurpose.Necessity,
+                ItemA, quantity: 1, unitEffectivePrice: 10, acquisitionCostSmoothingPermille: 250,
+                sellerReserveQuantity: 1);
+
+            Assert.Equal(1, world.Households[SellerId].WorkshopInventory[ItemA]);
+        }
+
+        // Execute: 留保を割る(quantity=2、減算後0<留保量1)は例外。
+        {
+            var world = BuildWorld();
+            world.Households[SellerId].WorkshopInventory[ItemA] = 2;
+
+            var exception = Assert.Throws<InvalidOperationException>(() => TradeSettlement.Execute(
+                world, world.Households[BuyerId], world.Households[SellerId], DemandPurpose.Necessity,
+                ItemA, quantity: 2, unitEffectivePrice: 10, acquisitionCostSmoothingPermille: 250,
+                sellerReserveQuantity: 1));
+
+            Assert.Contains(SellerId.ToString(), exception.Message);
+            Assert.Equal(2, world.Households[SellerId].WorkshopInventory[ItemA]); // 例外時は在庫を動かさない。
+        }
+
+        // ExecuteExport: 同じ境界規則。境界(quantity=1)は正常に通る。
+        {
+            var world = BuildWorld();
+            world.Households[SellerId].WorkshopInventory[ItemA] = 2;
+
+            TradeSettlement.ExecuteExport(
+                world, world.Households[SellerId], ItemA, quantity: 1, unitPrice: 10, sellerReserveQuantity: 1);
+
+            Assert.Equal(1, world.Households[SellerId].WorkshopInventory[ItemA]);
+        }
+
+        // ExecuteExport: 留保を割る(quantity=2)は例外。
+        {
+            var world = BuildWorld();
+            world.Households[SellerId].WorkshopInventory[ItemA] = 2;
+
+            Assert.Throws<InvalidOperationException>(() => TradeSettlement.ExecuteExport(
+                world, world.Households[SellerId], ItemA, quantity: 2, unitPrice: 10, sellerReserveQuantity: 1));
+
+            Assert.Equal(2, world.Households[SellerId].WorkshopInventory[ItemA]);
+        }
     }
 }
