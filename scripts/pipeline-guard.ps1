@@ -165,10 +165,14 @@ try {
 
         $spellings = @($Root, $Root.Replace('\', '/'))
 
-        # Git Bash 形と、頭に `/cygdrive` が付く形。**この環境の `Bash` は Git Bash なので後者は
-        # 実際には出ていない**が、綴りは前者から 1 行で作れる(#152)。
+        # Git Bash 形。**`/cygdrive/c/...` 形をここに足す必要は無い** — 照合は `IndexOf` の
+        # 部分一致なので、`/cygdrive/c/X` は `/c/X` を含み、この綴りだけで当たる。2026-09-21 に
+        # 実測した(`/cygdrive` を足す行を消しても check-pipeline-guard.ps1 は 39 件緑のまま)。
+        # **当たり方が部分一致に依存している**ので、照合を正規表現や境界つきの一致に変えるなら
+        # ここを見直す。**`Edit` / `Write` 側は事情が違う** — あちらは `GetFullPath` に食わせる
+        # 前に剥がす必要があり、`ConvertFrom-GitBashPath` がそれをしている(消すと落ちる)。
         $bash = ConvertTo-GitBashPath $Root
-        if ($bash -ne $Root) { $spellings += @($bash, ('/cygdrive' + $bash)) }
+        if ($bash -ne $Root) { $spellings += $bash }
 
         # ホーム相対。**本体が `$HOME` の下に無ければ、この綴りで本体に届く道がそもそも無い**ので
         # 足さない(守りが減るのではなく、届く綴りが存在しない)。`/` は Git Bash、`\` は PowerShell。

@@ -113,6 +113,11 @@ $cases = @(
        path = "~someone/$relFromHome/docs/x.md"; expect = 0 }
 
     # --- #152: /cygdrive/c/... 形 ------------------------------------------------
+    # **Bash / PowerShell 側は `/c/...` の綴りが部分一致で当てている。** `/cygdrive/c/X` は
+    # `/c/X` を含み、照合は IndexOf だからである。`Get-MainTreeNeedle` に `/cygdrive` を足す
+    # 行は消しても緑のままだったので置いていない(#152 決定3)。**下の 3 件が測っているのは
+    # 「この綴りでも本体に届かない」ことであって、綴りの登録が効いていることではない。**
+    # `Edit` 側だけは `ConvertFrom-GitBashPath` の剥がしが要る(消すと落ちる。実測済み)。
     @{ g = '/cygdrive'; n = 'Bash: cat > /cygdrive/c/<本体>/docs/x.md'; tool = 'Bash'; cwd = $Worktree
        cmd = "cat > $MainCyg/docs/x.md"; expect = 2; win = $true }
     @{ g = '/cygdrive'; n = 'Edit: file_path = /cygdrive/c/<本体>/docs/x.md'; tool = 'Edit'; cwd = $Worktree
