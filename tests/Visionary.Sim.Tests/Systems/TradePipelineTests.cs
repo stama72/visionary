@@ -1235,21 +1235,24 @@ public sealed class TradePipelineTests
             }
         }
 
-        // 空振り防止(#148 の閉じる条件・タスク仕様テスト表 #12)。(i) 鍛冶が2戸存在する、
-        // (ii) 60日ぶん進んだ、(iii) 工具の売り注文の延べ件数が60以上。数えている対象そのものが
-        // 空でないことだけを見る弱い断定であり、日ごとの下限とは別である。
+        // 空振り防止(#148 の閉じる条件・タスク仕様テスト表 #12)のうち (i)(ii) は核心と独立
+        // なので先に置く。(i) 鍛冶が2戸存在する、(ii) 60日ぶん進んだ。
         Assert.Equal(2, smithHouseholdCount);
         Assert.Equal(60, world.Now.DayIndex);
-        Assert.True(
-            totalToolOfferCount >= 60,
-            $"seed={seed}: 60日間の工具の売り注文の延べ件数({totalToolOfferCount})が60未満"
-                + "(母集団が空振りの可能性)。");
 
         Assert.True(
             minCount >= 1,
             $"seed={seed} day={minDay}: 工具の売り注文が{minCount}件(0件の日があった。留保が"
                 + "効いていない/鍛冶の在庫が1個まで痩せた/生産が止まった可能性)。"
                 + minDayToolInventorySnapshot);
+
+        // 空振り防止 (iii) 延べ件数60以上は、核心(日ごとの下限1以上)より後に置く。核心が真
+        // (60日すべて1件以上)なら延べ件数は論理的に必ず60以上になるため、これを核心より前に
+        // 置くと核心の失敗をこちらが横取りしてしまう(レビュー指摘)。
+        Assert.True(
+            totalToolOfferCount >= 60,
+            $"seed={seed}: 60日間の工具の売り注文の延べ件数({totalToolOfferCount})が60未満"
+                + "(母集団が空振りの可能性)。");
     }
 
     /// <summary>
@@ -1309,13 +1312,10 @@ public sealed class TradePipelineTests
             totalToolOfferCount += CountMarketOffers(world, Item.Tools);
         }
 
-        // 空振り防止(タスク仕様テスト表 #12。ToolOffersNeverDisappearOverSixtyDaysと同じ3条件)。
+        // 空振り防止(タスク仕様テスト表 #12。ToolOffersNeverDisappearOverSixtyDaysと同じ3条件)
+        // のうち (i)(ii) は核心と独立なので先に置く。
         Assert.Equal(2, smithHouseholdIds.Length);
         Assert.Equal(60, world.Now.DayIndex);
-        Assert.True(
-            totalToolOfferCount >= 60,
-            $"seed={seed}: 60日間の工具の売り注文の延べ件数({totalToolOfferCount})が60未満"
-                + "(母集団が空振りの可能性)。");
 
         for (int i = 0; i < smithHouseholdIds.Length; i++)
         {
@@ -1325,5 +1325,14 @@ public sealed class TradePipelineTests
                     + $"工房在庫[工具]が{minToolStock[i]}まで痩せた(設備係数500‰への転落。"
                     + "留保が段5b・段6を素通りした可能性)。");
         }
+
+        // 空振り防止 (iii) 延べ件数60以上は、核心(工具在庫の下限)より後に置く。工房在庫が
+        // 残ることと工具の売り注文が立つことは別の事象なので、核心が真でも(iii)が偽になり得る
+        // (冗長ではない)。ここより前に置くと変異M-1(留保を消す)で先に落ち、核心が評価されない
+        // (レビュー指摘)。
+        Assert.True(
+            totalToolOfferCount >= 60,
+            $"seed={seed}: 60日間の工具の売り注文の延べ件数({totalToolOfferCount})が60未満"
+                + "(母集団が空振りの可能性)。");
     }
 }
