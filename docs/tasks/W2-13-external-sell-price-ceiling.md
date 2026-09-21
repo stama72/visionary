@@ -102,7 +102,7 @@
 
 | # | テスト | 検証内容 | この実装ミスで落ちる | 核心(当てる変異 / 期待) |
 | - | ------ | -------- | -------------------- | ------------------------- |
-| 1-a | **【訂正版】** `TradePipelineTests.SettledPricesAtTheCentreStayWithinTheBandOverSixtyDays`。`[Theory]` シード **1/2/3/7/42**・60日。**判定対象は `world.Ledgers` の約定価格**(`UnitPrice`)のうち、**買い手の区画が中心(`District.ExternalMarketDistrictId`)である `Purchase` の行**で、都市生産品(`!IsPrimaryItem`)が `ExternalBuyPrice(itemId) × 2` 以下 | **天井が構造的に縛る範囲**。中心に居る買い手は `IsWithinReach` が常に真なので窓口が必ず候補に入り、`StoreChoice` は `<` で比べる(同値なら都市内)ので、実効価格は外部売値を超えられない | 窓口が都市生産品を売らない / 店選択が窓口を候補に入れない / 導出のマージンが効いていない / 走査順や比較演算子を変えた | **【核心】** M-1: `ExternalMarket.TryOfferPrice` の先頭に `if (!definition.IsPrimaryItem(itemId)) { offerPrice = 0; return false; }` を戻す → **赤。どのシードが赤になったかを報告に含める**(**訂正 2026-09-21・フェーズ2**: 初版は「シード2 が赤になることを明示的に確かめる」と書き、根拠に [#120](https://github.com/stama72/visionary/issues/120) の「シード2 は28日目に床の20倍」を挙げていた。**あれは旧検出器が `world.Market`(提示価格)で測った値であり、#1-a が見るのは `world.Ledgers` の、しかも中心区画の買い手の `Purchase` 行である** — 本仕様が下で「置き換えるのは閾値だけではなく判定対象そのものである」と強調しているのと同じ区別が、根拠の側に適用されていなかった。**M-1 で #1-a が赤になること**が核心であり、シード2 単独が赤かは実測で初めて確定する) |
+| 1-a | **【訂正版】** `TradePipelineTests.SettledPricesAtTheCentreStayWithinTheBandOverSixtyDays`。`[Theory]` シード **1/2/3/7/42**・60日。**判定対象は `world.Ledgers` の約定価格**(`UnitPrice`)のうち、**買い手の区画が中心(`District.ExternalMarketDistrictId`)である `Purchase` の行**で、都市生産品(`!IsPrimaryItem`)が `ExternalBuyPrice(itemId) × 2` 以下 | **天井が構造的に縛る範囲**。中心に居る買い手は `IsWithinReach` が常に真なので窓口が必ず候補に入り、`StoreChoice` は `<` で比べる(同値なら都市内)ので、実効価格は外部売値を超えられない | 窓口が都市生産品を売らない / 店選択が窓口を候補に入れない / 導出のマージンが効いていない / 走査順や比較演算子を変えた | **【核心】** M-1(**訂正 2026-09-21・フェーズ2。下の「M-1 の定義」を読むこと**)。**受け入れ条件は「赤」ではなく「帯の断定の失敗メッセージで赤」である** |
 | 1-b | **【訂正版】** 同テストの第2の断定。**全区画の**都市生産品の約定が `ExternalBuyPrice(itemId) × PeripheralBandMultiplier` 以下。**この定数はフェーズ2 が実測して置く**(下記「周縁の緩みの定数」) | 周縁を含めた水準が発散していないこと([#120](https://github.com/stama72/visionary/issues/120) の閉じる条件「**継続して**上回らない」) | 完売枝のラチェットが周縁で再発する / 買い手が中心へ出向く経路が壊れる | — |
 | 2 | 同上の**空振り防止**。各シードで、(i) 都市生産品の約定(`!IsPrimaryItem` の `LedgerEntry`)が1件以上、(ii) **そのうち中心区画の買い手の `Purchase` が1件以上**ある | 経済が止まって0件で緑になること、および 1-a の母集団が空で緑になることを防ぐ | 取引が成立しない値・パイプラインの配線漏れ・中心区画に買い手が置かれない配置 | — |
 | 3 | 同上の**帯の上限をリテラル `2` で持つ**(`const int BandMultiplier = 2;`)。`ExternalSellPrice` を読まない | 検出器が交易マージン‰ から独立であること | 検出器が `ExternalSellPrice` を読むと、マージンを 5000 にしても緑のままになる | — |
@@ -134,6 +134,23 @@
 **したがって断定は2段に分ける。** 1-a は**構造**(中心の買い手には窓口という選択肢が必ずある)、1-b は**水準**(周縁を含めて発散していない)である。**1-a が赤なら実装かモデルの欠陥、1-b が赤なら水準の問題**であり、区別できない1本の断定にしてはならない。
 
 **1-a が構造的に成り立つ根拠**(フェーズ1 がコードを読んで確かめた。2026-09-21): `StoreChoice` は `IsWithinReach(buyer.DistrictId, visited)` が真なら窓口を候補に足し、買い手の区画が中心なら `ExternalMarket.IsWithinReach` は訪問区画に依らず真を返す。窓口の実効価格は `EffectivePrice.Calculate(外部売値, trust: 0, …)` = 外部売値であり、都市内の候補は `<` で比べるので、**都市内の実効価格が外部売値を上回る日は必ず窓口が選ばれる**。信用割引は値を下げる方向にしか働かない。**この読みが外れていれば 1-a が赤になる。**
+
+### M-1 の定義(2026-09-21 の訂正。フェーズ2。レビュー2巡目の象限I-b)
+
+**初版の M-1(`ExternalMarket.TryOfferPrice` の先頭に早期 return を戻すだけ)は、検出器として空洞である。**
+
+- 早期 return は `offerPrice = 0` を置く。`ErrandPlanner` は `TryOfferPrice` の**戻り値を捨てて** `EffectivePrice.Calculate(0, …)` へ渡すので、`ArgumentOutOfRangeException`(提示価格は1以上)で落ちる。この枝は中心の近くに居る世帯が必需品の需要行を持つ日に必ず踏むので、**5シード全部が例外で赤になり、帯の断定には一度も到達しない**
+- 「M-1 → 全シード赤」という実測を転記すると、次の読者は「天井が中心の約定を構造的に縛っていることが実測で確かめられた」と読む。**実際に確かめられたのは「変異させたコードが例外を投げた」だけである**
+- **初版の根拠も誤っていた。** 「シード2 は28日目に床の20倍」([#120](https://github.com/stama72/visionary/issues/120))は**旧検出器が `world.Market`(提示価格)で測った値**であり、#1-a が見るのは `world.Ledgers` の、しかも中心区画の買い手の `Purchase` 行である。本仕様が下で「置き換えるのは閾値だけではなく判定対象そのものである」と強調しているのと同じ区別が、根拠の側に適用されていなかった
+
+**したがって M-1 は2形で実測する。`mutator` は各形について、赤/緑だけでなく「失敗の形」(帯の断定の assert か、例外か。例外なら型と発生箇所)を報告する。**
+
+| 形 | 変異 | 期待 |
+| -- | ---- | ---- |
+| **M-1a** | 初版どおり `ExternalMarket.TryOfferPrice` の先頭に `if (!definition.IsPrimaryItem(itemId)) { offerPrice = 0; return false; }` **だけ**を戻す | **赤。ただし失敗の形を報告させる**(上の読みが正しければ例外で、帯の断定には到達しない)。**この形は核心の受け入れには使わない** |
+| **M-1b** | **本タスクが外した品目ゲートを同時に戻す**(= #149 以前の状態):`ExternalMarket.TryOfferPrice` の早期 return / `ErrandPlanner:242` の `&& _definition.IsPrimaryItem(itemId)` / `Observations.CollectWindow` の `if (!definition.IsPrimaryItem(itemId)) continue;` | **【核心】赤。かつ失敗が帯の断定(1-a)の assert であること**、およびどのシードが赤になったかを報告に含める |
+
+**M-1b が緑なら、または例外で赤なら、天井は何にも守られていない。** その場合は転記せずに止まって報告する。
 
 ### 周縁の緩みの定数(`PeripheralBandMultiplier`)— フェーズ2 が実測して置く
 
@@ -187,7 +204,7 @@
 
 - [ ] 「落ちるべき条件」のテストが全て緑
 - [ ] **`PeripheralBandMultiplier` を5シードの最大比の実測から置き、実測値と測定日を doc コメントに書いた**(実測の最大比が 4 を超えたなら、置かずに止まって報告する)
-- [ ] **【核心】M-1〜M-4 を `mutator` が実測し(レビューの巡が閉じた後)、結果を doc コメントへ転記した。M-1 は「どのシードが赤になったか」まで報告に含める**
+- [ ] **【核心】M-1a / M-1b・M-2〜M-4 を `mutator` が実測し(レビューの巡が閉じた後)、結果を doc コメントへ転記した。各形について「失敗の形」(帯の断定の assert か例外か)を報告に含め、M-1b は「帯の断定で赤」かつ「どのシードが赤か」まで含める**
 - [ ] `dotnet build Visionary.sln -c Release` が警告0
 - [ ] `dotnet test Visionary.sln -c Release` が緑
 - [ ] `dotnet format Visionary.sln --verify-no-changes --severity warn` が通る
