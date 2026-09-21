@@ -93,3 +93,17 @@ jobs:
       # 差分が出た場合は `dotnet format` をローカルで実行してコミットする
       - name: Verify formatting
         run: dotnet format Visionary.sln --verify-no-changes --severity warn
+
+  docs:
+    name: Docs consistency
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # 枠ガードの閾値(#132 決定1)は `pipeline.ps1` の定数が正で、04「枠」規則2 /
+      # CLAUDE.md / 05 が同じ数値を書き写している。二重管理は消せないので機械に見させる(#139)。
+      # 落ちたら `scripts/check-budget-threshold.sh` の出力が正と写しの両方を出す。
+      - name: Budget-gate threshold (docs vs pipeline.ps1)
+        run: bash scripts/check-budget-threshold.sh

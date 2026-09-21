@@ -117,6 +117,7 @@ W2-04 と #68(世界観と正式タイトル)が 21:12〜21:16 に重なった�
 | ---- | ---------- |
 | `scripts/pipeline-lock.ps1` | ロック `.pipeline/<issue>.lock`(PID と起動時刻)の読み書き。**生きている = その PID が今も居て起動時刻も一致する** |
 | `scripts/pipeline.ps1` | 起動時にロックを取り、終了時(`exit` を通っても)に外す。**生きているロックがあれば起動を拒否する**(終了コード 3) |
+| `scripts/check-budget-threshold.sh` | 枠ガードの閾値の**写しが正からずれていないか**を CI で見る([#139](https://github.com/stama72/visionary/issues/139))。正は `pipeline.ps1` の `$DefaultMinRemaining` で、写しは [04「枠」](04-issue-driven.md) 規則2 / CLAUDE.md / **この節の haiku 1 行**(使用率 0.60 の側も突き合わせる)。**数値が取れなければ落とす**(fail-closed)なので、文面を書き換えると数値が正しくても落ちる — そのときは検査の錨を直す |
 | `scripts/pipeline.ps1` の枠ガード | 起動時に **5 時間枠の残りを haiku 1 呼び出しで読み、足りなければ起動を拒否する**(終了コード 4)。**読めなければ拒否する**(fail-closed)。閾値は `-MinRemaining`、`0` で検査しない。壊して確かめる口は `-DryRun -DryRunProbe short\|near-reset\|fail` |
 | `scripts/pipeline-guard.ps1` + `.claude/settings.json` | `PreToolUse` フック。生きているロックがある間、**本体ツリーへの書き込みを止める**(`Edit` / `Write` と、書き込む形の `Bash` / `PowerShell`) |
 
