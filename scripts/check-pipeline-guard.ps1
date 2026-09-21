@@ -203,6 +203,16 @@ $cases = @(
     # 対応が取れなければ現状動作に落とす(素通しではない)。
     @{ g = '引用符'; n = '閉じていない引用符は現状動作に落ちる(止まる)'; tool = 'Bash'; cwd = $MainWin
        cmd = 'grep -n "Remove-Item scripts/pipeline.ps1'; expect = 2 }
+    # `.pipeline` の回収路判定も剥がす前に当てている。**引用符つきでなければ差が出ない。**
+    @{ g = '引用符'; n = '引用符でくるんだ .pipeline/*.lock の回収路は通る'; tool = 'Bash'; cwd = $MainWin
+       cmd = 'rm ".pipeline/999.lock"'; expect = 0 }
+    # --- #166 が開けた偽陰性を機械に固定する(expect = 0)---------------------------
+    # **緑であること自体が「止まらない」の実測である。** ここが落ちたら順序が変わった
+    # ということで、05「何が止まらないか」も直す必要がある(`dotnet fsi` の行と同じ形)。
+    @{ g = '引用符'; n = '意図した境界: 動詞が引用符の中にしかない(bash -c "rm …")'; tool = 'Bash'; cwd = $MainWin
+       cmd = 'bash -c "rm docs/x.md"'; expect = 0 }
+    @{ g = '引用符'; n = '意図した境界: 動詞ごと引用符の中だと絶対パスの照合に届かない'; tool = 'Bash'; cwd = $Worktree
+       cmd = "bash -c `"rm $MainWin/docs/x.md`""; expect = 0 }
 )
 
 # ---- 実行 --------------------------------------------------------------------
