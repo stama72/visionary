@@ -448,8 +448,45 @@ public sealed class TradePipelineTests
     /// </para>
     /// </remarks>
     /// <remarks>
-    /// <b>核心 M-1a/M-1b・M-2〜M-4 の実測は、レビューの巡が閉じた後に <c>mutator</c> が
-    /// 使い捨てworktreeで行う(ADR-0013)。実測結果はここへ転記する。</b>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>afb4ddd</c>)。</b>期待と実測の食い違いは0件だった(裁定は不要)。
+    /// <para>
+    /// <b>M-1a(核心の受け入れには使わない形)。</b>赤。31件失敗。<b>失敗の形は全件
+    /// <see cref="ArgumentOutOfRangeException"/></b>(<c>EffectivePrice.cs:38</c>、
+    /// <c>offerPrice &lt;= 0</c>)。本テストは5シードすべて失敗したが、<b>帯の断定
+    /// (<c>:557</c> の <c>Assert.True</c>)には一度も到達していない</b>。他に
+    /// <c>ToolsAreTradedInThePipeline</c> / <c>SpatialFrictionSurvives</c> /
+    /// <c>ObservationsDoNotGrowWithoutBound</c> /
+    /// <c>LedgersReconcileWithLiquidFundsForEveryHousehold</c> なども同一例外で落ちた。
+    /// <b>2巡目の読み(早期 return だけでは帯の断定に到達しない)が実測で裏付いた。</b>
+    /// <b>この形の「赤」は天井について何も語らない</b> ── 落ちたテストのどれも、天井を
+    /// 「守っている」ことの証拠にはならない。</para>
+    /// <para>
+    /// <b>M-1b(核心)。</b>赤。14件失敗。本テストは<b>5シードすべてが<c>:557</c>の帯の断定の
+    /// <c>Assert.True</c>で落ちた(例外ではない)</b>。最大比(約定単価÷床):
+    /// seed1=5.100 / seed2=4.870 / seed3=6.900 / seed7=11.000 / seed42=5.130。
+    /// 失敗メッセージの実例(seed7): <c>seed=7 itemId=5 day=40 districtId=4(中心):
+    /// 約定単価(110)が床(10)×2を上回った(最大比=11.000)。</c> 初版が根拠にしていた
+    /// 「シード2」も実測で赤である(ただし根拠としてではなく実測としてであり、初版の
+    /// 引用の仕方——旧検出器の値を援用した点——が正しかったことにはならない)。他に落ちた
+    /// 9件: <c>ExternalMarketTests.WindowOfferPriceAppliesTheSeasonCoefficient</c> /
+    /// <c>StoreChoiceTests.BuyerAtTheCentreChoosesTheWindowWhenLocalOffersExceedTheCeiling</c> /
+    /// <c>StoreChoiceTests.CitySellerWinsTheTieAgainstTheWindowForCityGoods</c> /
+    /// <see cref="UnaffordableNecessityCountsOnlyTheFundsShortfall"/> /
+    /// <c>TradeSystemTests.ExportUsesTheSellerSideMarketReference</c> /
+    /// <c>TradeSystemTests.SellerReferenceIsTakenBeforeTheSellableStockGate</c> /
+    /// <c>ErrandPlannerTests.WindowIsACandidateForCityGoods</c> /
+    /// <c>ObservationsTests.WindowObservationsCoverCityGoods</c> /
+    /// <c>ObservationsTests.WindowObservationIsBornForEveryItem</c>。
+    /// </para>
+    /// <para>
+    /// M-2〜M-4 の実測結果は、それぞれが守るテスト
+    /// (<see cref="M0CalibrationTests.TradeMarginIsPositive"/> ・
+    /// <see cref="WorldDefinitionTests.ExternalSellPriceOfCityGoodsIsDerivedFromBuyPrice"/> ・
+    /// <c>ErrandPlannerTests.UnknownWindowPriceOfCityGoodsUsesTheFloor</c> ・
+    /// <c>ObservationsTests.WindowObservationsCoverCityGoods</c> /
+    /// <c>ObservationsTests.WindowObservationIsBornForEveryItem</c>)の doc コメントへ転記した。
+    /// </para>
     /// </remarks>
     [Theory]
     [InlineData(1)]

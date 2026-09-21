@@ -203,6 +203,12 @@ public sealed class ObservationsTests
     /// で落ちる。<c>LocationId</c> を観測者の区画にする・世帯主だけに配る実装ミスでも落ちる
     /// (タスク仕様)。
     /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>afb4ddd</c>、M-4)。</b>赤。<c>Assert.Equal</c> 失敗(Expected 9 / Actual 4)。
+    /// <see cref="WindowObservationsCoverCityGoods"/> の doc コメントに転記した5件失敗の
+    /// うちの1件である。期待と実測の食い違いは無かった。
+    /// </remarks>
     [Fact]
     public void WindowObservationIsBornForEveryItem()
     {
@@ -251,9 +257,16 @@ public sealed class ObservationsTests
     /// 生まれる。
     /// </summary>
     /// <remarks>
-    /// <b>変異の実測</b>(<c>Observations.CollectWindow</c> の
-    /// <c>if (!definition.IsPrimaryItem(itemId)) continue;</c> を戻す変異、M-4)は
-    /// フェーズ2 レビュー後に <c>mutator</c> が測る(タスク仕様)。
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>afb4ddd</c>、M-4: <c>Observations.CollectWindow</c> の
+    /// <c>if (!definition.IsPrimaryItem(itemId)) continue;</c> を戻す変異)。</b>赤。5件失敗。
+    /// 本テストは <c>Assert.Equal</c> 失敗(Expected 5 / Actual 0)。
+    /// <see cref="WindowObservationIsBornForEveryItem"/>(Expected 9 / Actual 4)も同じ変異で
+    /// 落ちた。副作用で
+    /// <c>TradePipelineTests.UnaffordableNecessityCountsOnlyTheFundsShortfall</c> /
+    /// <c>TradeSystemTests.ExportUsesTheSellerSideMarketReference</c> /
+    /// <c>TradeSystemTests.SellerReferenceIsTakenBeforeTheSellableStockGate</c> も落ちた。
+    /// 期待と実測の食い違いは無かった。
     /// </remarks>
     [Fact]
     public void WindowObservationsCoverCityGoods()

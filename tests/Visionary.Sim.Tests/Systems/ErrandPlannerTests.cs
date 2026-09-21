@@ -381,6 +381,15 @@ public sealed class ErrandPlannerTests
     /// 床を高くした本テストで顕在化する ── 1を使えば余剰が生まれて行ってしまう
     /// (タスク仕様、核心M-3)。
     /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>afb4ddd</c>、M-3)。</b>赤。15件失敗。<b>本テストが筆頭</b>(<c>Assert.Empty</c>失敗、
+    /// Collection: <c>[4]</c> ── 床を1と誤認して窓口へ行ってしまう、期待どおりの壊れ方)。
+    /// 大半は訪問区画リストの不一致による <c>Assert.Equal</c> / <c>Assert.Empty</c> の失敗で、
+    /// 1件のみ例外(<c>ErrandPlanIsDeterministicAcrossHouseholdOrder</c> の
+    /// <see cref="IndexOutOfRangeException"/>、テスト側 <c>ErrandPlannerTests.cs:1120</c>付近)
+    /// だった。期待と実測の食い違いは無かった。
+    /// </remarks>
     [Fact]
     public void UnknownWindowPriceOfCityGoodsUsesTheFloor()
     {

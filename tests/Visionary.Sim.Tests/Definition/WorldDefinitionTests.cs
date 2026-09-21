@@ -233,6 +233,12 @@ public sealed class WorldDefinitionTests
     /// (小麦粉112 / 薪20 / パン108 / ビール144 / 工具580)。床が季節で動かない以上、天井も
     /// 動かない(GDD02d §5)ので、4季節すべてで同じ値になることもあわせて確かめる。
     /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>afb4ddd</c>、M-2)。</b>赤。<c>Assert.Equal</c>失敗(Expected 112 / Actual 56、
+    /// 以下同様の食い違いが続く)。<see cref="M0CalibrationTests.TradeMarginIsPositive"/>
+    /// ほか、この変異で落ちた6件のうちの1件である。期待と実測の食い違いは無かった。
+    /// </remarks>
     [Fact]
     public void ExternalSellPriceOfCityGoodsIsDerivedFromBuyPrice()
     {
