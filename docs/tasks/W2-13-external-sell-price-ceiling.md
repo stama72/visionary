@@ -92,13 +92,17 @@
 
 - 根拠は [GDD02d §2.2](../03-gdd/02d-external-market-and-money.md)「観測(`PriceObservation`)も通常どおり生まれる。視界半径の例外は置かない」。窓口が都市生産品を並べる以上、その値も観測になる
 - **外さないと何が起きるか**: 中心を離れた買い手は窓口の都市生産品価格を記憶できず、`EstimateWindowPrice` の2段目が永久に埋まらない。3段目(床)で見積もり続けるので、**実際には床の2倍の窓口を「床で買える店」と見て外出する**。天井そのものは中心に着いた日の `StoreChoice` が効かせるので帯は閉じるが、**外出の判断だけが恒久に歪む**
-- `TradePipelineTests.ObservationsDoNotGrowWithoutBound` の `totalKnowledge` の実測値(210)は動く。**上界の式(NPC数 ×(世帯数 − 1)×(保持期間 + 1))は構造だけで決まるので緑のままのはずだが、doc コメントの実測値は測り直して書き換える**
+- `TradePipelineTests.ObservationsDoNotGrowWithoutBound` の `totalKnowledge` の実測値(210)は動く。doc コメントの実測値は測り直して書き換える
+
+  **【訂正 2026-09-21・フェーズ2】この節が「上界の式(NPC数 ×(世帯数 − 1)×(保持期間 + 1))は構造だけで決まるので緑のままのはず」と書いたのは誤りだった。** その式は「1 NPC が知りうる売り手は自分の世帯を除く (世帯数 − 1) 戸まで」から出ているが、**窓口はその (世帯数 − 1) に入っていない**。しかも窓口は「1売り手 = 1品目」ではなく、本タスク以降は1日に全品目の観測を生む。**したがって式は構造上界ではなく経験的な線である**(真の構造上界はおよそ2倍)。実測が上界に近づいている以上、次のいずれかで直す:
+  - 上界の式に窓口の項を足して**構造上界に戻す**か、
+  - 式が経験的な線であることを導出コメントに明記し、**失敗メッセージから「保持期間の失効が効いていない可能性」という単一原因の示唆を外す**(品目数の増加・外出頻度の変化でも赤になるため)
 
 ## 落ちるべき条件(テスト)
 
 | # | テスト | 検証内容 | この実装ミスで落ちる | 核心(当てる変異 / 期待) |
 | - | ------ | -------- | -------------------- | ------------------------- |
-| 1-a | **【訂正版】** `TradePipelineTests.SettledPricesAtTheCentreStayWithinTheBandOverSixtyDays`。`[Theory]` シード **1/2/3/7/42**・60日。**判定対象は `world.Ledgers` の約定価格**(`UnitPrice`)のうち、**買い手の区画が中心(`District.ExternalMarketDistrictId`)である `Purchase` の行**で、都市生産品(`!IsPrimaryItem`)が `ExternalBuyPrice(itemId) × 2` 以下 | **天井が構造的に縛る範囲**。中心に居る買い手は `IsWithinReach` が常に真なので窓口が必ず候補に入り、`StoreChoice` は `<` で比べる(同値なら都市内)ので、実効価格は外部売値を超えられない | 窓口が都市生産品を売らない / 店選択が窓口を候補に入れない / 導出のマージンが効いていない / 走査順や比較演算子を変えた | **【核心】** M-1: `ExternalMarket.TryOfferPrice` の先頭に `if (!definition.IsPrimaryItem(itemId)) { offerPrice = 0; return false; }` を戻す → **赤。シード2 が赤になることを明示的に確かめる**([#120](https://github.com/stama72/visionary/issues/120) の実測でシード2 は 28日目に床の20倍を超える) |
+| 1-a | **【訂正版】** `TradePipelineTests.SettledPricesAtTheCentreStayWithinTheBandOverSixtyDays`。`[Theory]` シード **1/2/3/7/42**・60日。**判定対象は `world.Ledgers` の約定価格**(`UnitPrice`)のうち、**買い手の区画が中心(`District.ExternalMarketDistrictId`)である `Purchase` の行**で、都市生産品(`!IsPrimaryItem`)が `ExternalBuyPrice(itemId) × 2` 以下 | **天井が構造的に縛る範囲**。中心に居る買い手は `IsWithinReach` が常に真なので窓口が必ず候補に入り、`StoreChoice` は `<` で比べる(同値なら都市内)ので、実効価格は外部売値を超えられない | 窓口が都市生産品を売らない / 店選択が窓口を候補に入れない / 導出のマージンが効いていない / 走査順や比較演算子を変えた | **【核心】** M-1: `ExternalMarket.TryOfferPrice` の先頭に `if (!definition.IsPrimaryItem(itemId)) { offerPrice = 0; return false; }` を戻す → **赤。どのシードが赤になったかを報告に含める**(**訂正 2026-09-21・フェーズ2**: 初版は「シード2 が赤になることを明示的に確かめる」と書き、根拠に [#120](https://github.com/stama72/visionary/issues/120) の「シード2 は28日目に床の20倍」を挙げていた。**あれは旧検出器が `world.Market`(提示価格)で測った値であり、#1-a が見るのは `world.Ledgers` の、しかも中心区画の買い手の `Purchase` 行である** — 本仕様が下で「置き換えるのは閾値だけではなく判定対象そのものである」と強調しているのと同じ区別が、根拠の側に適用されていなかった。**M-1 で #1-a が赤になること**が核心であり、シード2 単独が赤かは実測で初めて確定する) |
 | 1-b | **【訂正版】** 同テストの第2の断定。**全区画の**都市生産品の約定が `ExternalBuyPrice(itemId) × PeripheralBandMultiplier` 以下。**この定数はフェーズ2 が実測して置く**(下記「周縁の緩みの定数」) | 周縁を含めた水準が発散していないこと([#120](https://github.com/stama72/visionary/issues/120) の閉じる条件「**継続して**上回らない」) | 完売枝のラチェットが周縁で再発する / 買い手が中心へ出向く経路が壊れる | — |
 | 2 | 同上の**空振り防止**。各シードで、(i) 都市生産品の約定(`!IsPrimaryItem` の `LedgerEntry`)が1件以上、(ii) **そのうち中心区画の買い手の `Purchase` が1件以上**ある | 経済が止まって0件で緑になること、および 1-a の母集団が空で緑になることを防ぐ | 取引が成立しない値・パイプラインの配線漏れ・中心区画に買い手が置かれない配置 | — |
 | 3 | 同上の**帯の上限をリテラル `2` で持つ**(`const int BandMultiplier = 2;`)。`ExternalSellPrice` を読まない | 検出器が交易マージン‰ から独立であること | 検出器が `ExternalSellPrice` を読むと、マージンを 5000 にしても緑のままになる | — |
@@ -183,7 +187,7 @@
 
 - [ ] 「落ちるべき条件」のテストが全て緑
 - [ ] **`PeripheralBandMultiplier` を5シードの最大比の実測から置き、実測値と測定日を doc コメントに書いた**(実測の最大比が 4 を超えたなら、置かずに止まって報告する)
-- [ ] **【核心】M-1〜M-4 を `mutator` が実測し(レビューの巡が閉じた後)、結果を doc コメントへ転記した。M-1 は「シード2 で赤になること」まで報告に含める**
+- [ ] **【核心】M-1〜M-4 を `mutator` が実測し(レビューの巡が閉じた後)、結果を doc コメントへ転記した。M-1 は「どのシードが赤になったか」まで報告に含める**
 - [ ] `dotnet build Visionary.sln -c Release` が警告0
 - [ ] `dotnet test Visionary.sln -c Release` が緑
 - [ ] `dotnet format Visionary.sln --verify-no-changes --severity warn` が通る
