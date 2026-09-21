@@ -13,19 +13,84 @@
 
 ## implementer の件数(フェーズ2)
 
-- 止まって報告した件数: N 件
-- 決めて報告した件数: M 件
+- 止まって報告した件数: **1 件**
+- 決めて報告した件数: **4 件**
+
+### 止まって報告した内容(1件)
+
+**テスト11 `SmithProductionRecoversOverSixtyDays` が5シードすべてで赤。原因は留保ではなく、1次産品(鉄鉱石・木炭)の供給が60日もたないこと。**
+
+留保そのものは仕様どおり効いており、テスト1〜10・12 は緑。鍛冶の工具在庫は60日間一度も 0 にならず 4〜7 で安定する(#148 の紙の予測「留保1 + 閾在庫3 = 4」とおおむね一致)。しかし鍛冶は day 7〜8 で鉄鉱石・木炭を使い切り、以後 生産回数 0 が60日目まで続く。
+
+### 切り分けの実測(シード1。フェーズ2 が追加で指示したもの)
+
+| 測ったこと | 結果 |
+| ---------- | ---- |
+| day 8〜60 に `world.Market` へ鉄鉱石・木炭の売り注文が立った日数 | **鉄鉱石 0/53日・木炭 0/53日**(全日0件) |
+| 同期間の鍛冶2戸の所持金 | ゼロではない(household2 は大半10・時折70〜590 / household3 は大半8〜68・時折884) |
+| 同期間の鍛冶の帳簿 `Purchase` に鉄鉱石・木炭が現れた件数 | **0件** |
+
+**供給側の断絶であって、需要側(資金不足・走査順)ではない。** 鍛冶は買いに行く以前に、市場に売り注文が無い。
+
+master(留保なし)との比較:
+
+| | master | 本ブランチ(留保あり) |
+| - | ------ | ---------------------- |
+| 工具在庫が最初に 0 になる日 | day 1 | **60日中一度も 0 にならない** |
+| 生産回数が最初に 0 になる日 | day 2 | day 8 |
+| 鉄鉱石が最初に 0 になる日 | day 8 | day 7 |
+| 木炭が最初に 0 になる日 | day 8 | day 7 |
+
+**原材料の枯渇は留保が作った経路ではない**(master でも day 8)。留保が変えたのは工具在庫が 0 にならないことと、それに伴い生産0 の発生が day 2 → day 8 に遅れたことだけである。
+
+### フェーズ1 へ — ここから先が設計判断である理由
+
+1. **テスト11 の断定は [#148](https://github.com/stama72/visionary/issues/148) の閉じる条件そのもの。** 窓を変える・断定を弱める・2戸のうち1戸でよいとする、はいずれもその再解釈である
+2. **原材料の供給断絶を直すのは本タスクのスコープ外。** 値付け・購入判定側の校正に触れるので、#148 決定1 が却下した「[GDD02d §4.4](../03-gdd/02d-external-market-and-money.md) の校正表を動かすこと」に当たる
+3. **タスク仕様そのものに欠陥がある(象限 I-b)。** 変異 **M-1 の期待「テスト10 と 11 の両方が赤」は成立し得ない** — テスト11 は変異を当てる前から全シード赤なので、留保の有無を区別できない。**テスト11 は #148 が実測した詰み(工具切れ)を見ていない。** 見ているのは1次産品の供給断絶という別の事象である。一方 **テスト10(工具の売り注文が毎日1件以上)は緑**で、こちらは留保が効いていることを実際に捉えている
+
+### 決めて報告した内容(4件)
+
+1. **「鍛冶」役の作り方** — `EconomySystemTestFixtures.BuildDefinition` が単一レシピしか差し込めないため、既存ファイルの慣習に倣い `Occupation.Miller` の枠に工具/自己参照パンのレシピを差し込んだ。`ReserveQuantity` の設備分岐は品目が `Item.Tools` かだけを見るので職業名は結果に影響しない
+2. **既存テスト `SellerReferenceIsTakenBeforeTheSellableStockGate` の修正方法** — 留保導入で「0個から1個買って1個とも輸出できる」前提が崩れたため、開始時の工具在庫を留保量ちょうど(1)足し、最終の期待値を 0 → 1 に変更。「段1 が販売在庫0 の分岐を捕まえる」という主眼は変えていない
+3. **`SellableStockTests` に境界の具体例テストを1件追加**(`SellableStockIsWorkshopInventoryMinusReserve`、0→0 / 1→0 / 2→1 / 5→4)。仕様「規則6」の具体例をそのままテスト化したもの
+4. **`ProductionSystem.cs` の doc コメント訂正箇所** — 仕様が指す2か所(`:17-18` と `:53-54`)のうち、誤った記述が実在したのは1か所のみ。行番号の古さと判断し、クラス概要側は整合するよう加筆した
 
 ## 直さないと決めた指摘(フェーズ2)
 
 | 巡 | 象限 | 指摘 | 直さない理由 |
 | -- | ---- | ---- | ------------ |
 
+(レビューに入る前に停止したため、なし)
+
 ## 巡ごとの件数(フェーズ2)
 
 | 巡 | 守備範囲 | 象限I | 象限II | 疑い |
 | -- | -------- | ----- | ------ | ---- |
 
+**レビューは1巡も回していない。** `IMPL-BLOCKED` で停止したため。
+
 ## `mutator` の件数(フェーズ2)
 
-- 当てた変異: N 件 / 期待と食い違った数: M 件
+- 当てた変異: **0 件**(レビューが閉じていないため起動していない)
+
+## 作業ツリーの状態(停止時)
+
+**実装は未コミットのまま作業ツリーに残っている。** テストが赤(428 成功 / 5 失敗、失敗はすべてテスト11 の5シード)なので、コミットしていない。診断用の一時コードは撤去済み・`git stash list` は空。build は警告0、`dotnet format --verify-no-changes` は差分なし。
+
+未コミットのファイル:
+
+```
+ M src/Visionary.Sim/Systems/ProductionSystem.cs
+ M src/Visionary.Sim/Systems/StoreChoice.cs
+ M src/Visionary.Sim/Systems/TradeSettlement.cs
+ M src/Visionary.Sim/Systems/TradeSystem.cs
+ M tests/Visionary.Sim.Tests/Systems/BuyerDemandTests.cs
+ M tests/Visionary.Sim.Tests/Systems/ErrandPlannerTests.cs
+ M tests/Visionary.Sim.Tests/Systems/StoreChoiceTests.cs
+ M tests/Visionary.Sim.Tests/Systems/TradePipelineTests.cs
+ M tests/Visionary.Sim.Tests/Systems/TradeSettlementTests.cs
+ M tests/Visionary.Sim.Tests/Systems/TradeSystemTests.cs
+?? src/Visionary.Sim/Systems/SellableStock.cs
+?? tests/Visionary.Sim.Tests/Systems/SellableStockTests.cs
+```
