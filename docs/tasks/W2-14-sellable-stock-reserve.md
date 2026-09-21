@@ -133,7 +133,7 @@ public static void Execute(
 | 8 | `StoreChoiceTests.SmithWithOnlyTheReservedToolIsNotACandidate` | 工房在庫 1 の鍛冶は工具の店の候補に入らない(他に候補が無ければ `TrySelect` が false) | 候補の判定が工房在庫を直読みしている | **【核心】** M-5 |
 | 9 | `TradeSettlementTests.SettlementRejectsAQuantityThatBreaksTheReserve` | `Execute` / `ExecuteExport` のどちらも、留保を割る数量で `InvalidOperationException`。**ちょうど留保量まで減らす数量は通る** | 番人が無い / `<` と `<=` を取り違えた(正常な約定が落ちる) | — |
 | 10 | `TradePipelineTests.ToolOffersNeverDisappearOverSixtyDays`(**検出器**。`[Theory]` シード 1/2/3/7/42) | 60日のどの日も、`world.Market` の工具の売り注文が **1件以上** | 留保が効いていない / 鍛冶の在庫が 1 個まで痩せた / 生産が止まった | **【核心】** M-1 |
-| 11 | `TradePipelineTests.SmithProductionRecoversOverSixtyDays`(同シード) | 各シード・各鍛冶について、**後半30日(31〜60日目)のうち生産回数が正の日が1日以上**([#148](https://github.com/stama72/visionary/issues/148) の閉じる条件の1つ目) | 鍛冶が工具を売り切って能力 0 が永久化する(#148 の実測) | **【核心】** M-1 |
+| 11 | **【訂正版】** `TradePipelineTests.SmithNeverRunsOutOfToolsOverSixtyDays`(同シード。**下の「テスト11 の訂正」を読むこと**) | 60日のどの日も、鍛冶2戸それぞれの `WorkshopInventory[Item.Tools] >= 1`(= 設備係数‰ が 1000 を保つ) | 鍛冶が工具を売り切る(**master では day 1 に 0 になる**)/ 段5b・段6 が留保を素通りする | **【核心】** M-1 |
 | 12 | 10・11 の**空振り防止**(同じテスト内の断定) | (i) 鍛冶が2戸存在する、(ii) 60日ぶん進んだ(`world.Now.DayIndex`)、(iii) 工具の売り注文の**延べ件数が 60 以上**。**これは日ごとの下限とは別の、弱い断定である** — 数えている対象そのものが空でないことだけを見る(健全な走行では鍛冶2戸ぶんで 120 前後になる) | 母集団が空・走行が進んでいない・職業の配置が変わって鍛冶が居ない、で緑になること | — |
 
 ### 当てる変異(`mutator` が測る。[ADR-0013](../adr/0013-mutation-measurement-separated.md))
@@ -142,7 +142,7 @@ public static void Execute(
 
 | # | 変異 | 期待 |
 | - | ---- | ---- |
-| **M-1** | `SellableStock.ReserveQuantity` が常に 0 を返す(= 留保そのものを消す。#148 以前の状態) | **【核心】赤。** テスト10 と 11 の**両方**が赤であること、および**どのシードが赤になったか**を報告に含める。**どちらか一方でも全シード緑なら、その検出器は #148 が実測した詰みを見ていない** |
+| **M-1** | `SellableStock.ReserveQuantity` が常に 0 を返す(= 留保そのものを消す。#148 以前の状態) | **【核心】赤。** テスト10 と**訂正版の**テスト11 の**両方**が赤であること、および**どのシードが赤になったか**を報告に含める。**どちらか一方でも全シード緑なら、その検出器は #148 が実測した詰みを見ていない**(初版のテスト11 がまさにこれだった。下の「テスト11 の訂正」) |
 | **M-2** | `TradeSystem` 段1 の販売在庫を `household.WorkshopInventory[outputItemId]` の直読みに戻す | **【核心】赤(テスト5)** |
 | **M-3** | `TradeSystem` 段6 の販売在庫を `seller.WorkshopInventory[outputItemId]` の直読みに戻す | **【核心】赤(テスト6)** |
 | **M-4** | `TradeSystem` 段5b の切り詰めを `Math.Min(affordableQuantity, seller!.WorkshopInventory[line.ItemId])` に戻す | **【核心】赤(テスト7)** |
@@ -150,6 +150,20 @@ public static void Execute(
 | **M-6** | `SellableStock.Of` の `max(0, …)` を外す | **【核心】赤(テスト4)** |
 
 **M-2〜M-5 は「5経路を1か所に通した」ことの実測である。** どれか1つでも緑なら、その経路は留保を素通りしている。
+
+### テスト11 の訂正(2026-09-21。フェーズ2 の `IMPL-BLOCKED` を受けたフェーズ1 の裁定)
+
+**初版のテスト11**(「後半30日のうち生産回数が正の日が1日以上」= [#148](https://github.com/stama72/visionary/issues/148) の閉じる条件の1つ目を字面どおり写したもの)**は検出器として空洞だった。**
+
+- フェーズ2 の実測: **留保は仕様どおり効いている**(鍛冶の工具在庫は60日間一度も 0 にならず 4〜7 で安定。master は day 1 に 0)。それでも**初版のテスト11 は5シードすべてで赤**だった。鍛冶は day 7〜8 に鉄鉱石・木炭を切らし、以後 生産0 が続く
+- **原材料の枯渇は留保が作った経路ではない** — master でも day 8 に 0 になる
+- したがって初版のテスト11 は**変異 M-1 を当てる前から赤**であり、留保の有無を区別できない。**M-1 の期待「両方赤」は成立し得なかった**
+
+**訂正後のテスト11 は、#148 が実測した詰みの機構そのもの**(工具切れ → 設備係数 500‰ → 能力 0 → 復帰しない)**を見る。** 工具在庫 ≥ 1 は設備係数が 1000 になる条件([GDD02a §3](../03-gdd/02a-production.md))であり、master では day 1 に破れる。
+
+**#148 の閉じる条件の1つ目(生産の復帰)は #154 では満たさない。** 資金と入力の枯渇による停止は留保と無関係で、直すには値付け・購入判定・資金の側に触れる —— #148 の決定1 が却下した「[GDD02d §4.4](../03-gdd/02d-external-market-and-money.md) の校正表を動かすこと」に当たる。**この実測は [#30](https://github.com/stama72/visionary/issues/30) の懸念2(「必需品は買えるが仕入には足りない世帯 — 資金が細った鍛冶の典型」)へ渡した。** #30 は W2 の実測を待って open にしてあったものである。
+
+**フェーズ2 の診断のうち1点は誤りだったので、そのまま引き継がない**(フェーズ1 が検算): 「`world.Market` に鉄鉱石・木炭の売り注文が 0/53日 → 供給側の断絶」。**M0 の5レシピはどれも1次産品を出力しない**(出力は 小麦粉・パン・ビール・薪・工具)ので、**この件数は day 1 でも 0 である。** 1次産品は窓口からの輸入でしか手に入らない([GDD02d §2.2](../03-gdd/02d-external-market-and-money.md))。残る事実(帳簿の `Purchase` が day 8 以降0件・資金 8〜68)が指しているのは**買い手側**であり、原因の特定は #30 が持つ。
 
 ## 検出器の設計(テスト10)
 
