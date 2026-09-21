@@ -107,3 +107,20 @@ jobs:
       # 落ちたら `scripts/check-budget-threshold.sh` の出力が正と写しの両方を出す。
       - name: Budget-gate threshold (docs vs pipeline.ps1)
         run: bash scripts/check-budget-threshold.sh
+
+  guard:
+    name: Pipeline guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # ガードは PreToolUse フックなので普通のテストから呼べない。使い捨ての git リポジトリに
+      # 生きたロックを置き、フックへイベントを流して終了コードを見る(#152 決定2)。
+      # **Ubuntu が守るのはホスト非依存の範囲だけである** — 綴り替え(C:\ / C:/ / /c/ /
+      # /cygdrive/)は Windows でだけ効く設計なので skip される。**skip は黙って通らない** —
+      # 件数と理由をハーネスが出力する。全件を走らせるには Windows の開発機で打つ。
+      - name: Guard behaviour (fixture repo + live lock)
+        shell: pwsh
+        run: ./scripts/check-pipeline-guard.ps1

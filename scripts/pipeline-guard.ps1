@@ -64,6 +64,14 @@ try {
     # で未定義 = $false と評価され、**守りが黙って消える**ので、区切り文字そのもので見る。
     $script:IsWindowsHost = ([IO.Path]::DirectorySeparatorChar -eq '\')
 
+    # `~` の展開先。**Git Bash も PowerShell も `~` を展開して本体に届く**ので、綴りとしては
+    # 絶対パスと同じ確かさを持つ([#152](https://github.com/stama72/visionary/issues/152))。
+    # 取れなければ空にして `~` 形の照合ごと諦める(素通しに倒すのはフック全体の方針)。
+    # **実パスに直してから持つ。** `$mainRoot` は `Resolve-Path` 済みなので、`$HOME` が
+    # シンボリックリンクのホストでは、揃えないと前方一致が外れて `~` 形の綴りが作られない。
+    $script:HomeRoot = try { (Resolve-Path -LiteralPath ([string]$HOME)).Path.TrimEnd('\', '/') }
+                       catch { ([string]$HOME).TrimEnd('\', '/') }
+
     $worktreeMark = [IO.Path]::Combine('.claude', 'worktrees')
     $pipelineDir = Join-Path $mainRoot '.pipeline'
 
@@ -71,11 +79,8 @@ try {
         <#
             `C:\Users\<you>\visionary` -> `/c/Users/<you>/visionary`。
             **この環境の `Bash` ツールは Git Bash である**ため、本体を名指しする綴りが
-            Windows 形だけではない。**照合しているのは、この環境で実際に出た 3 通りである**
-            (`\` 区切り / `/` 区切り / この形)。**閉じた列挙ではない** — ホーム相対の
-            `~/...`(Git Bash が `$HOME` へ展開して本体に届く。素通しを実測済み)と
-            `/cygdrive/c/...` は当たらない([#152](https://github.com/stama72/visionary/issues/152))。
-            綴りを 1 つずつ足すしかないが、形はここ 1 か所から機械的に作る。
+            Windows 形だけではない。**どの綴りを照合するかは `Get-MainTreeNeedle` が 1 か所で
+            決める** — ここはその材料を作る関数であって、綴りの一覧ではない。
 
             ドライブ文字を持たないパス(UNC など)はそのまま返す — 綴り替える先が無い。
             **綴り替えが意味を持つのは Windows だけである**ため、区切りが `/` の OS では何もしない
@@ -105,6 +110,8 @@ try {
         # 無いのに、本体が `/c/` 以下にある Linux ホストで当てると、本物のパスを `C:\...` へ
         # 変えてしまい、本体ツリーへの前方一致から外れる。Windows でだけ効かせる。
         if (-not $script:IsWindowsHost) { return $Path }
+        # `/cygdrive/c/...` は頭を剥がせば `/c/...` と同じ形になる(#152)。
+        if ($Path -match '^/cygdrive(/[A-Za-z]([\\/].*)?)$') { $Path = $Matches[1] }
         if ($Path -match '^/([A-Za-z])(/.*)?$') {
             $rest = if ($Matches[2]) { $Matches[2].Replace('/', '\') } else { '\' }
             return ('{0}:{1}' -f $Matches[1].ToUpperInvariant(), $rest)
@@ -112,9 +119,26 @@ try {
         return $Path
     }
 
+    function ConvertFrom-HomePath {
+        <#
+            `~/game_dev/visionary/x` -> `C:\Users\<you>\game_dev\visionary\x`。
+
+            **`Edit` / `Write` の `file_path` はこの綴りを受けて実際の場所に書く**(2026-09-21 実測)。
+            展開しないと `[IO.Path]::GetFullPath('~/x')` が cwd 相対の `<cwd>\~\x` を返し、本体ツリー
+            への前方一致から**静かに**外れる — `/c/...` が開けていたのと同じ形の穴である(#152)。
+
+            **`~otheruser` は展開しない。** Git Bash は展開するが、この環境のユーザーは 1 人である。
+        #>
+        param([string]$Path)
+        if (-not $script:HomeRoot) { return $Path }
+        if ($Path -match '^~([\\/].*)?$') { return ($script:HomeRoot + $Matches[1]) }
+        return $Path
+    }
+
     function Test-InMainTree {
         param([string]$Path)
         if (-not $Path) { return $false }
+        $Path = ConvertFrom-HomePath $Path
         $Path = ConvertFrom-GitBashPath $Path
         $full = try { [IO.Path]::GetFullPath($Path) } catch { return $false }
         if (-not $full.StartsWith($mainRoot, [StringComparison]::OrdinalIgnoreCase)) { return $false }
@@ -124,6 +148,39 @@ try {
         # ここを止めると、誤検知で居座ったロックを Claude のセッションから外せなくなる。
         if ($full.StartsWith($pipelineDir, [StringComparison]::OrdinalIgnoreCase)) { return $false }
         return $true
+    }
+
+    function Get-MainTreeNeedle {
+        <#
+            **本体を名指しする綴りを作る 1 か所。** 照合は単純な `IndexOf` なので、綴りが 1 つ
+            違うだけで素通しする。実際に 2 度踏んでいる — Git Bash 形(`/c/Users/...`,
+            [#138](https://github.com/stama72/visionary/issues/138))と、ホーム相対
+            (`~/...`, [#152](https://github.com/stama72/visionary/issues/152))。
+
+            **ここに並ぶのは「この環境で出た綴り」と「同じ材料から機械的に作れる綴り」であって、
+            網羅ではない。** 相対パス(`git -C ../../..`)は原理的に入らない
+            (05-phase-sessions「何が止まらないか」)。新しい綴りを見つけたら、足すのはここである。
+        #>
+        param([string]$Root)
+
+        $spellings = @($Root, $Root.Replace('\', '/'))
+
+        # Git Bash 形と、頭に `/cygdrive` が付く形。**この環境の `Bash` は Git Bash なので後者は
+        # 実際には出ていない**が、綴りは前者から 1 行で作れる(#152)。
+        $bash = ConvertTo-GitBashPath $Root
+        if ($bash -ne $Root) { $spellings += @($bash, ('/cygdrive' + $bash)) }
+
+        # ホーム相対。**本体が `$HOME` の下に無ければ、この綴りで本体に届く道がそもそも無い**ので
+        # 足さない(守りが減るのではなく、届く綴りが存在しない)。`/` は Git Bash、`\` は PowerShell。
+        $h = $script:HomeRoot
+        if ($h -and $Root.Length -gt $h.Length -and
+            $Root.StartsWith($h, [StringComparison]::OrdinalIgnoreCase) -and
+            ($Root[$h.Length] -eq '\' -or $Root[$h.Length] -eq '/')) {
+            $rest = $Root.Substring($h.Length).TrimStart('\', '/')
+            $spellings += @(('~/' + $rest.Replace('\', '/')), ('~\' + $rest.Replace('/', '\')))
+        }
+
+        return ($spellings | Sort-Object -Unique)
     }
 
     function Test-TouchesMainTreeByAbsolutePath {
@@ -145,8 +202,7 @@ try {
         # 同じくらい素直に出る。実際 2026-09-21 に走行中の本体へ `cat > /c/Users/.../_probe.md`
         # が通り、untracked を 1 本残した([#138](https://github.com/stama72/visionary/issues/138))。
         # 綴りは `$mainRoot` から機械的に作る。照合は OrdinalIgnoreCase なのでドライブの大小は問わない。
-        $needles = @($mainRoot, $mainRoot.Replace('\', '/'), (ConvertTo-GitBashPath $mainRoot))
-        foreach ($needle in ($needles | Sort-Object -Unique)) {
+        foreach ($needle in (Get-MainTreeNeedle -Root $mainRoot)) {
             $from = 0
             while ($true) {
                 $at = $Command.IndexOf($needle, $from, [StringComparison]::OrdinalIgnoreCase)
@@ -181,6 +237,14 @@ try {
                 'git\s+((-C|-c|--git-dir|--work-tree)(\s+|=)\S+\s+)*(checkout|switch|restore|reset|commit|add|rm|mv|stash|merge|rebase|clean|apply|cherry-pick|push)'
                 '\brm\s'; '\bmv\s'; '\bcp\s'; 'sed\s+-i'; '\btee\b'
                 'dotnet\s+format(?!.*--verify-no-changes)'
+                # **`dotnet new` は `-o` の有無を見ない。** `dotnet new console` は出力先を省いても
+                # cwd にプロジェクトを作るので、`-o` / `--output` だけを見ると穴が残る。無人の
+                # レビュアーが `dotnet new console -o .probe` で本体ツリーに `.probe/` を残している
+                # ([#134](https://github.com/stama72/visionary/issues/134))。`dotnet new list` /
+                # `search` は読み取りだが、worktree に居れば cwd 判定で通るので除いていない。
+                # **`dotnet fsi` は足していない** — 任意コードの実行であり、止める理屈がそのまま
+                # `python` / `node` / `pwsh -c` に及ぶ。憲章の文言で受ける(#134)。
+                'dotnet\s+new\b'
                 'Set-Content|Out-File|Remove-Item|New-Item|Move-Item|Copy-Item|Add-Content'
                 'gh\s+pr\s+(create|merge|edit)'
                 # **リダイレクトは「ファイルへ書き出す形」だけを止める。** 素朴に `>` の後ろに
