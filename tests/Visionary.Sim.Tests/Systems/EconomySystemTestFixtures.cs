@@ -64,7 +64,8 @@ internal static class EconomySystemTestFixtures
         int[]? externalSellPriceBaseOverride = null,
         int[][]? externalSellPriceSeasonPermilleOverride = null,
         int[]? externalBuyPriceOverride = null,
-        bool isExportEnabled = true)
+        bool isExportEnabled = true,
+        int tradeMarginPermille = 1000) // ‰。既定はM0と同じ(帯 = [床, 床×2]。GDD02d §3・§4.4)
     {
         var recipes = new[]
         {
@@ -135,7 +136,8 @@ internal static class EconomySystemTestFixtures
             equipmentPermilleWithoutTools: equipmentPermilleWithoutTools,
             disposableHours: disposableHours,
             trustDiscountPermille: trustDiscountPermille,
-            isExportEnabled: isExportEnabled);
+            isExportEnabled: isExportEnabled,
+            tradeMarginPermille: tradeMarginPermille);
     }
 
     /// <summary>どのレシピも出力しない品目か(= 1次産品か)を、渡されたレシピ表から求める。</summary>

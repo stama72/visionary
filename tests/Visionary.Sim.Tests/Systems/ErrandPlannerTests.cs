@@ -148,7 +148,10 @@ public sealed class ErrandPlannerTests
         const int SellerDistrictId = 1; // R以内。
         const int SellerId = 1;
 
-        var definition = BuildDefinition(externalBuyPriceOverride: BuildExternalBuyPrice(itemAPrice: 10));
+        // ItemAの床を高くする(1000)。#149で窓口が都市生産品も売るようになったため、低い床
+        // (10)のままだと窓口の天井(ApplyPermille(10,2000)=20)がw(75)を下回り、「候補0件で
+        // 行かない」はずの本テストが窓口(中心区画)へ行ってしまう。
+        var definition = BuildDefinition(externalBuyPriceOverride: BuildExternalBuyPrice(itemAPrice: 1000));
         var world = BuildWorld(buyerDistrictId: 0, (SellerDistrictId, Occupation.Miller));
         world.Households[SellerId].WorkshopInventory[ItemA] = 10;
         // 当日の売り注文は無い(world.Marketに何も置かない)。
@@ -341,6 +344,68 @@ public sealed class ErrandPlannerTests
         var plan = planner.Plan(world, world.Households[0], DemandOf(line), Delegate(costPerHour: 1));
 
         Assert.Equal(new[] { District.ExternalMarketDistrictId }, plan.VisitedDistrictIds);
+    }
+
+    /// <summary>
+    /// 【核心】テスト表 #12(#149)。都市生産品(ItemA)でも窓口の見積もりが最安候補に入る
+    /// (<c>TryCheapestEstimate</c> の品目ゲートが外れている)。都市内に売り手が居ない世界で、
+    /// 窓口だけを頼りに中心区画へ外出することを確かめる。
+    /// </summary>
+    /// <remarks>
+    /// <b>#38当時の規則(1次産品だけが窓口の候補になる)を反転する</b>(#149タスク仕様「作るもの3」)。
+    /// <c>:242</c> の品目ゲートが残っていれば、都市内にも窓口にも候補が無く外出そのものが
+    /// 起きない。
+    /// </remarks>
+    [Fact]
+    public void WindowIsACandidateForCityGoods()
+    {
+        var definition = BuildDefinition();
+        var world = BuildWorld(buyerDistrictId: 0); // 距離2(中心。Rの外)。売り手なし。
+
+        // baseValue=50・target=1・expected=0 → w=75。床(1、既定の外部買値)なら余剰は大きく、
+        // 費用(距離2の往復4時間×機会費用1=4)を上回って行く。
+        var line = BuildLine(ItemA, budget: 1, targetStock: 1, expectedStock: 0, baseValue: 50);
+        var planner = new ErrandPlanner(definition);
+
+        var plan = planner.Plan(world, world.Households[0], DemandOf(line), Delegate(costPerHour: 1));
+
+        Assert.Equal(new[] { District.ExternalMarketDistrictId }, plan.VisitedDistrictIds);
+    }
+
+    /// <summary>
+    /// 【核心】テスト表 #13(#149)。窓口の記憶も知覚(距離R以内)も無い買い手の、都市生産品の
+    /// 窓口見積もりは <see cref="WorldDefinition.ExternalBuyPrice"/>(床。<b>1ではない</b>)。
+    /// </summary>
+    /// <remarks>
+    /// 3段目を都市生産品でも <see cref="ExternalMarket.UnknownPriceFloor"/>(1)にする実装ミスは、
+    /// 床を高くした本テストで顕在化する ── 1を使えば余剰が生まれて行ってしまう
+    /// (タスク仕様、核心M-3)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
+    /// <c>afb4ddd</c>、M-3)。</b>赤。15件失敗。<b>本テストが筆頭</b>(<c>Assert.Empty</c>失敗、
+    /// Collection: <c>[4]</c> ── 床を1と誤認して窓口へ行ってしまう、期待どおりの壊れ方)。
+    /// 大半は訪問区画リストの不一致による <c>Assert.Equal</c> / <c>Assert.Empty</c> の失敗で、
+    /// 1件のみ例外(<c>ErrandPlanIsDeterministicAcrossHouseholdOrder</c> の
+    /// <see cref="IndexOutOfRangeException"/>、テスト側 <c>ErrandPlannerTests.cs:1120</c>付近)
+    /// だった。期待と実測の食い違いは無かった。
+    /// </remarks>
+    [Fact]
+    public void UnknownWindowPriceOfCityGoodsUsesTheFloor()
+    {
+        // 床(外部買値)を高くする(999)。距離Rの外なので、誤って1(UnknownPriceFloor)を使えば
+        // 余剰が生まれて行ってしまう。
+        var definition = BuildDefinition(externalBuyPriceOverride: BuildExternalBuyPrice(itemAPrice: 999));
+        var world = BuildWorld(buyerDistrictId: 0); // 距離2(中心。Rの外)。売り手なし・記憶なし。
+
+        // baseValue=50・target=1・expected=0 → w=75。床(999)を正しく使えば余剰0・行かない。
+        // 1(UnknownPriceFloor)を誤って使えば余剰74・費用4で行ってしまう。
+        var line = BuildLine(ItemA, budget: 1, targetStock: 1, expectedStock: 0, baseValue: 50);
+        var planner = new ErrandPlanner(definition);
+
+        var plan = planner.Plan(world, world.Households[0], DemandOf(line), Delegate(costPerHour: 1));
+
+        Assert.Empty(plan.VisitedDistrictIds);
     }
 
     /// <summary>
@@ -663,12 +728,30 @@ public sealed class ErrandPlannerTests
         // 動かして「district2の余剰(=item Aと競合しないので2周目の増分そのもの)が費用16を
         // 超えるときだけdistrict2も追加される」ことを確かめる(価格60→余剰16=費用と同値で
         // 価値0となり追加されない。価格58→余剰27で価値11となり追加される)。
+        //
+        // 期待値の変更ではなく配置の変更(2026-09-21、#149)。窓口は全品目を並べる
+        // ようになったため、距離2(district1・district2と同じ費用16)から item A と item B を
+        // "1回の訪問"でまとめて買える窓口(仮想の区画4)が候補に加わる。買い手に窓口の記憶が
+        // 無いと3段目(未知価格の床)が使われ、それは district1・district2 の床(54・58/60)と
+        // 同じ導出元になるため、窓口が2品目分の余剰を1回の費用で総取りしてしまい、
+        // 本テストが見たい「district1→district2の2周目追加」の分岐に窓口が一度も入らなくなる
+        // (判別力が窓口に吸収される)。<b>したがって買い手に窓口の値の記憶(高値999)を
+        // 持たせ、窓口を実質的に候補から外す</b> ── これは district1・district2 の床(仕様値)を
+        // 動かさない配置の変更であり、断定そのものは変えていない。
         World BuildTwoItemScenario()
         {
             var world = BuildWorld(
                 buyerDistrictId: 0, (District1, Occupation.Miller), (District2, Occupation.Baker));
             world.Households[Seller1Id].WorkshopInventory[ItemA] = 10;
             world.Households[Seller2Id].WorkshopInventory[ItemB] = 10;
+
+            // 窓口(距離2、Rの外)の記憶を高値(999)にし、床基準の未知価格見積もりに
+            // 頼らせない(district1/district2の床54・58/60より十分高く、窓口が候補として
+            // 選ばれることはなくなる)。
+            EconomySystemTestFixtures.AdvanceClockOnly(world, ticks: 3 * 24);
+            AddObservation(world, ItemA, HouseholdState.ExternalMarketSellerId, price: 999, observedAt: Tick.Zero);
+            AddObservation(world, ItemB, HouseholdState.ExternalMarketSellerId, price: 999, observedAt: Tick.Zero);
+
             return world;
         }
 
@@ -754,10 +837,21 @@ public sealed class ErrandPlannerTests
         // 上回る値)。Tの境界だけで行く/行かないが決まるようにする。
         var line = BuildLine(ItemA, budget: 1, targetStock: 1, expectedStock: 0, baseValue: 1000);
 
+        // 配置の変更(2026-09-21、#149)。窓口は距離2(往復4時間)にあり、記憶が無ければ
+        // 3段目(未知価格の床)= FarDistrictIdの床(10)と同値の見積もりになる。往復4時間はT=7の
+        // 内側なので、窓口が「Tの境界で除外されるはずの遠い区画」の代わりに選ばれてしまい、
+        // 本テストが見たい「Tを超えたら除外される」分岐に一度も入らなくなる(判別力が窓口に
+        // 吸収される)。<b>買い手に窓口の値の記憶(高値5000。w=1500を大きく上回り、窓口経由の
+        // 余剰を0にする)を持たせ、窓口を実質的に候補から外す</b> ── FarDistrictIdの床(10、
+        // 仕様値ではなくテストの構成値)は動かさない。
         World BuildScenario()
         {
             var world = BuildWorld(buyerDistrictId: 0, (FarDistrictId, Occupation.Miller));
             world.Households[FarSellerId].WorkshopInventory[ItemA] = 10;
+
+            EconomySystemTestFixtures.AdvanceClockOnly(world, ticks: 3 * 24);
+            AddObservation(world, ItemA, HouseholdState.ExternalMarketSellerId, price: 5000, observedAt: Tick.Zero);
+
             return world;
         }
 
@@ -801,6 +895,12 @@ public sealed class ErrandPlannerTests
                 buyerDistrictId: 0, (FarDistrictId, Occupation.Miller), (otherDistrictId, Occupation.Baker));
             world.Households[FarSellerId].WorkshopInventory[ItemA] = 10;
             world.Households[OtherSellerId].WorkshopInventory[ItemB] = 10;
+
+            // 上のBuildScenarioと同じ理由(#149)で窓口を候補から外す(item A・item Bとも)。
+            EconomySystemTestFixtures.AdvanceClockOnly(world, ticks: 3 * 24);
+            AddObservation(world, ItemA, HouseholdState.ExternalMarketSellerId, price: 5000, observedAt: Tick.Zero);
+            AddObservation(world, ItemB, HouseholdState.ExternalMarketSellerId, price: 5000, observedAt: Tick.Zero);
+
             return world;
         }
 
@@ -844,7 +944,11 @@ public sealed class ErrandPlannerTests
         const int SmallSellerId = 1;
         const int LargeSellerId = 2;
 
-        var definition = BuildDefinition();
+        // ItemAの床を高くする(1000)。買い手が中心区画(HomeDistrictId)に住むため、#149で窓口が
+        // 都市生産品も売るようになったことで、既定の床(1、窓口の天井=2)だと窓口が無条件の
+        // 最安候補になり、SmallDistrictId/LargeDistrictIdのどちらにも行かなくなる
+        // (窓口は自区画で外出なしに使えるため)。
+        var definition = BuildDefinition(externalBuyPriceOverride: BuildExternalBuyPrice(itemAPrice: 1000));
         var world = BuildWorld(
             buyerDistrictId: HomeDistrictId,
             (SmallDistrictId, Occupation.Miller),
@@ -921,7 +1025,11 @@ public sealed class ErrandPlannerTests
             opportunityCostBaseByOccupation: new[] { 5, 5, 5, 5, 5 },
             travelHoursPerDistrict: 1,
             disposableHours: 12,
-            externalBuyPriceOverride: BuildExternalBuyPrice(itemAPrice: 10));
+            // #149で窓口が都市生産品(ItemA)も売るようになったため、床を高くして窓口の天井
+            // (ApplyPermille(床,2000))を都市内の提示価格(30)より十分高く保つ ── 低い床のままだと
+            // 窓口が中心区画(距離2)を経由して都市内(距離1)より安く見え、本テストが検証したい
+            // 委託先の労働力係数(徒弟か否か)ではなく店選択の勝敗で行き先が決まってしまう。
+            externalBuyPriceOverride: BuildExternalBuyPrice(itemAPrice: 1000));
 
         var world = new World(npcCount: 3, householdCount: 2, itemCount: Item.Count);
         world.Npcs[0].Rank = NpcRank.Master;
@@ -982,7 +1090,12 @@ public sealed class ErrandPlannerTests
         const int NearSellerId = 1;
         const int FarSellerId = 2;
 
-        var definition = BuildDefinition(externalBuyPriceOverride: BuildExternalBuyPrice(itemBPrice: 10));
+        // #149で窓口が都市生産品も売るようになったため、ItemAの床は高いまま保つ(既定の1だと
+        // 窓口の天井(ApplyPermille(1,2000)=2)がNearの当日価格10を下回り、店選択の勝敗で
+        // 行き先が変わってしまう)。ItemBの床(10)はFarの見積もり(Rの外・記憶なしで床を使う)の
+        // 材料としてそのまま使うので動かさない。
+        var definition = BuildDefinition(
+            externalBuyPriceOverride: BuildExternalBuyPrice(itemAPrice: 1000, itemBPrice: 10));
         var world = BuildWorld(
             buyerDistrictId: 0, (NearDistrictId, Occupation.Miller), (FarDistrictId, Occupation.Baker));
         world.Households[NearSellerId].WorkshopInventory[ItemA] = 10;

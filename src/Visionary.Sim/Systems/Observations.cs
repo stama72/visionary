@@ -93,8 +93,9 @@ public static class Observations
 
     /// <summary>
     /// 都市外市場の窓口の観測(GDD02d §2.2 / GDD06 §3.1)。<b>視界半径の例外は置かない</b>
-    /// ── 中心が視界(R)の外なら何もしない。真なら1次産品を品目Id昇順に1件ずつ、
-    /// 世帯全員へ配る(既存の <see cref="CollectAndShare"/> と同じ)。
+    /// ── 中心が視界(R)の外なら何もしない。真なら全品目を品目Id昇順に1件ずつ、
+    /// 世帯全員へ配る(既存の <see cref="CollectAndShare"/> と同じ)。窓口が都市生産品も並べる
+    /// (#149)以上、その値も観測になる(1次産品だけに絞る理由が無い)。
     /// </summary>
     /// <remarks>
     /// <b><see cref="CollectAndShare"/> に畳まない。</b>あちらは <see cref="World.Market"/> を
@@ -118,14 +119,9 @@ public static class Observations
 
         var season = GameDate.FromTick(world.Now).Season;
 
-        // 品目Id昇順に1次産品だけを対象にする(0..ItemCount-1を素直に走査すれば昇順になる)。
+        // 品目Id昇順に全品目を対象にする(0..ItemCount-1を素直に走査すれば昇順になる)。
         for (int itemId = 0; itemId < definition.ItemCount; itemId++)
         {
-            if (!definition.IsPrimaryItem(itemId))
-            {
-                continue;
-            }
-
             var observation = new PriceObservation
             {
                 ItemId = itemId,

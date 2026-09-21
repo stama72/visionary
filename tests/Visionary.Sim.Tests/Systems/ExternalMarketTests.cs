@@ -77,7 +77,8 @@ public sealed class ExternalMarketTests
     }
 
     /// <summary>
-    /// テスト表 #4。木炭が夏(1250‰)と冬(750‰)で違う。都市生産品では false。
+    /// テスト表 #4。木炭が夏(1250‰)と冬(750‰)で違う。都市生産品(#149 追随)でも true
+    /// (§2、テスト表 #9 参照)。
     /// </summary>
     [Fact]
     public void WindowOfferPriceAppliesTheSeasonCoefficient()
@@ -115,9 +116,10 @@ public sealed class ExternalMarketTests
 
         Assert.NotEqual(summerPrice, winterPrice);
 
-        // 都市生産品(Flour、Millerの出力)ではfalse(0ではない)。
+        // 都市生産品(Flour、Millerの出力)でもtrue(#149。窓口は全品目を並べる)。
+        // 値は導出した外部売値(WorldDefinition.ExternalSellPrice)と一致する。
         bool foundForCityGood = ExternalMarket.TryOfferPrice(definition, summerTick, Item.Flour, out int cityGoodPrice);
-        Assert.False(foundForCityGood);
-        Assert.Equal(0, cityGoodPrice);
+        Assert.True(foundForCityGood);
+        Assert.Equal(definition.ExternalSellPrice(Item.Flour, Season.Summer), cityGoodPrice);
     }
 }

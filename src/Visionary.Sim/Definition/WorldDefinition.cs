@@ -150,6 +150,13 @@ public sealed class WorldDefinition
     public int TrustDiscountPermille { get; }
 
     /// <summary>
+    /// 交易マージン‰(GDD02d §3)。都市生産品の外部売値(天井) =
+    /// ApplyPermille(外部買値(床), 1000 + これ)。単位: ‰。1000 = 帯の幅2.0倍
+    /// (床から天井までの倍率。GDD02d §3・§4.4)。
+    /// </summary>
+    public int TradeMarginPermille { get; }
+
+    /// <summary>
     /// 輸出を行うか。<a href="https://github.com/stama72/visionary/issues/29">issue #29</a> の実験軸。
     /// <b>状態ではない</b>ので <see cref="World"/> の区分も決定論ハッシュの行も増えない
     /// (TDD01 §3.8)。外部価格と同じく「設定と暦から決まる定数」である(GDD02d §2.1)。
@@ -220,6 +227,7 @@ public sealed class WorldDefinition
         int equipmentPermilleWithoutTools,
         int disposableHours,
         int trustDiscountPermille,
+        int tradeMarginPermille,
         bool isExportEnabled = true)
     {
         ArgumentNullException.ThrowIfNull(recipes);
@@ -594,9 +602,15 @@ public sealed class WorldDefinition
 
                 if (sellBase != 0)
                 {
+                    // 「都市生産品は外部売値を持たない」がGDD02d §2.1の反転させた文であり、
+                    // いま正しいのは「外部売値は外部買値から導出するので、基準値の表には置かない」
+                    // である(タスク仕様)。検査そのものは残す ── 外すと、表に置いた値が
+                    // 黙って無視される(すぐ下の季節係数行の「都市生産品はすべて1000」の検査と
+                    // 同じ理由)。
                     throw new ArgumentOutOfRangeException(
                         nameof(externalSellPriceBase), sellBase,
-                        $"都市生産品(itemId={itemId})は外部売値を持たない(0。GDD02d §2.1)。");
+                        $"都市生産品(itemId={itemId})の外部売値は外部買値から導出するので、"
+                            + "基準値の表には置かない(0。GDD02d §2.1・§3)。");
                 }
             }
         }
@@ -706,6 +720,15 @@ public sealed class WorldDefinition
                 "信用による実効価格の割引係数‰は0〜999(GDD06 §2)。");
         }
 
+        // GDD02d §3.2 の成立条件(f)は「導出の形で守る」ので、守るべきは値の組ではなく
+        // マージンが正であること(1以上)である(タスク仕様)。
+        if (tradeMarginPermille < 1)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(tradeMarginPermille), tradeMarginPermille,
+                "交易マージン‰は1以上(GDD02d §3.2 条件(f))。");
+        }
+
         ItemCount = itemCount;
         HouseholdsPerOccupation = householdsPerOccupation;
         Recipes = recipes.ToArray();
@@ -761,6 +784,7 @@ public sealed class WorldDefinition
         EquipmentPermilleWithoutTools = equipmentPermilleWithoutTools;
         DisposableHours = disposableHours;
         TrustDiscountPermille = trustDiscountPermille;
+        TradeMarginPermille = tradeMarginPermille;
         IsExportEnabled = isExportEnabled;
 
         // 導出値。状態ではなく、すべてここまでの引数から決まる(タスク仕様)。
@@ -796,19 +820,23 @@ public sealed class WorldDefinition
     }
 
     /// <summary>
-    /// 当日の外部売値 = ApplyPermille(基準値, 季節係数‰[季節])(GDD02d §2.1)。1次産品だけが持つ。
+    /// 当日の外部売値(GDD02d §2.1・§3・§5)。
+    /// <list type="bullet">
+    /// <item>1次産品: ApplyPermille(基準値, 季節係数‰[季節])(現行のまま)。</item>
+    /// <item>都市生産品: ApplyPermille(外部買値, 1000 + <see cref="TradeMarginPermille"/>)。
+    /// 季節に依らない(床が季節で動かない以上、天井も動かない。GDD02d §5)。</item>
+    /// </list>
+    /// 天井は本メソッドの中で clamp しない ── 買い手の店選択(窓口が候補に入ること)から
+    /// 創発する構造であり、値付けの式(<see cref="Systems.OfferPrice.Calculate"/>)には
+    /// 上限の項を持ち込まない(GDD02d §3 の囲み「天井は clamp ではなく、店選択から創発する」)。
     /// </summary>
-    /// <exception cref="ArgumentException"><paramref name="itemId"/> が都市生産品のとき。</exception>
     public int ExternalSellPrice(int itemId, Season season)
     {
         ValidateItemIdInRange(itemId);
 
         if (!_isPrimaryItemByItemId[itemId])
         {
-            throw new ArgumentException(
-                $"品目Id={itemId}は都市生産品であり、外部売値を持たない"
-                    + "(1次産品だけが持つ。GDD02d §2.1)。",
-                nameof(itemId));
+            return IntegerMath.ApplyPermille(_externalBuyPrice[itemId], IntegerMath.PermilleScale + TradeMarginPermille);
         }
 
         return IntegerMath.ApplyPermille(
@@ -1003,6 +1031,7 @@ public sealed class WorldDefinition
 
         const int TravelHoursPerDistrictForM0 = 1;             // 時間/区画(GDD02 §4.3)
         const int AcquisitionCostSmoothingPermilleForM0 = 250; // ‰。実効的な窓は7件程度(2/β − 1)
+        const int TradeMarginPermilleForM0 = 1000; // ‰。帯 = [床, 床×2](GDD02d §3・§4.4)
 
         return new WorldDefinition(
             itemCount: Item.Count,
@@ -1035,6 +1064,7 @@ public sealed class WorldDefinition
             toolLifeLaborDays: 13,                // 単位: 人日(GDD02a §3.1)
             equipmentPermilleWithoutTools: 500,   // 単位: ‰(GDD02a §3)
             disposableHours: 12,                  // 単位: 時間(GDD08 §3.1)
-            trustDiscountPermille: 200); // ‰(GDD01 §2.2 効果1)。信用100で2割引の校正値
+            trustDiscountPermille: 200, // ‰(GDD01 §2.2 効果1)。信用100で2割引の校正値
+            tradeMarginPermille: TradeMarginPermilleForM0);
     }
 }
