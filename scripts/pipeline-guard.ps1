@@ -60,11 +60,59 @@ try {
     $live = @(Get-LivePipelineLock -LockDir (Join-Path $mainRoot '.pipeline'))
     if ($live.Count -eq 0) { exit 0 }
 
+    # パスの綴り替え(下の 2 関数)を効かせてよいホストか。`$IsWindows` は Windows PowerShell 5.1
+    # で未定義 = $false と評価され、**守りが黙って消える**ので、区切り文字そのもので見る。
+    $script:IsWindowsHost = ([IO.Path]::DirectorySeparatorChar -eq '\')
+
     $worktreeMark = [IO.Path]::Combine('.claude', 'worktrees')
     $pipelineDir = Join-Path $mainRoot '.pipeline'
+
+    function ConvertTo-GitBashPath {
+        <#
+            `C:\Users\<you>\visionary` -> `/c/Users/<you>/visionary`。
+            **この環境の `Bash` ツールは Git Bash である**ため、セッションが本体を絶対パスで
+            名指しする綴りは 3 通りある(`\` 区切り / `/` 区切り / この形)。Windows 形でない
+            ものは 1 つずつ足すしかないが、形はここ 1 か所から機械的に作る。
+
+            ドライブ文字を持たないパス(UNC など)はそのまま返す — 綴り替える先が無い。
+            **綴り替えが意味を持つのは Windows だけである**ため、区切りが `/` の OS では何もしない
+            (クラウドセッションの Linux では本体が `/home/user/visionary` で、この形は存在しない)。
+        #>
+        param([string]$Path)
+        if (-not $script:IsWindowsHost) { return $Path }
+        if ($Path -match '^([A-Za-z]):(.*)$') {
+            $rest = $Matches[2].Replace('\', '/').TrimStart('/')
+            return ('/{0}/{1}' -f $Matches[1].ToLowerInvariant(), $rest)
+        }
+        return $Path
+    }
+
+    function ConvertFrom-GitBashPath {
+        <#
+            `/c/Users/...` -> `C:\Users\...`。逆向きの綴り替え。**Windows の API はこの形を
+            絶対パスとして解さない** — `[IO.Path]::GetFullPath('/c/Users/x')` はカレントドライブ
+            直下の `C:\c\Users\x` になり、本体ツリーへの前方一致から**静かに**外れる。例外にすら
+            ならないので、素通ししていることが表に出ない。
+
+            `Edit` / `Write` はこの綴りを受けて実際の場所に書く(2026-09-21 実測)ので、
+            ここは理屈の上の穴ではない。
+        #>
+        param([string]$Path)
+        # **Linux ではこの綴り替えが守りを消す。** `/c/...` は Windows の綴りとしてしか意味が
+        # 無いのに、本体が `/c/` 以下にある Linux ホストで当てると、本物のパスを `C:\...` へ
+        # 変えてしまい、本体ツリーへの前方一致から外れる。Windows でだけ効かせる。
+        if (-not $script:IsWindowsHost) { return $Path }
+        if ($Path -match '^/([A-Za-z])(/.*)?$') {
+            $rest = if ($Matches[2]) { $Matches[2].Replace('/', '\') } else { '\' }
+            return ('{0}:{1}' -f $Matches[1].ToUpperInvariant(), $rest)
+        }
+        return $Path
+    }
+
     function Test-InMainTree {
         param([string]$Path)
         if (-not $Path) { return $false }
+        $Path = ConvertFrom-GitBashPath $Path
         $full = try { [IO.Path]::GetFullPath($Path) } catch { return $false }
         if (-not $full.StartsWith($mainRoot, [StringComparison]::OrdinalIgnoreCase)) { return $false }
         # worktree は本体のパスの下に居るが、本体ツリーではない。
@@ -89,7 +137,12 @@ try {
         param([string]$Command)
         if (-not $Command) { return $false }
 
-        $needles = @($mainRoot, $mainRoot.Replace('\', '/'))
+        # **Git Bash 形式(`/c/Users/...`)を落とすと、Bash ツールの経路がまるごと素通しする。**
+        # この環境の `Bash` は Git Bash なので、本体を名指しする綴りとしては `C:\Users\...` と
+        # 同じくらい素直に出る。実際 2026-09-21 に走行中の本体へ `cat > /c/Users/.../_probe.md`
+        # が通り、untracked を 1 本残した([#138](https://github.com/stama72/visionary/issues/138))。
+        # 綴りは `$mainRoot` から機械的に作る。照合は OrdinalIgnoreCase なのでドライブの大小は問わない。
+        $needles = @($mainRoot, $mainRoot.Replace('\', '/'), (ConvertTo-GitBashPath $mainRoot))
         foreach ($needle in ($needles | Sort-Object -Unique)) {
             $from = 0
             while ($true) {
