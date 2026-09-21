@@ -290,7 +290,7 @@ public sealed class ObservationsTests
     }
 
     /// <summary>
-    /// 別表R-1(レビュー1巡目)。#12(<see cref="WindowObservationIsBornForEveryPrimaryItem"/>)の
+    /// 別表R-1(レビュー1巡目)。#12(<see cref="WindowObservationIsBornForEveryItem"/>)の
     /// 補強。中心区画<b>以外</b>に居て、かつ中心が視界内の世帯が得た窓口の観測の
     /// <c>LocationId</c> が観測者の区画ではなく <see cref="District.ExternalMarketDistrictId"/> で
     /// あることを確かめる。

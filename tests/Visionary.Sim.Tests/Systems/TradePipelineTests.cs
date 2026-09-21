@@ -410,10 +410,46 @@ public sealed class TradePipelineTests
     /// (4を超えていないので、置かずに止まる条件には当たらない)。
     /// </remarks>
     /// <remarks>
-    /// <b>核心 M-1(<c>ExternalMarket.TryOfferPrice</c> の先頭に
-    /// <c>if (!definition.IsPrimaryItem(itemId)) { offerPrice = 0; return false; }</c> を戻す変異。
-    /// シード2 が赤になることを含む)・M-2〜M-4 の実測は、レビューの巡が閉じた後に
-    /// <c>mutator</c> が使い捨てworktreeで行う(ADR-0013)。実測結果はここへ転記する。</b>
+    /// <b>#149 の M-1 の定義(2026-09-21 の訂正。レビュー2巡目の象限I-b)。</b>本ファイル・
+    /// 本テストプロジェクト内には他タスクの「M-1」が別に存在する
+    /// (<see cref="UnaffordableNecessityCountsOnlyTheFundsShortfall"/> の remarks が指す
+    /// #38 の M-1、<see cref="ExternalMarketTests"/> の M-1)── ここで言う M-1a/M-1b は
+    /// **#149 のタスク仕様が定義するものだけ**を指す。
+    /// <para>
+    /// **初版の M-1(早期 return だけを戻す変異)は検出器として空洞だった。**
+    /// <c>ExternalMarket.TryOfferPrice</c> の早期 return は <c>offerPrice = 0</c> を置くが、
+    /// <c>ErrandPlanner</c> は戻り値を捨てて <c>EffectivePrice.Calculate(0, …)</c> へ渡すため、
+    /// 提示価格1以上の検査で例外が飛び、帯の断定(1-a)には一度も到達しない見込みである
+    /// (中心の近くの世帯が必需品の需要行を持つ日に必ず踏むため、5シードとも例外になる見込み)。
+    /// 「赤」とだけ転記すると「天井が中心の約定を構造的に縛っていることが実測で確かめられた」
+    /// と読まれるが、実際に確かめられるのは「例外を投げた」ことだけである。旧版の根拠
+    /// (#120 の「シード2 は28日目に床の20倍」)も、旧検出器が <c>world.Market</c>(提示価格)で
+    /// 測った値であり、#1-a が見る <c>world.Ledgers</c> の中心区画の買い手の <c>Purchase</c> 行とは
+    /// 別物だったため誤りだった。
+    /// </para>
+    /// <para>
+    /// **したがって M-1 は2形で実測する。** <c>mutator</c> は各形について、赤/緑だけでなく
+    /// 「失敗の形」(帯の断定の assert か、例外か。例外なら型と発生箇所)を報告する。
+    /// <list type="bullet">
+    /// <item><b>M-1a</b>(初版どおり): <c>ExternalMarket.TryOfferPrice</c> の先頭に
+    /// <c>if (!definition.IsPrimaryItem(itemId)) { offerPrice = 0; return false; }</c> **だけ**を
+    /// 戻す。期待は赤だが、**帯の断定に到達しない見込み**(例外による赤)であり、**核心の
+    /// 受け入れには使わない**。到達しないこと自体が実測の対象である。</item>
+    /// <item><b>M-1b</b>(核心): #149 が外した3つの品目ゲートを同時に戻す(= #149 以前の
+    /// 状態) ── <c>ExternalMarket.TryOfferPrice</c> の早期 return /
+    /// <c>ErrandPlanner:242</c> の <c>&amp;&amp; _definition.IsPrimaryItem(itemId)</c> /
+    /// <c>Observations.CollectWindow</c> の
+    /// <c>if (!definition.IsPrimaryItem(itemId)) continue;</c>。**受け入れ条件は「赤」では
+    /// なく「帯の断定(1-a)の assert で赤」であること**、かつどのシードが赤になったかを
+    /// 報告に含める。</item>
+    /// </list>
+    /// M-1b が緑、または例外で赤になった場合は、天井が何にも守られていないことになるので、
+    /// 転記せずに止まって報告する(タスク仕様の規定)。
+    /// </para>
+    /// </remarks>
+    /// <remarks>
+    /// <b>核心 M-1a/M-1b・M-2〜M-4 の実測は、レビューの巡が閉じた後に <c>mutator</c> が
+    /// 使い捨てworktreeで行う(ADR-0013)。実測結果はここへ転記する。</b>
     /// </remarks>
     [Theory]
     [InlineData(1)]
@@ -587,8 +623,17 @@ public sealed class TradePipelineTests
     /// </list>
     /// <b>したがって「2.25倍(品目数の比)」だけでは210→1200(5.7倍)を説明できない</b>という
     /// 指摘は正しく、要因(a)(400件、品目数の増加)と要因(b)(外出頻度の増加。世帯由来480件が
-    /// その直接の証拠)の両方が効いている。両要因の厳密な寄与の切り分け(#149前のコードでの
-    /// 窓口由来・世帯由来の内訳)は、旧コードが残っていないため再現できない。
+    /// その直接の証拠)の両方が効いている。
+    /// </para>
+    /// <para>
+    /// <b>訂正(2026-09-21、レビュー3巡目)。</b>両要因の厳密な寄与の切り分け(#149前のコードでの
+    /// 窓口由来・世帯由来の内訳)について、上の版は「旧コードが残っていないため再現できない」と
+    /// 書いたが、これは事実として誤りだった。#149前のコードは <c>master</c>
+    /// (<c>5da7e51</c> / マージコミット <c>2828bf8</c>)に残っており、<c>git worktree add</c> して
+    /// 同じ計測を当てれば内訳は再現できる。**測っていない**というだけであり、測れないのではない。
+    /// 本テストで測り直してはいない ── 要因の切り分けは<c>upperBound</c>の式の正当性(構造上界
+    /// であること)には効かず、式は品目数・世帯数・NPC数・保持期間という構造だけで決まるため、
+    /// 実測の内訳の値そのものに依存しない。
     /// </para>
     /// </remarks>
     [Fact]
