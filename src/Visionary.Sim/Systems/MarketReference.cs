@@ -90,6 +90,11 @@ public static class MarketReference
     /// 0件なら false。自分の錨は無い(GDD02c §1.2)。
     /// </summary>
     /// <remarks>畳まずに全件を足す ── 合計と件数だけを見るので順序に依らない。</remarks>
+    /// <remarks>
+    /// <b>窓口の観測もこの平均に入る(決定5、#149タスク仕様)。</b>結論は
+    /// <see cref="TrySeller"/> の doc コメントと同一である ── GDD02c §1.2 の「有効な観測すべて
+    /// の平均」に窓口を除外する読みは無いので、ここも変えない。
+    /// </remarks>
     public static bool TryBuyer(
         IReadOnlyList<PriceObservation> headObservations,
         int itemId,

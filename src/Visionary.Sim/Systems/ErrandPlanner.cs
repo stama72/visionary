@@ -346,6 +346,23 @@ public sealed class ErrandPlanner
         return true;
     }
 
+    /// <remarks>
+    /// <b>不変条件: <paramref name="itemId"/> に1次産品を渡してはならない。</b>3段目の床
+    /// (<c>:396</c> 付近)は <see cref="WorldDefinition.ExternalBuyPrice"/> を読むが、これは
+    /// 都市生産品だけが持つ値であり、1次産品を渡すと <see cref="WorldDefinition"/> 側の検査が
+    /// 例外を投げる。ここを守っているのは呼び出し元(<see cref="TryCheapestEstimate"/>)の
+    /// <see cref="OutputsItem"/> のゲートである ── 都市内の売り手はどのレシピかの出力しか
+    /// 売らない(=1次産品を売る都市内の売り手は存在しない)ので、このメソッドへ来る
+    /// <paramref name="itemId"/> は構造的に都市生産品しかありえない。
+    /// <para>
+    /// <b>これは <see cref="EstimateWindowPrice"/> の3段目(<c>:311</c> 付近)とは別の話である。</b>
+    /// 窓口は1次産品(<see cref="ExternalMarket.UnknownPriceFloor"/>)と都市生産品
+    /// (<see cref="WorldDefinition.ExternalBuyPrice"/>)の両方を扱うので<b>そちらは
+    /// <see cref="WorldDefinition.IsPrimaryItem"/> で分けるのが正しい</b>
+    /// (GDD02d §2.2 が要求している)。都市内の売り手(このメソッド)と窓口
+    /// (<see cref="EstimateWindowPrice"/>)を混同して、こちらにも品目分岐を持ち込まないこと。
+    /// </para>
+    /// </remarks>
     private bool TryEstimateOfferPrice(
         World world, HouseholdState buyer, int itemId, int sellerId, int sellerDistrictId, out int offerPrice)
     {
