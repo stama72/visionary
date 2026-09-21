@@ -230,6 +230,37 @@ public sealed class StoreChoiceTests
         Assert.Equal(SellerId, selected.SellerId); // 窓口(ExternalMarketSellerId)ではなく都市内。
     }
 
+    /// <summary>
+    /// 【核心】W2-14 タスク仕様テスト表 #8。工房在庫1の鍛冶(工具、留保1)は工具の店の候補に
+    /// 入らない(他に候補が無ければ <c>TrySelect</c> が false)。在庫2なら候補に入る
+    /// (<see cref="SellableStock"/> の等式分岐は品目が <see cref="Item.Tools"/> なら職業に
+    /// 依らないので、<see cref="Definition"/>(Millerのレシピ)のままで検査できる)。
+    /// </summary>
+    /// <remarks>
+    /// <b>変異M-5の実測</b>(<c>mutator</c>、2026-09-21、HEAD <c>0da66a4</c>)。候補判定を
+    /// <c>seller.WorkshopInventory[itemId] &lt;= 0</c> に戻すと、本テストのみ赤(433件中1件)。
+    /// </remarks>
+    [Fact]
+    public void SmithWithOnlyTheReservedToolIsNotACandidate()
+    {
+        const int SellerId = 1;
+
+        var world = BuildWorld(0, 0); // 買い手・売り手とも区画0(中心ではない → 窓口は候補外)。
+        world.Households[SellerId].WorkshopInventory[Item.Tools] = 1;
+        world.Market[new MarketKey(Item.Tools, SellerId)] = 30;
+
+        var storeChoice = new StoreChoice(Definition);
+        var buyer = world.Households[0];
+
+        Assert.False(storeChoice.TrySelect(world, buyer, Item.Tools, Array.Empty<int>(), out _));
+
+        // 対照: 在庫2(留保1を超える)なら候補に入る。
+        world.Households[SellerId].WorkshopInventory[Item.Tools] = 2;
+        bool found = storeChoice.TrySelect(world, buyer, Item.Tools, Array.Empty<int>(), out var selected);
+        Assert.True(found);
+        Assert.Equal(SellerId, selected.SellerId);
+    }
+
     /// <summary>テスト表 #24(既存を維持)。販売在庫0の店は候補外。自分の売り注文も候補外。</summary>
     [Fact]
     public void PurchaseSkipsEmptyStoresAndOwnOffer()

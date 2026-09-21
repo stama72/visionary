@@ -2076,6 +2076,15 @@ public sealed class TradeSystemTests
         // 提示価格は床のまま ── OfferPrice.PriceCoefficientPermilleの下限)。
         world.Households[1].WorkshopInventory[Item.Tools] = 50;
 
+        // W2-14追随(2026-09-21)。household0の工具在庫を1個(=留保量ちょうど)にしておく ──
+        // SellableStock.Ofはworkshop在庫が留保量以下なら0を返すので、段1が「販売在庫0」の
+        // continue分岐を踏む本テストの前提(sellableStock<=0のゲートより前で相場基準を控える
+        // ことの検証)は崩れない。買った1個ぶんを足した合計(2個)から輸出できるのは留保を
+        // 超えた1個だけになる ── 留保を導入する前は0個から1個買って1個とも輸出できたが、
+        // 留保導入後は「常に1個は残る」ため、輸出できる量を測るには開始時点で留保ぶんの
+        // 1個を積んでおく必要がある(GDD02c §1.3)。
+        world.Households[0].WorkshopInventory[Item.Tools] = 1;
+
         EconomySystemTestFixtures.RunDays(world, system, days: 1); // 2日目
 
         // 前提: household0が実際に工具を1個買っている(段5b、耐久)。実際の資金(150)が
@@ -2089,11 +2098,12 @@ public sealed class TradeSystemTests
                 && entry.CounterpartyId == 1
                 && entry.Quantity == 1);
 
-        // 相場基準(実測: (1+1+1+200)/4を切り上げて51)を使えば閾在庫0・買った1個が
-        // そのまま輸出される(household0の工具在庫が0に戻る)。相場基準を使わない
-        // (誤って段6のゲートの後で控えを取る)実装なら、出荷目標在庫(1)が代わりに使われ、
-        // 買った1個は閾を超えず輸出されない(工具在庫は1のまま) ── 本テストはこの差を見る。
-        Assert.Equal(0, world.Households[0].WorkshopInventory[Item.Tools]);
+        // 相場基準(実測: (1+1+1+200)/4を切り上げて51)を使えば閾在庫0・工房在庫2個のうち
+        // 留保(1個)を超えた1個が輸出される(household0の工具在庫は留保の1個に戻る)。
+        // 相場基準を使わない(誤って段6のゲートの後で控えを取る)実装なら、出荷目標在庫(1)が
+        // 代わりに使われ、販売在庫1個(=2−留保1)が閾1個を超えず輸出されない
+        // (工具在庫は2のまま) ── 本テストはこの差を見る。
+        Assert.Equal(1, world.Households[0].WorkshopInventory[Item.Tools]);
         Assert.Contains(
             world.Ledgers[0],
             entry => entry.Direction == LedgerDirection.Sale
@@ -2109,5 +2119,187 @@ public sealed class TradeSystemTests
         row[Item.Grain] = 1;
 
         return new[] { (int[])row.Clone(), (int[])row.Clone(), (int[])row.Clone() };
+    }
+
+    // ── W2-14: 販売在庫の留保(SellableStock)がTradeSystemの5経路のうち3つ
+    // (段1の売り注文・段6の輸出・段5bの購入量の切り詰め)へ通ることの検査。
+
+    /// <summary>出力=工具・留保1の「鍛冶」役(Occupation.Millerの枠を使う。ファイルの既存の慣習
+    /// どおり、テストが見たい品目を出力させるためにMillerの枠へレシピを差し込む)。</summary>
+    private static Recipe MillerToolsRecipe() =>
+        new(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = Item.Tools, Quantity = 1 } },
+            inputs: new[] { new ItemQuantity { ItemId = Item.IronOre, Quantity = 1 } },
+            laborPermille: 1000);
+
+    private static WorldDefinition BuildToolsDefinition(int toolsFloor = 10, bool isExportEnabled = true)
+    {
+        var externalBuyPrice = new int[Item.Count];
+        externalBuyPrice[Item.Grain] = 1; // UnusedRecipe(Baker等)が出力する都市生産品。0だと構築時に投げる。
+        externalBuyPrice[Item.Tools] = toolsFloor;
+
+        return EconomySystemTestFixtures.BuildDefinition(
+            MillerToolsRecipe(),
+            opportunityCostBaseByOccupation: new[] { 1, 1, 1, 1, 1 },
+            rankCoefficientPermille: new[] { 1000, 1000, 1000 },
+            travelHoursPerDistrict: 1,
+            shipmentDays: 1,
+            inputBufferDays: 1,
+            externalBuyPriceOverride: externalBuyPrice,
+            isExportEnabled: isExportEnabled);
+    }
+
+    /// <summary>
+    /// 【核心】W2-14 タスク仕様テスト表 #5。工房在庫1の鍛冶は工具の売り注文を出さない
+    /// (<c>world.Market</c> にキーが立たない)。2なら立つ(規則6の具体例)。
+    /// </summary>
+    /// <remarks>
+    /// <b>変異M-2の実測</b>(<c>mutator</c>、2026-09-21、HEAD <c>0da66a4</c>)。段1の販売在庫を
+    /// <c>household.WorkshopInventory[outputItemId]</c> の直読みに戻すと、toolStock=1 のケース
+    /// のみ赤(433件中1件)。
+    /// </remarks>
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(2, true)]
+    public void SmithDoesNotOfferItsLastTool(int toolStock, bool expectOffer)
+    {
+        var definition = BuildToolsDefinition();
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+        AddHousehold(world, id: 0, districtId: 4, Occupation.Miller);
+        world.Households[0].WorkshopInventory[Item.Tools] = toolStock;
+
+        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+
+        Assert.Equal(expectOffer, world.Market.ContainsKey(new MarketKey(Item.Tools, 0)));
+    }
+
+    /// <summary>
+    /// 【核心】W2-14 タスク仕様テスト表 #6。破産中(閾在庫0)の鍛冶の工房在庫を4に置いて段6に
+    /// 通すと、帳簿の輸出行の数量が3、残る工房在庫が1。工房在庫1の鍛冶は輸出行が立たない
+    /// (販売在庫0で段6が早期returnする)。
+    /// </summary>
+    /// <remarks>
+    /// <b>変異M-3の実測</b>(<c>mutator</c>、2026-09-21、HEAD <c>0da66a4</c>)。段6の販売在庫を
+    /// <c>seller.WorkshopInventory[outputItemId]</c> の直読みに戻し、あわせて
+    /// <c>TradeSettlement.ExecuteExport</c> の番人の検査を外すと、本テストは
+    /// <c>Assert.Equal</c> の失敗(Expected 1 / Actual 0。ケース1の残り工房在庫の断定)で赤に
+    /// なる ── 断定そのものが変異を捉えている。同時に
+    /// <see cref="TradeSettlementTests.SettlementRejectsAQuantityThatBreaksTheReserve"/>(番人
+    /// 除去の副作用)と <see cref="SellerReferenceIsTakenBeforeTheSellableStockGate"/> も赤に
+    /// なる(433件中3件)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>破産中の鍛冶の実測</b>(2026-09-21、60日走行・シード1/2/3/7/42)。5シードいずれも
+    /// 60日間で <c>IsBankrupt</c> が真になった鍛冶は現れなかった。破産中の挙動は本テストが
+    /// 合成で担保しているので、現れないこと自体は欠陥ではない(W2-14 タスク仕様「実測して
+    /// doc コメントへ転記すること」)。
+    /// </remarks>
+    [Fact]
+    public void ExportLeavesTheReservedToolEvenWhenBankrupt()
+    {
+        var definition = BuildToolsDefinition();
+
+        // ケース1: 工房在庫4、破産中 → 輸出3個、残り1(留保)。
+        {
+            var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+            AddHousehold(world, id: 0, districtId: District.ExternalMarketDistrictId, Occupation.Miller);
+            world.Households[0].WorkshopInventory[Item.Tools] = 4;
+            world.Households[0].IsBankrupt = 1;
+
+            EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+
+            Assert.Equal(1, world.Households[0].WorkshopInventory[Item.Tools]);
+            Assert.Contains(
+                world.Ledgers[0],
+                entry => entry.Direction == LedgerDirection.Sale
+                    && entry.CounterpartyId == HouseholdState.ExternalMarketSellerId
+                    && entry.ItemId == Item.Tools
+                    && entry.Quantity == 3);
+        }
+
+        // ケース2: 工房在庫1、破産中 → 販売在庫0(留保のみ)で段6が早期return、輸出行は立たない。
+        {
+            var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+            AddHousehold(world, id: 0, districtId: District.ExternalMarketDistrictId, Occupation.Miller);
+            world.Households[0].WorkshopInventory[Item.Tools] = 1;
+            world.Households[0].IsBankrupt = 1;
+
+            EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+
+            Assert.Equal(1, world.Households[0].WorkshopInventory[Item.Tools]);
+            Assert.DoesNotContain(
+                world.Ledgers[0],
+                entry => entry.Direction == LedgerDirection.Sale
+                    && entry.CounterpartyId == HouseholdState.ExternalMarketSellerId);
+        }
+    }
+
+    /// <summary>
+    /// 出力を自分の入力にも持つ「留保つきのパン屋」(#148 決定3の合成レシピと同型。留保1)。
+    /// Item.Tools を使わずに段5bの切り詰めを試験するための組み。
+    /// </summary>
+    private static Recipe SelfReferencingBreadRecipe() =>
+        new(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = Item.Bread, Quantity = 1 } },
+            inputs: new[]
+            {
+                new ItemQuantity { ItemId = Item.Bread, Quantity = 1 }, // 自分の出力を自分の入力にも持つ(留保1)。
+                new ItemQuantity { ItemId = Item.Grain, Quantity = 1 },
+            },
+            laborPermille: 1000);
+
+    /// <summary>
+    /// 【核心】W2-14 タスク仕様テスト表 #7。工房在庫2・留保1の売り手から買い手が買えるのは
+    /// 1個まで(段5bの切り詰め)。約定後の工房在庫が1。
+    /// </summary>
+    /// <remarks>
+    /// <b>変異M-4の実測</b>(<c>mutator</c>、2026-09-21、HEAD <c>0da66a4</c>)。段5bの切り詰めを
+    /// <c>Math.Min(affordableQuantity, seller!.WorkshopInventory[line.ItemId])</c> に戻し、
+    /// あわせて <c>TradeSettlement.Execute</c> の番人の検査を外すと、本テストは
+    /// <c>Assert.Equal</c> の失敗(Expected 1 / Actual 0。約定後の工房在庫の断定)で赤になる ──
+    /// 断定そのものが変異を捉えている。同時に
+    /// <see cref="TradeSettlementTests.SettlementRejectsAQuantityThatBreaksTheReserve"/>
+    /// (番人除去の副作用)も赤になる(433件中2件)。
+    /// </remarks>
+    [Fact]
+    public void BuyerCannotBuyTheSmithsReservedTool()
+    {
+        var necessityTargetStockDays = new int[Item.Count];
+        necessityTargetStockDays[Item.Bread] = 10; // 目標在庫を大きくし、買い手に2個以上欲しがらせる。
+
+        var externalBuyPrice = new int[Item.Count];
+        externalBuyPrice[Item.Grain] = 1; // UnusedRecipe(Baker等)が出力する都市生産品。0だと構築時に投げる。
+        externalBuyPrice[Item.Bread] = 10;
+
+        var definition = EconomySystemTestFixtures.BuildDefinition(
+            SelfReferencingBreadRecipe(),
+            dailyConsumptionPerNpcByRank: ConsumptionTable(),
+            necessityTargetStockDays: necessityTargetStockDays,
+            tolerancePermille: 1200,
+            opportunityCostBaseByOccupation: new[] { 1, 1, 1, 1, 1 },
+            rankCoefficientPermille: new[] { 1000, 1000, 1000 },
+            travelHoursPerDistrict: 1,
+            shipmentDays: 1,
+            inputBufferDays: 1,
+            externalBuyPriceOverride: externalBuyPrice);
+
+        var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
+
+        AddHousehold(world, id: 0, districtId: 4, Occupation.Miller); // 売り手(留保1のパンを持つ)。
+        world.Households[0].WorkshopInventory[Item.Bread] = 2;
+
+        AddHousehold(world, id: 1, districtId: 4, Occupation.Baker, liquidFunds: 100_000); // 買い手。
+
+        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+
+        Assert.Equal(1, world.Households[0].WorkshopInventory[Item.Bread]);
+        Assert.Contains(
+            world.Ledgers[1],
+            entry => entry.Direction == LedgerDirection.Purchase
+                && entry.ItemId == Item.Bread
+                && entry.CounterpartyId == 0
+                && entry.Quantity == 1);
     }
 }

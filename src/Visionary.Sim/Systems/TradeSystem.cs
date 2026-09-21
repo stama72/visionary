@@ -113,9 +113,10 @@ public sealed class TradeSystem : ISimSystem
             var recipe = _definition.Recipes[(int)household.Occupation];
             int outputItemId = recipe.Outputs[0].ItemId; // 出力1件はコンストラクタが保証
 
-            // 販売在庫は工房在庫の出力品目だけ(世帯在庫は見ない。GDD02c §1.3「販売在庫は
-            // 工房在庫の部分集合であり、生産の入力として抱えている分は売りに出ていない」)。
-            int sellableStock = household.WorkshopInventory[outputItemId];
+            // 販売在庫は工房在庫の出力品目から留保を引いた量(世帯在庫は見ない。GDD02c §1.3
+            // 「販売在庫は工房在庫の部分集合であり、生産の入力・設備として抱えている分は
+            // 売りに出ていない」)。5経路すべてを SellableStock に通す(W2-14。#148 追随表)。
+            int sellableStock = SellableStock.Of(_definition, household, outputItemId);
 
             // hasOwnPreviousOffer/ownPreviousOfferPriceは段4(利潤上限)が読む「前日の出力提示価格」
             // である。販売在庫0の世帯についても控える ── その世帯も買い手として利潤上限を持つ。
@@ -307,7 +308,7 @@ public sealed class TradeSystem : ISimSystem
             int affordableQuantity = Math.Min(purchaseQuantityInUnits, fundsCap);
             int actualQuantity = isWindow
                 ? affordableQuantity
-                : Math.Min(affordableQuantity, seller!.WorkshopInventory[line.ItemId]);
+                : Math.Min(affordableQuantity, SellableStock.Of(_definition, seller!, line.ItemId));
 
             // 9. 経路(2): 資金上限の切り詰めで0(GDD02b §3.2)。売り手の在庫が尽きて
             // 0個になったのは資金不足ではない。経路(1)は上で既にcontinueしているので、
@@ -328,9 +329,12 @@ public sealed class TradeSystem : ISimSystem
                 }
                 else
                 {
+                    // 番人へ渡す留保量は SellableStock.ReserveQuantity(呼び出し側の切り詰め漏れを
+                    // 落とす最終防衛線。definition そのものは TradeSettlement へ渡さない、W2-14)。
                     TradeSettlement.Execute(
                         world, household, seller!, line.Purpose, line.ItemId, actualQuantity,
-                        store.UnitEffectivePrice, _definition.AcquisitionCostSmoothingPermille);
+                        store.UnitEffectivePrice, _definition.AcquisitionCostSmoothingPermille,
+                        SellableStock.ReserveQuantity(_definition, seller!, line.ItemId));
                 }
             }
         }
@@ -357,8 +361,9 @@ public sealed class TradeSystem : ISimSystem
         var recipe = _definition.Recipes[(int)seller.Occupation];
         int outputItemId = recipe.Outputs[0].ItemId; // 出力1件はコンストラクタが保証
 
-        // 販売在庫は段5 の後の値(工房在庫の出力品目だけ)。
-        int sellableStock = seller.WorkshopInventory[outputItemId];
+        // 販売在庫は段5 の後の値(工房在庫の出力品目から留保を引いた量。段1 と同じ
+        // SellableStock を通す。W2-14)。
+        int sellableStock = SellableStock.Of(_definition, seller, outputItemId);
 
         if (sellableStock <= 0)
         {
@@ -399,6 +404,8 @@ public sealed class TradeSystem : ISimSystem
             visitedDistrictIds.Add(District.ExternalMarketDistrictId);
         }
 
-        TradeSettlement.ExecuteExport(world, seller, outputItemId, surplus, externalBuyPrice);
+        TradeSettlement.ExecuteExport(
+            world, seller, outputItemId, surplus, externalBuyPrice,
+            SellableStock.ReserveQuantity(_definition, seller, outputItemId));
     }
 }

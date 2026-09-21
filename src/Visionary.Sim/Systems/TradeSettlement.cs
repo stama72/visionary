@@ -24,9 +24,17 @@ public static class TradeSettlement
     }
 
     /// <summary>1件の約定を適用する。</summary>
+    /// <param name="sellerReserveQuantity">
+    /// 売り手の留保量(<see cref="SellableStock.ReserveQuantity"/>)。単位: 個。減算する前に、
+    /// これを割らないことを検査する(W2-14)。
+    /// </param>
     /// <exception cref="ArgumentOutOfRangeException">
     /// <paramref name="quantity"/> または <paramref name="unitEffectivePrice"/> が0以下。
     /// 0個の約定を記帳すると帳簿に意味の無い行が増え、<c>StateHasher</c> にも乗る。
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    /// この約定を適用すると売り手の工房在庫が留保量を割る。<b>呼び出し側の切り詰め漏れを落とす
+    /// ための番人であり、正常系では発火しない。</b>発火したら実装かモデルの欠陥である(GDD02c §1.3)。
     /// </exception>
     public static void Execute(
         World world,
@@ -36,7 +44,8 @@ public static class TradeSettlement
         int itemId,
         int quantity,
         int unitEffectivePrice,
-        int acquisitionCostSmoothingPermille)
+        int acquisitionCostSmoothingPermille,
+        int sellerReserveQuantity)
     {
         ArgumentNullException.ThrowIfNull(world);
         ArgumentNullException.ThrowIfNull(buyer);
@@ -51,6 +60,17 @@ public static class TradeSettlement
         {
             throw new ArgumentOutOfRangeException(
                 nameof(unitEffectivePrice), unitEffectivePrice, "実効価格は1以上(GDD02b §3)。");
+        }
+
+        // 0. 番人。減算する前に検査する ── 減算後だと在庫が既に留保を割った状態で例外を投げる
+        // ことになり、復旧の手がかりが残らない。境界はちょうど留保量に等しいところまでで、
+        // それは正常(`<`であって`<=`ではない。GDD02c §1.3、W2-14)。
+        if (seller.WorkshopInventory[itemId] - quantity < sellerReserveQuantity)
+        {
+            throw new InvalidOperationException(
+                $"売り手(Id={seller.Id})の品目(itemId={itemId})の約定が留保を割る"
+                    + $"(数量={quantity}、工房在庫={seller.WorkshopInventory[itemId]}、"
+                    + $"留保量={sellerReserveQuantity}。GDD02c §1.3)。");
         }
 
         // 1. 支払額はlongで積んでからcheckedでintへ戻す(quantity×unitEffectivePriceはintを
@@ -187,10 +207,18 @@ public static class TradeSettlement
     /// が既にこれを約定として数えており、書き方を変えると売り手の錨と GDD02c §1.1 の頭打ちが
     /// 黙って輸出を落とす。
     /// </remarks>
+    /// <param name="sellerReserveQuantity">
+    /// 売り手の留保量(<see cref="SellableStock.ReserveQuantity"/>)。単位: 個。<see cref="Execute"/>
+    /// と同じ番人(W2-14)。
+    /// </param>
     /// <exception cref="ArgumentOutOfRangeException">
     /// <paramref name="quantity"/> または <paramref name="unitPrice"/> が0以下。
     /// </exception>
-    public static void ExecuteExport(World world, HouseholdState seller, int itemId, int quantity, int unitPrice)
+    /// <exception cref="InvalidOperationException">
+    /// この輸出を適用すると売り手の工房在庫が留保量を割る。<see cref="Execute"/> と同じ番人。
+    /// </exception>
+    public static void ExecuteExport(
+        World world, HouseholdState seller, int itemId, int quantity, int unitPrice, int sellerReserveQuantity)
     {
         ArgumentNullException.ThrowIfNull(world);
         ArgumentNullException.ThrowIfNull(seller);
@@ -203,6 +231,15 @@ public static class TradeSettlement
         if (unitPrice <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(unitPrice), unitPrice, "外部買値は1以上(GDD02d §2.3)。");
+        }
+
+        // 0. 番人。Executeと同じ規則(減算する前に検査、境界はちょうど留保量まで正常。W2-14)。
+        if (seller.WorkshopInventory[itemId] - quantity < sellerReserveQuantity)
+        {
+            throw new InvalidOperationException(
+                $"売り手(Id={seller.Id})の品目(itemId={itemId})の輸出が留保を割る"
+                    + $"(数量={quantity}、工房在庫={seller.WorkshopInventory[itemId]}、"
+                    + $"留保量={sellerReserveQuantity}。GDD02d §2.3)。");
         }
 
         int payment = checked((int)((long)quantity * unitPrice));

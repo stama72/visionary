@@ -15,12 +15,26 @@ namespace Visionary.Sim.Systems;
 /// </para>
 /// <para>
 /// <b>設備係数は工具在庫 ≥ 1 かどうかの二値。</b>ありなら1000‰、無ければ
-/// <see cref="WorldDefinition.EquipmentPermilleWithoutTools"/>(GDD02a §3)。連続化・熟練度・
-/// 機会費用は本タスクのスコープ外(生産関数の分冊、issue #92)。
+/// <see cref="WorldDefinition.EquipmentPermilleWithoutTools"/>(GDD02a §3)。<b>「工具切れでも
+/// 半分の能力で続く」が成り立つのは生産能力2以上の職業に限る(鍛冶については偽、W2-14)。</b>
+/// 鍛冶は所要労働‰が高く生産能力が1なので、<see cref="Recipe.CapacityRuns"/>の2段の
+/// 切り下げにより工具在庫0(設備係数500‰)で能力が0(完全停止)になる ── 自分の出力(工具)を
+/// 作れず回復経路を失って詰む。実際に鍛冶が最後の1個を失わないのは、この500‰の設備係数
+/// そのものではなく<see cref="SellableStock"/>(GDD02c §1.3)の留保が売り注文・輸出・購入の
+/// 3経路すべてで工房在庫を1未満にさせないからである。連続化・熟練度・機会費用は本タスクの
+/// スコープ外(生産関数の分冊、issue #92)。
 /// </para>
 /// </remarks>
 public sealed class ProductionSystem : ISimSystem
 {
+    /// <summary>設備係数‰ が 1000 になる最小の工具在庫(個。GDD02a §3)。</summary>
+    /// <remarks>
+    /// <see cref="SellableStock"/> の工具の留保量と同じ値である。偶然ではなく、GDD02c §1.3 が
+    /// 「設備係数‰ が 1000 になる最小在庫」を留保量の定義として採っている(#148 決定2)。
+    /// 2か所に別々のリテラルで置くと黙って食い違うので、定数はここに1つだけ置く。
+    /// </remarks>
+    public const int EquipmentThresholdStock = 1;
+
     private readonly WorldDefinition _definition;
 
     public ProductionSystem(WorldDefinition definition)
@@ -50,9 +64,10 @@ public sealed class ProductionSystem : ISimSystem
     {
         var recipe = _definition.Recipes[(int)household.Occupation];
 
-        // 設備係数‰は二値(GDD02a §3。連続化はv1.0)。工具切れでも0にはならず、
-        // 半分の能力(既定500‰)で続く ── 旧仕様の「工具が無ければ停止」は消えた(#96)。
-        int equipmentPermille = household.WorkshopInventory[Item.Tools] >= 1
+        // 設備係数‰は二値(GDD02a §3。連続化はv1.0)。旧仕様の「工具が無ければ停止」は消えた
+        // (#96)が、「半分の能力で続く」は生産能力2以上の職業に限る話であり、鍛冶(生産能力1)には
+        // 成り立たない(工具在庫0で能力0になり詰む。W2-14。クラスdocコメント参照)。
+        int equipmentPermille = household.WorkshopInventory[Item.Tools] >= EquipmentThresholdStock
             ? IntegerMath.PermilleScale
             : _definition.EquipmentPermilleWithoutTools;
 

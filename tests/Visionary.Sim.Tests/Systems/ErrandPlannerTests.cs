@@ -1153,7 +1153,7 @@ public sealed class ErrandPlannerTests
         {
             TradeSettlement.Execute(
                 world, buyer, seller, line.Purpose, line.ItemId, actualQuantity, store.UnitEffectivePrice,
-                acquisitionCostSmoothingPermille: 0);
+                acquisitionCostSmoothingPermille: 0, sellerReserveQuantity: 0);
         }
     }
 

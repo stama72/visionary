@@ -1144,4 +1144,221 @@ public sealed class TradePipelineTests
 
         Assert.True(anyToolPurchase, "60日で工具のPurchaseが一度も成立しなかった(値の問題の可能性)。");
     }
+
+    /// <summary>その日の <c>world.Market</c> のうち、指定品目のキー件数を数える。</summary>
+    private static int CountMarketOffers(World world, int itemId)
+    {
+        int count = 0;
+
+        foreach (var key in world.Market.Keys)
+        {
+            if (key.ItemId == itemId)
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    /// <summary>失敗メッセージ用。鍛冶ごとの工房在庫[工具]を世帯Id昇順で並べる(ADR-0002)。</summary>
+    private static string ToolInventorySnapshot(World world)
+    {
+        var snapshot = new System.Text.StringBuilder();
+
+        foreach (var household in world.Households)
+        {
+            if (household.Occupation == Occupation.Smith)
+            {
+                snapshot.Append($" household{household.Id}={household.WorkshopInventory[Item.Tools]}");
+            }
+        }
+
+        return snapshot.ToString();
+    }
+
+    /// <summary>
+    /// 【核心】W2-14 タスク仕様テスト表 #10(検出器)。M0・シード1/2/3/7/42・60日。各日の終わりに
+    /// <c>world.Market</c> のうち工具の売り注文を数える ── どの日も1件以上(#148 訂正9)。
+    /// </summary>
+    /// <remarks>
+    /// <b>判定対象が <c>world.Market</c> である以上、走行後に1回走査する形は採れない。</b>
+    /// <see cref="TradeSystem"/> 段2 が毎日 <c>world.Market.Clear()</c> を呼ぶので、売り注文は
+    /// その日のうちにしか存在しない(<see cref="MoneyChangesOnlyByTheExternalLedger"/> 等の
+    /// <c>world.Ledgers</c>(追記のみで剪定されない)を走行後に1回走査する検出器とは構造が違う
+    /// 理由がこれである)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>下限は1件/日。緩めない(#148 訂正9)。</b>健全な走行では工具の売り注文は毎日立つ。
+    /// 0件の日は鍛冶の工房在庫が1個まで痩せた兆候であり、それ自体が検出したい事象である。
+    /// 訂正9は「0件の日を許容する」という初版の向きを反転させたものなので、閾値を緩める方向の
+    /// 変更は仕様の後退である。
+    /// </remarks>
+    /// <remarks><b>最初の違反で止めない。</b>60日を走り切り、最小件数とその日を記録して最後に
+    /// 1回だけ assert する(<see cref="SettledPricesAtTheCentreStayWithinTheBandOverSixtyDays"/>
+    /// が「最初の違反で止まると超過の上限が測れない」で採った規律と同じ)。</remarks>
+    /// <remarks>
+    /// <b>変異M-1の実測</b>(<c>mutator</c>、2026-09-21、HEAD <c>0da66a4</c>)。<c>SellableStock.
+    /// ReserveQuantity</c> が常に0を返す(留保を消す)変異を当てると、本テストはシード7のみ赤で、
+    /// シード1・2・3・42 は緑のままだった。<b>これは検出器の壊れではなく、期待の向きが逆になる
+    /// ためである。</b> 留保がある世界では工房在庫1→販売在庫0で段1が売り注文を立てないので
+    /// 「0件の日」は在庫が1個まで痩せた兆候になるが、M-1 で留保そのものを消すと工房在庫1でも
+    /// 売り注文は立つため、0件になるのは在庫が0の日だけになる ── 変異は本テストの下限を
+    /// 満たしやすくする方向に働く。留保の核心は
+    /// <see cref="SmithNeverRunsOutOfToolsOverSixtyDays"/>(全5シード赤)が担保する。**本テストの
+    /// 断定は、どの変異(M-1〜M-6)でも担保されていない**(将来この下限を緩めても mutator の
+    /// 測定結果は変わらない)。この穴は issue へ落とした(W2-14 タスク仕様「M-1がテスト10を
+    /// 動かさない理由」)。それでも本テストは「鍛冶の生産が完全に止まったこと」の検出器として
+    /// 意味を持つので外さない。
+    /// </remarks>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(7)]
+    [InlineData(42)]
+    public void ToolOffersNeverDisappearOverSixtyDays(long seed)
+    {
+        var definition = WorldDefinition.M0;
+        var world = WorldGenerator.Generate(definition, new RandomSource(seed));
+        var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(seed));
+
+        int smithHouseholdCount = world.Households.Count(household => household.Occupation == Occupation.Smith);
+
+        bool hasMinDay = false;
+        int minCount = 0;
+        long minDay = 0;
+        string minDayToolInventorySnapshot = string.Empty;
+        long totalToolOfferCount = 0;
+
+        for (int day = 1; day <= 60; day++)
+        {
+            scheduler.Advance(world, ticks: 24);
+
+            int toolOfferCount = CountMarketOffers(world, Item.Tools);
+            totalToolOfferCount += toolOfferCount;
+
+            if (!hasMinDay || toolOfferCount < minCount)
+            {
+                hasMinDay = true;
+                minCount = toolOfferCount;
+                minDay = day;
+                // 違反日その日の工房在庫を控える。走行後に1回走査すると最終日の在庫になり、
+                // 違反日の在庫と読み違える(レビュー指摘)。
+                minDayToolInventorySnapshot = ToolInventorySnapshot(world);
+            }
+        }
+
+        // 空振り防止(#148 の閉じる条件・タスク仕様テスト表 #12)のうち (i)(ii) は核心と独立
+        // なので先に置く。(i) 鍛冶が2戸存在する、(ii) 60日ぶん進んだ。
+        Assert.Equal(2, smithHouseholdCount);
+        Assert.Equal(60, world.Now.DayIndex);
+
+        Assert.True(
+            minCount >= 1,
+            $"seed={seed} day={minDay}: 工具の売り注文が{minCount}件(0件の日があった。留保が"
+                + "効いていない/鍛冶の在庫が1個まで痩せた/生産が止まった可能性)。"
+                + minDayToolInventorySnapshot);
+
+        // 空振り防止 (iii) 延べ件数60以上は、核心(日ごとの下限1以上)より後に置く。核心が真
+        // (60日すべて1件以上)なら延べ件数は論理的に必ず60以上になるため、これを核心より前に
+        // 置くと核心の失敗をこちらが横取りしてしまう(レビュー指摘)。
+        Assert.True(
+            totalToolOfferCount >= 60,
+            $"seed={seed}: 60日間の工具の売り注文の延べ件数({totalToolOfferCount})が60未満"
+                + "(母集団が空振りの可能性)。");
+    }
+
+    /// <summary>
+    /// 【核心】W2-14 タスク仕様テスト表 #11(訂正版。2026-09-21)。M0・シード1/2/3/7/42・60日。
+    /// 各日の終わりに、鍛冶2戸それぞれの工房在庫[工具]が1以上(= 設備係数‰が1000を保つ、
+    /// GDD02a §3)。
+    /// </summary>
+    /// <remarks>
+    /// <b>初版のテスト11(後半30日のうち生産回数が正の日が1日以上)は検出器として空洞だった</b>
+    /// (タスク仕様「テスト11 の訂正」)。留保は仕様どおり効いていて工具在庫は60日間一度も0に
+    /// ならないのに、鍛冶は day 7〜8 に鉄鉱石・木炭(原材料)を切らして以後生産0が続くため、
+    /// 初版は変異M-1(留保を消す)の有無に関わらず5シードすべてで赤だった。原材料の枯渇は
+    /// 留保が作った経路ではなく master でも day 8 に0になる。訂正後は#148が実測した詰みの
+    /// 機構そのもの(工具切れ → 設備係数500‰ → 能力0 → 復帰しない)を見る。#148の閉じる条件の
+    /// 1つ目(生産の復帰)は本テストでは満たさない ── 資金と入力の枯渇による停止は留保と無関係
+    /// であり、直すには値付け・購入判定・資金の側に触れる(#148決定1が却下した範囲)。この実測は
+    /// [#30](https://github.com/stama72/visionary/issues/30) の懸念2へ渡した。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異M-1の実測</b>(<c>mutator</c>、2026-09-21、HEAD <c>0da66a4</c>)。<c>SellableStock.
+    /// ReserveQuantity</c> が常に0を返す(留保を消す)変異を当てると、本テストは全5シード
+    /// (1/2/3/7/42)が赤になった ── 留保の核心はこのテストが担保する。
+    /// </remarks>
+    /// <remarks>
+    /// <b>健全な鍛冶の工房在庫[工具]の定常値の実測</b>(2026-09-21、60日走行、シード
+    /// 1/2/3/7/42。day 60 時点)。seed=1: household2=4, household3=4。seed=2: household3=4,
+    /// household7=4。seed=3: household1=6, household7=6。seed=7: household2=4, household9=4。
+    /// seed=42: household0=4, household2=6。#148 の紙の予測(留保1 + 閾在庫3 = 4)は seed=3 の
+    /// 2戸と seed=42 の1戸で6になり食い違う(値・原因の推測はどちらも実測していないので書かない)。
+    /// </remarks>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(7)]
+    [InlineData(42)]
+    public void SmithNeverRunsOutOfToolsOverSixtyDays(long seed)
+    {
+        var definition = WorldDefinition.M0;
+        var world = WorldGenerator.Generate(definition, new RandomSource(seed));
+        var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(seed));
+
+        int[] smithHouseholdIds = world.Households
+            .Where(household => household.Occupation == Occupation.Smith)
+            .Select(household => household.Id)
+            .ToArray();
+
+        var hasMinToolStock = new bool[smithHouseholdIds.Length];
+        var minToolStock = new int[smithHouseholdIds.Length];
+        var minToolStockDay = new long[smithHouseholdIds.Length];
+        long totalToolOfferCount = 0;
+
+        for (int day = 1; day <= 60; day++)
+        {
+            scheduler.Advance(world, ticks: 24);
+
+            for (int i = 0; i < smithHouseholdIds.Length; i++)
+            {
+                int toolStock = world.Households[smithHouseholdIds[i]].WorkshopInventory[Item.Tools];
+
+                if (!hasMinToolStock[i] || toolStock < minToolStock[i])
+                {
+                    hasMinToolStock[i] = true;
+                    minToolStock[i] = toolStock;
+                    minToolStockDay[i] = day;
+                }
+            }
+
+            totalToolOfferCount += CountMarketOffers(world, Item.Tools);
+        }
+
+        // 空振り防止(タスク仕様テスト表 #12。ToolOffersNeverDisappearOverSixtyDaysと同じ3条件)
+        // のうち (i)(ii) は核心と独立なので先に置く。
+        Assert.Equal(2, smithHouseholdIds.Length);
+        Assert.Equal(60, world.Now.DayIndex);
+
+        for (int i = 0; i < smithHouseholdIds.Length; i++)
+        {
+            Assert.True(
+                minToolStock[i] >= 1,
+                $"seed={seed} householdId={smithHouseholdIds[i]} day={minToolStockDay[i]}: "
+                    + $"工房在庫[工具]が{minToolStock[i]}まで痩せた(設備係数500‰への転落。"
+                    + "留保が段5b・段6を素通りした可能性)。");
+        }
+
+        // 空振り防止 (iii) 延べ件数60以上は、核心(工具在庫の下限)より後に置く。工房在庫が
+        // 残ることと工具の売り注文が立つことは別の事象なので、核心が真でも(iii)が偽になり得る
+        // (冗長ではない)。ここより前に置くと変異M-1(留保を消す)で先に落ち、核心が評価されない
+        // (レビュー指摘)。
+        Assert.True(
+            totalToolOfferCount >= 60,
+            $"seed={seed}: 60日間の工具の売り注文の延べ件数({totalToolOfferCount})が60未満"
+                + "(母集団が空振りの可能性)。");
+    }
 }

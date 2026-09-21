@@ -76,8 +76,9 @@ public sealed class StoreChoice
 
             var seller = world.Households[sellerId];
 
-            // 先に来た買い手が買い尽くした店は候補に入らない(GDD06 §3)。
-            if (seller.WorkshopInventory[itemId] <= 0)
+            // 先に来た買い手が買い尽くした店・留保しか残っていない店は候補に入らない
+            // (GDD06 §3 / GDD02c §1.3。5経路すべてを SellableStock に通す、W2-14)。
+            if (SellableStock.Of(_definition, seller, itemId) <= 0)
             {
                 continue;
             }
