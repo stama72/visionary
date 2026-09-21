@@ -62,7 +62,8 @@ $LogDir = Join-Path $RepoRoot '.pipeline'
 # `-From wrap` は停止則の後の**再開路**であり、枠切れで死んだ直後がこの入口になる。
 # ここを 40% にすると、0.2% の仕事のために再開がリセットまで一律に塞がる。
 #
-# **04 の表を動かしたらここも動かす。** 一致は機械が見ていない([#139](https://github.com/stama72/visionary/issues/139))。
+# **04 の表を動かしたらここも動かす。** 写しは 04 規則2 / CLAUDE.md / 05 の3箇所にあり、
+# **一致は `scripts/check-budget-threshold.sh` が CI で見ている**([#139](https://github.com/stama72/visionary/issues/139))。
 $DefaultMinRemaining = @{ impl = 0.40; wrap = 0.10 }
 
 # パイプラインの消費レートの実測上限。**単位は 枠の %/分**(0.64 = 1 分あたり枠の 0.64%)。
