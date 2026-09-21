@@ -20,6 +20,7 @@
 - [`.claude/commands/learn.md`](../../.claude/commands/learn.md) — 学習セッションの枠づけ
 - [`.claude/agents/adviser.md`](../../.claude/agents/adviser.md) — 全般アドバイザーの憲章(設計・プロセス工程で `reviewer` の代わりに使う)
 - [`.claude/agents/adviser-economy.md`](../../.claude/agents/adviser-economy.md) — 経済アドバイザーの憲章(全般より先に呼ぶ)
+- [`.claude/agents/propagator.md`](../../.claude/agents/propagator.md) — 機械的な波及の憲章(設計セッションが本文を書き、波及だけを出す)
 - [`.claude/commands/advise.md`](../../.claude/commands/advise.md) — アドバイザーを手で呼ぶ入口(設計セッションの外で書いた差分用)
 - [`.claude/commands/design.md`](../../.claude/commands/design.md) — 設計セッションの枠づけ(06 の実行される仕様)
 - [`.claude/commands/impl.md`](../../.claude/commands/impl.md) / [`.claude/commands/wrap.md`](../../.claude/commands/wrap.md) — フェーズ2・フェーズ3 の枠づけ

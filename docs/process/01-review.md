@@ -49,7 +49,7 @@
 
 **憲章そのものの正は [`.claude/agents/reviewer.md`](../../.claude/agents/reviewer.md) である。** 本書はその本文を複製しない。理由は憲章が**実行される設定**だからである(詳細は [README「実行される仕様」](README.md#実行される仕様という位置づけ))。
 
-同じことが [`.claude/agents/implementer.md`](../../.claude/agents/implementer.md)、[`.claude/agents/mutator.md`](../../.claude/agents/mutator.md)、[`.claude/agents/adviser.md`](../../.claude/agents/adviser.md)、[`.claude/agents/adviser-economy.md`](../../.claude/agents/adviser-economy.md)、[`.claude/commands/learn.md`](../../.claude/commands/learn.md)、[`.claude/commands/advise.md`](../../.claude/commands/advise.md)、[`.claude/commands/impl.md`](../../.claude/commands/impl.md)、[`.claude/commands/wrap.md`](../../.claude/commands/wrap.md) にも当てはまる。
+同じことが [`.claude/agents/implementer.md`](../../.claude/agents/implementer.md)、[`.claude/agents/mutator.md`](../../.claude/agents/mutator.md)、[`.claude/agents/adviser.md`](../../.claude/agents/adviser.md)、[`.claude/agents/adviser-economy.md`](../../.claude/agents/adviser-economy.md)、[`.claude/agents/propagator.md`](../../.claude/agents/propagator.md)、[`.claude/commands/learn.md`](../../.claude/commands/learn.md)、[`.claude/commands/advise.md`](../../.claude/commands/advise.md)、[`.claude/commands/impl.md`](../../.claude/commands/impl.md)、[`.claude/commands/wrap.md`](../../.claude/commands/wrap.md) にも当てはまる。
 
 ADR-0004 決定(まとめ)にも憲章のリストがあるが、**あれは起案時点(2026-08-27)のスナップショット**である([ADR-0005](../adr/0005-reviewer-scope-includes-spec-defects.md))。
 
