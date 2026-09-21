@@ -390,9 +390,18 @@ public sealed class TradePipelineTests
     /// </remarks>
     /// <remarks>
     /// <b>最初の違反で止まらない。</b>60日の全行を走査して最大比(約定単価 ÷ 床)を求め、
-    /// 最後に1回だけ assert する(タスク仕様「周縁の緩みの定数」節)。最大比の追跡は表示用の
-    /// <c>double</c> 比較で行う(合否そのものは下記の int 比較)── シム状態にも計算にも
-    /// 使わないテストの診断用途に限る(ADR-0002 が対象とするのはシムの状態と計算)。
+    /// 最後に1回だけ assert する(タスク仕様「周縁の緩みの定数」節)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>訂正(2026-09-21、レビュー1巡目)。</b>最大比の追跡(=どの行を assert 対象に選ぶか)を
+    /// 浮動小数点の比較で行っていたのは誤りだった ── 「表示用」ではなく<b>合否に効く</b>
+    /// (どの行が「最悪」として選ばれるかを決めている)。#120 を閉じる検出器そのものに
+    /// 浮動小数点の比較を残す理由が無いため、<c>a/b &gt; c/d ⟺ a*d &gt; c*b</c>
+    /// (両辺とも正の<c>int</c>なので不等号の向きは保たれる)による整数の交差乗算へ直した。
+    /// 積は<c>long</c>で受ける(下記コード参照。<c>int.MaxValue</c>同士の積でも
+    /// <c>long.MaxValue</c>未満に収まるためオーバーフローしない)。<b>失敗メッセージに比を
+    /// 出すための整形だけ</b>は<c>double</c>を使う ── 比較・選択が整数で終わった後に
+    /// メッセージ組み立てのためだけに換算するので、合否には影響しない。
     /// </remarks>
     /// <remarks>
     /// <b><c>PeripheralBandMultiplier</c> の実測(2026-09-21、フェーズ2)。</b>M0・60日走行での
@@ -463,8 +472,11 @@ public sealed class TradePipelineTests
                 int floor = definition.ExternalBuyPrice(entry.ItemId);
                 long day = entry.OccurredAt.DayIndex;
 
-                // 表示用の比較(合否には使わない。上記docコメント参照)。
-                if (!hasWorstAny || (double)entry.UnitPrice / floor > (double)worstAnyPrice / worstAnyFloor)
+                // 整数の交差乗算で比較する(a/b > c/d ⟺ a*d > c*b。floor・worstAnyFloorは
+                // ExternalBuyPriceの検査により1以上なので符号は変わらない)。積はintを超えうる
+                // ので long で受ける ── 両辺ともint.MaxValueでも積はlong.MaxValue未満に収まる
+                // (2^31未満の2乗は2^62未満、long.MaxValueは2^63−1)。
+                if (!hasWorstAny || (long)entry.UnitPrice * worstAnyFloor > (long)worstAnyPrice * floor)
                 {
                     hasWorstAny = true;
                     worstAnyPrice = entry.UnitPrice;
@@ -481,7 +493,9 @@ public sealed class TradePipelineTests
 
                 anyCentreBuyerPurchase = true;
 
-                if (!hasWorstCentre || (double)entry.UnitPrice / floor > (double)worstCentrePrice / worstCentreFloor)
+                // 上と同じ整数の交差乗算。
+                if (!hasWorstCentre
+                    || (long)entry.UnitPrice * worstCentreFloor > (long)worstCentrePrice * floor)
                 {
                     hasWorstCentre = true;
                     worstCentrePrice = entry.UnitPrice;
@@ -522,7 +536,8 @@ public sealed class TradePipelineTests
 
     /// <summary>
     /// テスト表 #24。60日回した後、<c>Knowledge</c> の総件数が
-    /// NPC数 × (世帯数 − 1) × (保持期間 + 1) 以下。
+    /// NPC数 × (保持期間 + 1) × (世帯数 − 1 + 品目数) 以下(#149 訂正後。窓口の枠を含む。
+    /// 下記remarks参照)。
     /// </summary>
     /// <remarks>
     /// <b>W2-09 追随(2026-09-20)。</b>境界を「NPC1人につき、他の世帯(売り手候補)ごとに
@@ -541,12 +556,40 @@ public sealed class TradePipelineTests
     /// </remarks>
     /// <remarks>
     /// <b>実測値(2026-09-21、W2-13の実装での再実測)。</b>M0・シード1・60日で
-    /// <c>totalKnowledge</c> = 1200(#149 前は210)。窓口の観測(#149 で1次産品4件→全9品目)が
-    /// 中心区画に住む・訪れる世帯の分だけ大きく増えている(1件目当たりの品目数が2倍強に
-    /// 増えただけでなく、後述のとおり窓口の観測が売り手自身の相場基準の材料にもなり、
-    /// 日々の観測の生成頻度そのものが上がっている)。<c>upperBound</c> の式自体は構造
-    /// (NPC数・世帯数・保持期間)だけで決まり価格には依らないが、<c>totalKnowledge</c>
-    /// (60日走行の実測値)は現行の経済に従属している。
+    /// <c>totalKnowledge</c> = 1200(#149 前は210)。<c>upperBound</c> は1440(訂正前の式)に対して
+    /// 83%まで来ており、余裕は17%しかない。
+    /// </remarks>
+    /// <remarks>
+    /// <b>訂正(2026-09-21、#149・仕様の訂正。フェーズ2)。</b>旧remarksは「窓口の観測が売り手
+    /// 自身の相場基準の材料にもなり、日々の観測の<b>生成頻度そのものが上がっている</b>」と
+    /// 書いていたが、これは事実と合っていない ── <see cref="MarketReference"/> は観測を
+    /// <b>消費するだけで生成しない</b>。また旧upperBoundの式(NPC数×(世帯数−1)×(保持期間+1))は
+    /// 「構造だけで決まる」と書いていたが誤りだった。式の(世帯数−1)に窓口が入っておらず、
+    /// 窓口は「1売り手=1品目」ではなく1日に全品目の観測を生む(#149)ため、式は構造上界では
+    /// なく経験的な線だった。<b>本テストは上界の式に窓口の枠を足して構造上界に戻す側を
+    /// 採った</b>(上記コード参照。経験的な線のまま残す代替案は採らなかった)。
+    /// <para>
+    /// <b>実際に効いた要因を実測で切り分けた。</b>M0・シード1・60日の総数1200のうち、
+    /// 窓口由来(<c>SellerId == HouseholdState.ExternalMarketSellerId</c>)が720、世帯由来
+    /// (通常の売り手を見た観測)が480。窓口由来720は品目ごとに均等(1品目あたり80件)で、
+    /// 1次産品4品目ぶん320・都市生産品5品目ぶん400に分かれる。
+    /// <list type="bullet">
+    /// <item><b>要因(a) 観測対象の品目数の増加。</b>都市生産品ぶんの400件は、#149以前は
+    /// 窓口がそもそも都市生産品を観測させなかったので<b>まったく存在し得なかった</b>
+    /// (品目フィルタの直接の効果)。</item>
+    /// <item><b>要因(b) 中心への外出頻度の増加。</b>世帯由来だけで480あり、これは
+    /// <b>#149前の総数(210)を単独で上回る</b>。世帯由来の観測は窓口の品目フィルタとは
+    /// 無関係(他の世帯を見た観測であって窓口を見た観測ではない)なので、品目数の増加
+    /// (2.25倍)ではこの480という値そのものを一切説明できない。窓口が都市生産品の候補になり
+    /// 中心への外出そのものが増えたこと(ErrandPlannerの品目ゲートを外した効果)が、世帯由来・
+    /// 窓口由来の両方を押し上げている。
+    /// </item>
+    /// </list>
+    /// <b>したがって「2.25倍(品目数の比)」だけでは210→1200(5.7倍)を説明できない</b>という
+    /// 指摘は正しく、要因(a)(400件、品目数の増加)と要因(b)(外出頻度の増加。世帯由来480件が
+    /// その直接の証拠)の両方が効いている。両要因の厳密な寄与の切り分け(#149前のコードでの
+    /// 窓口由来・世帯由来の内訳)は、旧コードが残っていないため再現できない。
+    /// </para>
     /// </remarks>
     [Fact]
     public void ObservationsDoNotGrowWithoutBound()
@@ -559,17 +602,28 @@ public sealed class TradePipelineTests
 
         long totalKnowledge = world.Knowledge.Sum(observations => (long)observations.Count);
 
-        // NPC1人が知りうる売り手は自分の世帯を除く(世帯数−1)戸まで。各売り手について
-        // 保持期間+1日ぶん(Observations.Expireが「差 > 保持期間」で消すので、差0〜保持期間の
-        // (保持期間+1)日ぶんが同時に残りうる)。
+        // NPC1人が知りうる「都市内の」売り手は自分の世帯を除く(世帯数−1)戸まで。各売り手は
+        // 自分の出力品目1件しか持たない(Recipeが出力1件を保証)ので、1日1件×保持期間+1日ぶん
+        // (Observations.Expireが「差 > 保持期間」で消すので、差0〜保持期間の(保持期間+1)日ぶんが
+        // 同時に残りうる)。
+        //
+        // 訂正(2026-09-21、#149・仕様の訂正)。窓口はこの(世帯数−1)に入っていない別枠であり、
+        // かつ「1売り手=1品目」ではなく1日に全品目(ItemCount件)の観測を生む(#149で都市生産品
+        // まで並べるようになったため)。窓口の枠を落とすと式は構造上界ではなく経験的な線になる
+        // ため、窓口の枠(NPC1人につき品目数×(保持期間+1)日ぶん)を足して構造上界に戻した
+        // (選択肢は2つ提示されており、こちらを採った。窓口を1つの「売り手」として数える
+        // (世帯数−1)戸の枠とは独立に足すのは、窓口が実在の世帯Idを持たず、通常の売り手の
+        // 「1日1件」という制約も受けないため)。
+        long realSellerCount = definition.HouseholdCount - 1;
+        long windowItemCount = definition.ItemCount; // 窓口は1日に全品目を観測させうる(#149)。
         long upperBound = (long)definition.NpcCount
-            * (definition.HouseholdCount - 1)
-            * (definition.ObservationRetentionDays + 1);
+            * (definition.ObservationRetentionDays + 1)
+            * (realSellerCount + windowItemCount);
 
         Assert.True(
             totalKnowledge <= upperBound,
             $"Knowledgeの総件数({totalKnowledge})が上限({upperBound})を超えた"
-                + "(保持期間の失効が効いていない可能性)。");
+                + "(保持期間の失効が効いていない可能性、または窓口の観測件数の想定が崩れた可能性)。");
     }
 
     /// <summary>

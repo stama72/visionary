@@ -1964,6 +1964,18 @@ public sealed class TradeSystemTests
     /// 掛けても51 &lt; 100)。許容乖離を広げて購入そのものは通す。</item>
     /// </list>
     /// </remarks>
+    /// <remarks>
+    /// <b>M-5の実測記録(上記2026-09-21の実測)は、当時の構成(<c>liquidFunds: 1_000_000</c>)での
+    /// 正しい実測であり、書き換えない。</b>ただし本テストはこの直後の初期条件の組み直しで
+    /// <c>liquidFunds: 150</c>・実効価格100に変わっており、<c>FundsCap = FloorDiv(150, 100) = 1</c>で
+    /// 数量が1個に切り詰められる。<b>したがって現在の構成では、
+    /// <c>BuyerBudget.QuantityInUnits</c>(耐久値→個数の換算)が壊れて需要側の線形解が
+    /// 何個相当を返しても、<c>FundsCap</c>が先に1個へ切り詰めるため
+    /// <c>Assert.Contains(... Quantity == 1)</c>は緑のまま変わらない</b> ──
+    /// このテストはもうM-5を拘束しない。M-5の主たる守り手は
+    /// <see cref="ErrandPlannerAndSettlementAgreeOnQuantity"/>である
+    /// (2026-09-21の実測どおり、そちらはFundsCapに縮退しない配置で耐久の換算を直接見ている)。
+    /// </remarks>
     [Fact]
     public void SellerReferenceIsTakenBeforeTheSellableStockGate()
     {
