@@ -187,6 +187,54 @@ try {
         return ($spellings | Sort-Object -Unique)
     }
 
+    function Remove-QuotedSpan {
+        <#
+            引用符(`"` / `'`)で囲まれた区間をプレースホルダ 1 文字へ潰して返す。
+            **書き込み判定(`$writeish`)に食わせる文字列を作るためだけ**の関数である。
+
+            `$writeish` は語境界もアンカーも持たずコマンド文字列全体に当たるので、
+            **検索パターンとして書いた動詞が書き込み判定を通す。** 実際
+            `grep -n "Remove-Item|prune|…" scripts/pipeline.ps1` が走行中に 2 回止まった
+            ([#166](https://github.com/stama72/visionary/issues/166))。**発火する場所が偏っている** —
+            走行中に `pipeline*.ps1` を読みに行くのは、まさに別セッションがやる作業である。
+            リダイレクトの偽陽性(`grep … 2>&1`)を狭めたのと同じ類型で、新しい類型ではない。
+
+            **潰す先は空白ではない。** 空白にすると
+            `git -C "<本体>" checkout` が `git\s+((-C|…)(\s+|=)\S+\s+)*(checkout|…)` の
+            `\S+` を満たさなくなり、**書き込み判定ごと外れる** — 偽陽性を消すつもりで
+            偽陰性を開くことになる。非空白 1 文字なら、引数がそこに在ったことだけが残る。
+
+            **対応が取れなければ元の文字列を返す**(現状動作に落とす)。剥がし過ぎは
+            止まるべきコマンドを静かに通すので、迷う形は守る側に倒す。
+            エスケープ(`\"` / `` `" ``)は見ていない — 見ないほうが不揃いな引用符が
+            「対応が取れない」に落ち、素通しではなく現状動作になる。
+
+            **引用符の中に本体の絶対パスが在っても守りは消えない** — 絶対パスの照合
+            (`Test-TouchesMainTreeByAbsolutePath`)と `.pipeline` の回収路判定は、
+            剥がす前の文字列に当てている。剥がした文字列の行き先は `$writeish` だけである。
+        #>
+        param([string]$Command)
+        if (-not $Command) { return $Command }
+        $sb = [Text.StringBuilder]::new()
+        $quote = [char]0
+        foreach ($ch in $Command.ToCharArray()) {
+            if ($quote -ne [char]0) {
+                # 閉じるまで捨てる。**単引用符の中の `"` は引用符ではない**(`"don't"` の
+                # `'` も同じ)ので、状態は 1 つだけ持つ。
+                if ($ch -eq $quote) { $quote = [char]0 }
+                continue
+            }
+            if ($ch -eq '"' -or $ch -eq "'") {
+                $quote = $ch
+                [void]$sb.Append('_')   # 引数が在ったことだけを残すプレースホルダ
+                continue
+            }
+            [void]$sb.Append($ch)
+        }
+        if ($quote -ne [char]0) { return $Command }   # 閉じていない = 対応が取れない
+        return $sb.ToString()
+    }
+
     function Test-TouchesMainTreeByAbsolutePath {
         <#
             **`Bash` / `PowerShell` は cwd でしか判定できない。** worktree に居るセッションが
@@ -260,7 +308,10 @@ try {
                 # `>> file` は追記(書き込み)なので**止まる側に残す**。
                 '>\s*(?!&|/dev/null|\$null)\S'
             ) -join '|'
-            if ($cmd -notmatch $writeish) { exit 0 }
+            # **照合は引用符の中を外してから当てる。** `$writeish` は語境界を持たないので、
+            # 検索パターンとして書いた動詞(`grep -n "Remove-Item" …`)が書き込み判定を通す
+            # (#166)。**剥がした文字列の行き先はここだけ** — 下の 2 つは元の `$cmd` に当てる。
+            if ((Remove-QuotedSpan -Command $cmd) -notmatch $writeish) { exit 0 }
             # ロックそのものを触るコマンドは素通し(回収路)。
             if ($cmd -match '\.pipeline' -and $cmd -match '\.lock') { exit 0 }
             # cwd が本体でなくても、本体の絶対パスを名指ししているなら本体への操作である。
@@ -277,7 +328,9 @@ try {
     $msg = @"
 パイプライン(issue #$($l.issue) / フェーズ $($l.phase) / PID $($l.pid))が走行中です。**走っている間、本体の作業ツリーはパイプラインのものです**(CLAUDE.md / docs/process/05-phase-sessions.md)。
 止めた操作: $what
-別のタスクを進めるなら worktree を分けてください(.claude/worktrees/)。パイプラインが止まった証拠は PID $($l.pid) が消えることです — 生ログ .pipeline/*.jsonl の末尾は終端ではありません。
+読むだけなら Grep / Read ツールはこのフックを通りません(止まるのは Bash / PowerShell / Edit / Write です)。
+別のタスクを進めるなら worktree へ cwd ごと移ってください(.claude/worktrees/)。**worktree を作ってあっても、セッションの cwd が本体なら止まります。**
+パイプラインが止まった証拠は PID $($l.pid) が消えることです — 生ログ .pipeline/*.jsonl の末尾は終端ではありません。
 "@
     [Console]::Error.WriteLine($msg)
     exit 2
