@@ -13,6 +13,8 @@ argument-hint: <issue番号>
 2. issue が参照する文書の**該当節**
 3. `CLAUDE.md`
 
+**始める前に `git pull` してください**([06](../../docs/process/06-design-sessions.md)「束」)。ラップトップの本体は、デスクトップのフェーズ3 が `master` に積んだ文書更新より遅れます。機械は見ていません。
+
 **パイプラインが本体の worktree で走っているなら、別の worktree で始めてください**([05](../../docs/process/05-phase-sessions.md)「パイプラインが走っている間、本体の worktree はパイプラインのものである」)。
 
 ## あなたの仕事 — 5つのうち 1・2・3・5
