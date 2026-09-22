@@ -598,6 +598,51 @@ function Test-FreshnessGate {
     return $true
 }
 
+function Write-DetachedLaunchWarning {
+    <#
+        **`--bg` のセッションから打たれたかを見て、違えば警告を1行出す。拒否はしない。**
+
+        フェーズ1 は `claude --bg` で開き、手で回すときも `--bg` のセッションの中から
+        打つ([#146](https://github.com/stama72/visionary/issues/146) 決定8・決定11)。**どちらも機械では守れない** —
+        開発者が打つ場所の話だからである。**守れないが、破ったことは後から分かる。**
+
+        前景(pty に繋がった形)で打つと、ssh の切断でパイプラインごと死ぬ。これは
+        実測してある(2026-09-23。[05](../docs/process/05-phase-sessions.md)「フェーズ1 は背景セッションで開く」)。
+
+        **拒否にしないのは、拒否が手で回す再開路そのものを塞ぐからである**(決定12)。
+        停止の後始末に来た開発者が、机の前で `-From wrap` を打てなくなる。守りたいのは
+        「気付かずに素で打った」であって「素で打つこと」ではない。
+
+        **判定できないときは黙る。** 祖先の `CommandLine` は、別のログオンセッションの
+        プロセスでは読めないことがある(ssh は Session 0 に入る)。読めないことを
+        「破った」と読み替えると、**正しく打った回に警告が出て、警告そのものが無視される。**
+    #>
+    try {
+        $seen = @{}
+        $pid_ = $PID
+        for ($depth = 0; $depth -lt 12; $depth++) {
+            if ($seen.ContainsKey($pid_)) { break }
+            $seen[$pid_] = $true
+            $p = Get-CimInstance Win32_Process -Filter "ProcessId=$pid_" -ErrorAction Stop
+            if (-not $p) { break }   # 親が既に終わっている。ここが walk の普通の終端である
+            # **読めない祖先が1つでもあれば判定しない。** 別のログオンセッションの
+            # プロセスは `CommandLine` が空で返る(ssh は Session 0 に入る)。空を
+            # 「破った」と読み替えると、正しく打った回に警告が出て、警告が無視される。
+            if ([string]::IsNullOrWhiteSpace($p.CommandLine)) { return }
+            # pty ホストでもデーモンでも、居れば `--bg` の下である。
+            if ($p.CommandLine -match '--bg-pty-host' -or $p.CommandLine -match '\bdaemon run\b') { return }
+            if (-not $p.ParentProcessId -or $p.ParentProcessId -eq 0) { break }
+            $pid_ = $p.ParentProcessId
+        }
+    } catch {
+        return  # 判定できない。黙る側に倒す
+    }
+
+    Write-Host ""
+    Write-Host '!!! claude --bg のセッションの下ではないようです(#146 決定8・決定11)。' -ForegroundColor Yellow
+    Write-Host '    ssh で繋いでいるなら、切断でこのパイプラインごと落ちます。拒否はしません。' -ForegroundColor Yellow
+}
+
 function Invoke-Phase {
     param([string]$Command)
 
@@ -720,6 +765,11 @@ if (-not $lockPath) {
 $env:VISIONARY_PIPELINE_ISSUE = [string]$Issue
 
 try {
+    # **決定8・決定11 を破っていないかを見る。拒否はしない**(#146 決定12)。
+    # ガードより先に置くのは、拒否されて終わる回でも「打った場所が違う」は伝わるべき
+    # だからである。読めなければ黙るので、ここが誤検知で止まることは無い。
+    Write-DetachedLaunchWarning
+
     # **古い本体で打たない**(#146 決定4)。枠のプローブより先に置くのは、fetch がタダで
     # あり、拒否すると分かっているのに $0.11 を払う理由が無いためである。
     if ($From -eq 'impl' -and -not (Test-FreshnessGate)) { exit 5 }
