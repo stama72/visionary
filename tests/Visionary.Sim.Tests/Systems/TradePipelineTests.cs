@@ -2,6 +2,7 @@ using Visionary.Sim.Determinism;
 using Visionary.Sim.Randomness;
 using Visionary.Sim.Systems;
 using Visionary.Sim.Time;
+using Xunit.Abstractions;
 
 namespace Visionary.Sim.Tests.Systems;
 
@@ -16,6 +17,10 @@ namespace Visionary.Sim.Tests.Systems;
 /// </remarks>
 public sealed class TradePipelineTests
 {
+    private readonly ITestOutputHelper _output;
+
+    public TradePipelineTests(ITestOutputHelper output) => _output = output;
+
     private static ISimSystem[] FullPipeline(WorldDefinition definition) => new ISimSystem[]
     {
         new ProductionSystem(definition),
@@ -1493,5 +1498,372 @@ public sealed class TradePipelineTests
             totalToolOfferCount >= 60,
             $"seed={seed}: 60日間の工具の売り注文の延べ件数({totalToolOfferCount})が60未満"
                 + "(母集団が空振りの可能性)。");
+    }
+
+    /// <summary>#173 の3条件を day 1〜30 について評価した結果。</summary>
+    private sealed class CitySurvivalScan
+    {
+        /// <summary>条件1(都市の生産回数の合計 > 0)が破れた日。1始まり。</summary>
+        public List<int> ProductionStoppedDays { get; } = new();
+
+        /// <summary>条件2(都市生産品の都市内約定件数 > 0)が破れた日。1始まり。</summary>
+        public List<int> NoInternalSettlementDays { get; } = new();
+
+        /// <summary>条件3(世帯在庫が空の世帯が全世帯にならない)が破れた日。1始まり。</summary>
+        public List<int> AllHouseholdsEmptyDays { get; } = new();
+
+        /// <summary>30日の延べ生産回数(全世帯・全日の合計)。空振り防止に使う。</summary>
+        public long TotalProductionRuns { get; set; }
+
+        /// <summary>30日の延べ都市内約定件数(都市生産品)。空振り防止に使う。</summary>
+        public long TotalInternalSettlements { get; set; }
+
+        /// <summary>世帯数。空振り防止に使う。</summary>
+        public int HouseholdCount { get; set; }
+
+        /// <summary>走行後の world.Now.DayIndex。空振り防止に使う。</summary>
+        public long FinalDayIndex { get; set; }
+
+        /// <summary>ITestOutputHelper へ流す1行(W2-16 タスク仕様「4. 基準値を読む口」の書式)。</summary>
+        public string Format(long seed)
+        {
+            static string DaysList(List<int> days) => string.Join(", ", days);
+
+            return $"seed={seed} 条件1: 違反{ProductionStoppedDays.Count}日 "
+                + $"(day {DaysList(ProductionStoppedDays)}) / "
+                + $"条件2: 違反{NoInternalSettlementDays.Count}日 "
+                + $"(day {DaysList(NoInternalSettlementDays)}) / "
+                + $"条件3: 違反{AllHouseholdsEmptyDays.Count}日 "
+                + $"(day {DaysList(AllHouseholdsEmptyDays)}) / "
+                + $"延べ生産回数={TotalProductionRuns} / 延べ都市内約定={TotalInternalSettlements}";
+        }
+    }
+
+    /// <summary>
+    /// #173 の3条件(生産・都市内約定・世帯在庫)を M0・30日について1回の走行でまとめて評価する。
+    /// 最初の違反で止めない(W2-16 タスク仕様「1. 走査」手順3。既存の60日検出器と同じ規律)。
+    /// </summary>
+    private static CitySurvivalScan ScanThirtyDays(long seed)
+    {
+        var definition = WorldDefinition.M0;
+        var world = WorldGenerator.Generate(definition, new RandomSource(seed));
+        var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(seed));
+
+        var scan = new CitySurvivalScan();
+
+        for (int day = 1; day <= 30; day++)
+        {
+            scheduler.Advance(world, ticks: 24);
+
+            // Advance(24)のk回目の直後はDayIndex==k。終わったばかりの日はDayIndex==k-1
+            // (W2-16タスク仕様「順序・境界」)。
+            long dayIndex = day - 1;
+
+            // 条件1: 全世帯のProductionRunsの合計。
+            long productionRuns = 0;
+            foreach (var household in world.Households)
+            {
+                productionRuns += household.ProductionRuns;
+            }
+
+            scan.TotalProductionRuns += productionRuns;
+            if (productionRuns == 0)
+            {
+                scan.ProductionStoppedDays.Add(day);
+            }
+
+            // 条件2: 当日の都市内約定件数(Purchase・相手が窓口以外・都市生産品4〜8)。
+            long internalSettlements = 0;
+            foreach (var household in world.Households)
+            {
+                foreach (var entry in world.Ledgers[household.Id])
+                {
+                    if (entry.OccurredAt.DayIndex == dayIndex
+                        && entry.Direction == LedgerDirection.Purchase
+                        && entry.CounterpartyId != HouseholdState.ExternalMarketSellerId
+                        && entry.ItemId >= Item.Flour && entry.ItemId <= Item.Tools)
+                    {
+                        internalSettlements++;
+                    }
+                }
+            }
+
+            scan.TotalInternalSettlements += internalSettlements;
+            if (internalSettlements == 0)
+            {
+                scan.NoInternalSettlementDays.Add(day);
+            }
+
+            // 条件3: 「パン・薪・ビールが3品目とも0」の世帯が全世帯かどうか(論理積)。
+            bool allHouseholdsEmpty = true;
+            foreach (var household in world.Households)
+            {
+                bool householdEmpty = household.HouseholdInventory[Item.Bread] == 0
+                    && household.HouseholdInventory[Item.Firewood] == 0
+                    && household.HouseholdInventory[Item.Beer] == 0;
+
+                if (!householdEmpty)
+                {
+                    allHouseholdsEmpty = false;
+                    break;
+                }
+            }
+
+            if (allHouseholdsEmpty)
+            {
+                scan.AllHouseholdsEmptyDays.Add(day);
+            }
+        }
+
+        scan.FinalDayIndex = world.Now.DayIndex;
+        scan.HouseholdCount = world.Households.Length;
+
+        return scan;
+    }
+
+    /// <summary>
+    /// 【核心】W2-16 タスク仕様テスト表 #1(検出器)。M0・シード1/2/3/7/42・30日。day 1〜30のうち、
+    /// 全世帯の <c>ProductionRuns</c> の合計が0になる日(都市の生産が丸1日止まる日)が1日以上ある
+    /// (<a href="https://github.com/stama72/visionary/issues/173">issue #173</a> の条件1)。
+    /// </summary>
+    /// <remarks>
+    /// <b>この検出器は「病理がまだある」ことを断定している。向きが反転するのは経済が直った日である。</b>
+    /// 反転の代償と却下した案は W2-16 タスク仕様「前提 ── 『書いた時点で赤』を、緑を要求する機械の
+    /// 中へどう置くか」節を参照。
+    /// </remarks>
+    /// <remarks>
+    /// <b>30日である理由。</b>プレイテストで使うのが1季 = 30日だから。60日にすると季節の切り替わりと
+    /// <a href="https://github.com/stama72/visionary/issues/172">#172</a>の段差が混ざる。帯の検出器
+    /// (<a href="https://github.com/stama72/visionary/issues/149">#149</a>)は60日のまま
+    /// (issue #173)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>条件1は<a href="../../../docs/03-gdd/02-economy.md">GDD02 §8</a>-3より弱い。</b>都市全体の
+    /// 生産回数の合計であって、レシピごとではない(issue #173の条件1は「都市の生産回数の合計 > 0」)。
+    /// §8-3を満たしたと読まないこと(W2-16タスク仕様「含まない」節)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>基準値の実測(2026-09-22)。</b>5シードとも違反日が1日以上あったため、条件1はシードを
+    /// すべて反転側へ割り振った(正側は空。<c>ProductionNeverStopsForAWholeDayOverThirtyDays</c>は
+    /// 書かない)。<c>_output</c>の実測行:
+    /// <list type="bullet">
+    /// <item>seed=1 条件1: 違反19日 (day 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+    /// 27, 28, 29, 30) / 条件2: 違反9日 (day 16, 18, 19, 20, 21, 22, 26, 28, 30) / 条件3: 違反0日
+    /// (day ) / 延べ生産回数=469 / 延べ都市内約定=100</item>
+    /// <item>seed=2 条件1: 違反12日 (day 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30) / 条件2:
+    /// 違反10日 (day 14, 19, 20, 21, 22, 26, 27, 28, 29, 30) / 条件3: 違反0日 (day ) /
+    /// 延べ生産回数=588 / 延べ都市内約定=119</item>
+    /// <item>seed=3 条件1: 違反18日 (day 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
+    /// 28, 29, 30) / 条件2: 違反8日 (day 14, 15, 19, 26, 27, 28, 29, 30) / 条件3: 違反0日 (day ) /
+    /// 延べ生産回数=465 / 延べ都市内約定=97</item>
+    /// <item>seed=7 条件1: 違反21日 (day 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+    /// 25, 26, 27, 28, 29, 30) / 条件2: 違反14日 (day 5, 14, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28,
+    /// 29, 30) / 条件3: 違反1日 (day 30) / 延べ生産回数=452 / 延べ都市内約定=92</item>
+    /// <item>seed=42 条件1: 違反9日 (day 22, 23, 24, 25, 26, 27, 28, 29, 30) / 条件2: 違反4日 (day 16,
+    /// 22, 23, 26) / 条件3: 違反0日 (day ) / 延べ生産回数=577 / 延べ都市内約定=123</item>
+    /// </list>
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測。</b>(未実施。<c>mutator</c>の報告が来たら転記する。)
+    /// </remarks>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(7)]
+    [InlineData(42)]
+    public void ProductionStopsForAWholeDayWithinThirtyDays(long seed)
+    {
+        var scan = ScanThirtyDays(seed);
+        _output.WriteLine(scan.Format(seed));
+
+        // 核心と独立な空振り防止。
+        Assert.Equal(30, scan.FinalDayIndex);
+        Assert.Equal(10, scan.HouseholdCount);
+
+        // 条件別の空振り防止。ProductionRuns以外を合計している/読む先を間違えて常に0を見ている
+        // ケースを塞ぐ。
+        Assert.True(
+            scan.TotalProductionRuns > 0,
+            $"seed={seed}: 30日間の延べ生産回数が0(ProductionRunsを読む先の取り違えの可能性)。");
+
+        // 核心。反転側 ── 「違反日が1日以上ある」が病理(直っていない)側の主張。
+        Assert.True(
+            scan.ProductionStoppedDays.Count > 0,
+            $"seed={seed}: 条件1が30日すべてで成立した。この条件はこのシードについて直っている。"
+                + "W2-16 の手順に従い、このシードを"
+                + "ProductionNeverStopsForAWholeDayOverThirtyDays の [InlineData] へ移し、"
+                + "doc コメントの基準値を更新すること(#173)。");
+    }
+
+    /// <summary>
+    /// 【核心】W2-16 タスク仕様テスト表 #3(検出器)。M0・シード1/2/3/7/42・30日。day 1〜30のうち、
+    /// 都市生産品(小麦粉・薪・パン・ビール・工具、itemId 4〜8)の都市内約定件数が0になる日が
+    /// 1日以上ある(issue #173 の条件2)。
+    /// </summary>
+    /// <remarks>
+    /// <b>この検出器は「病理がまだある」ことを断定している。向きが反転するのは経済が直った日である。</b>
+    /// </remarks>
+    /// <remarks>
+    /// <b>30日である理由。</b><see cref="ProductionStopsForAWholeDayWithinThirtyDays"/>と同じ
+    /// (W2-16タスク仕様)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>都市内の判定。</b><c>CounterpartyId != HouseholdState.ExternalMarketSellerId</c>が
+    /// 「都市内の約定」の判定そのもの(<a href="../../../docs/03-gdd/02d-external-market-and-money.md">
+    /// GDD02d §2.1</a>)。窓口からの輸入で緑になるのを防ぐ(開発者の決定、2026-09-22)。
+    /// <c>Purchase</c>だけ数えるのは二重計上を避けるため(<a
+    /// href="../../../docs/03-gdd/01-trust-and-conversation.md">GDD01 §4.4</a>。1約定は買い手と
+    /// 売り手が1行ずつ記帳する)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>基準値の実測(2026-09-22)。</b>5シードとも違反日が1日以上あったため、条件2はシードを
+    /// すべて反転側へ割り振った(正側は空。
+    /// <c>InternalSettlementsOfCityGoodsNeverDisappearOverThirtyDays</c>は書かない)。<c>_output</c>の
+    /// 実測行は <see cref="ProductionStopsForAWholeDayWithinThirtyDays"/> の doc コメントに転記済みの
+    /// ものと同一(1回の走行で3条件をまとめて採るため)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測。</b>(未実施。<c>mutator</c>の報告が来たら転記する。)
+    /// </remarks>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(7)]
+    [InlineData(42)]
+    public void InternalSettlementsOfCityGoodsDisappearWithinThirtyDays(long seed)
+    {
+        var scan = ScanThirtyDays(seed);
+        _output.WriteLine(scan.Format(seed));
+
+        // 核心と独立な空振り防止。
+        Assert.Equal(30, scan.FinalDayIndex);
+        Assert.Equal(10, scan.HouseholdCount);
+
+        // 条件別の空振り防止。絞り込みが全行を落としている(向き・相手・品目のいずれかの取り違え)
+        // ケースを塞ぐ。
+        Assert.True(
+            scan.TotalInternalSettlements > 0,
+            $"seed={seed}: 30日間の延べ都市内約定が0(向き・相手・品目のいずれかの取り違えの"
+                + "可能性)。");
+
+        // 核心。反転側。
+        Assert.True(
+            scan.NoInternalSettlementDays.Count > 0,
+            $"seed={seed}: 条件2が30日すべてで成立した。この条件はこのシードについて直っている。"
+                + "W2-16 の手順に従い、このシードを"
+                + "InternalSettlementsOfCityGoodsNeverDisappearOverThirtyDays の [InlineData] へ移し、"
+                + "doc コメントの基準値を更新すること(#173)。");
+    }
+
+    /// <summary>
+    /// 【核心】W2-16 タスク仕様テスト表 #5(検出器)。M0・シード7・30日。day 1〜30のうち、
+    /// 世帯在庫(パン・薪・ビール)が3品目とも0の世帯が全世帯になる日が1日以上ある
+    /// (issue #173 の条件3)。
+    /// </summary>
+    /// <remarks>
+    /// <b>この検出器は「病理がまだある」ことを断定している。向きが反転するのは経済が直った日である。</b>
+    /// </remarks>
+    /// <remarks>
+    /// <b>30日である理由。</b><see cref="ProductionStopsForAWholeDayWithinThirtyDays"/>と同じ
+    /// (W2-16タスク仕様)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>見るのは世帯在庫(工房在庫ではない)。</b><a
+    /// href="../../../docs/03-gdd/02b-consumption-and-household.md">GDD02b §1</a>。工房在庫を見ると、
+    /// パン屋が売れ残りのパンを抱えて飢えている状態(<a
+    /// href="https://github.com/stama72/visionary/issues/174">#174</a>)が「空でない」に見える。
+    /// </remarks>
+    /// <remarks>
+    /// <b>3品目の論理積である。</b>issue #173の「世帯在庫(パン・薪・ビール)が0の世帯」の字義どおり。
+    /// 品目ごとに「全世帯で0」を見る形は採らない ── ビール(嗜好)が都市から消えることは飢餓とは
+    /// 別の事象であり、issue #173の閉じる条件より強い主張になる(W2-16タスク仕様)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>基準値の実測(2026-09-22)。</b>5シードのうちseed7だけが違反日を持った(30日、1日)ため、
+    /// 条件3はseed7だけを反転側へ、残り4シード(1/2/3/42)は
+    /// <see cref="SomeHouseholdAlwaysHoldsNecessitiesOverThirtyDays"/>(正側)へ割り振った。<c>
+    /// _output</c>の実測行はseed=7: 条件3: 違反1日 (day 30)(<see
+    /// cref="ProductionStopsForAWholeDayWithinThirtyDays"/> の doc コメントに転記済み)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測。</b>(未実施。<c>mutator</c>の報告が来たら転記する。)
+    /// </remarks>
+    [Theory]
+    [InlineData(7)]
+    public void AllHouseholdsRunEmptyWithinThirtyDays(long seed)
+    {
+        var scan = ScanThirtyDays(seed);
+        _output.WriteLine(scan.Format(seed));
+
+        // 核心と独立な空振り防止。
+        Assert.Equal(30, scan.FinalDayIndex);
+        Assert.Equal(10, scan.HouseholdCount);
+
+        // 条件別の空振り防止。在庫の添字を間違えて常に空に見えているケースを塞ぐ ── 初期在庫は
+        // 薪28・パン6・ビール1なので、day 1は必ず空でない(全30日が違反にはなりえない)。
+        Assert.True(
+            scan.AllHouseholdsEmptyDays.Count < 30,
+            $"seed={seed}: 30日すべてで全世帯が空になった(在庫の添字の取り違えの可能性。"
+                + "初期在庫は薪28・パン6・ビール1のため、day 1は必ず空でないはずである)。");
+
+        // 核心。反転側。
+        Assert.True(
+            scan.AllHouseholdsEmptyDays.Count > 0,
+            $"seed={seed}: 条件3が30日すべてで成立した。この条件はこのシードについて直っている。"
+                + "W2-16 の手順に従い、このシードを"
+                + "SomeHouseholdAlwaysHoldsNecessitiesOverThirtyDays の [InlineData] へ移し、"
+                + "doc コメントの基準値を更新すること(#173)。");
+    }
+
+    /// <summary>
+    /// テスト表 #9(正側)。M0・シード1/2/3/42・30日。day 1〜30のいずれの日も、世帯在庫(パン・薪・
+    /// ビール)が3品目とも0の世帯は全世帯にならない ── 条件3(issue #173)がこの4シードでは
+    /// 30日すべてで成立している(直った側)。
+    /// </summary>
+    /// <remarks>
+    /// <b>正の向き。</b>失敗(条件が破れる日が現れる)は退行であり凶報である
+    /// (<see cref="AllHouseholdsRunEmptyWithinThirtyDays"/>とは逆に、こちらは赤が悪い知らせ)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>30日である理由・見る対象・論理積である理由。</b>
+    /// <see cref="AllHouseholdsRunEmptyWithinThirtyDays"/>と同じ(W2-16タスク仕様)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>基準値の実測(2026-09-22)。</b>seed=1/2/3/42はいずれも条件3の違反日が0日だった(<see
+    /// cref="ProductionStopsForAWholeDayWithinThirtyDays"/> の doc コメントに転記済みの実測行)。
+    /// seed=7だけが違反日1日(day 30)を持ち、<see cref="AllHouseholdsRunEmptyWithinThirtyDays"/>
+    /// (反転側)へ割り振った。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測。</b>(未実施。<c>mutator</c>の報告が来たら転記する。)
+    /// </remarks>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(42)]
+    public void SomeHouseholdAlwaysHoldsNecessitiesOverThirtyDays(long seed)
+    {
+        var scan = ScanThirtyDays(seed);
+        _output.WriteLine(scan.Format(seed));
+
+        // 核心と独立な空振り防止。
+        Assert.Equal(30, scan.FinalDayIndex);
+        Assert.Equal(10, scan.HouseholdCount);
+
+        // 条件別の空振り防止(正の向きでは核心が論理的に含意するので、成立していれば必ず緑)。
+        Assert.True(
+            scan.AllHouseholdsEmptyDays.Count < 30,
+            $"seed={seed}: 30日すべてで全世帯が空になった(在庫の添字の取り違えの可能性。"
+                + "初期在庫は薪28・パン6・ビール1のため、day 1は必ず空でないはずである)。");
+
+        // 核心。正側 ── 違反日が現れたら退行。
+        Assert.True(
+            scan.AllHouseholdsEmptyDays.Count == 0,
+            $"seed={seed}: 条件3が day {string.Join(", ", scan.AllHouseholdsEmptyDays)} で破れた"
+                + $"(違反{scan.AllHouseholdsEmptyDays.Count}日 / 延べ生産回数="
+                + $"{scan.TotalProductionRuns} / 延べ都市内約定={scan.TotalInternalSettlements})。");
     }
 }
