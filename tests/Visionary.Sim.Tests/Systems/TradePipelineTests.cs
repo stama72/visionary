@@ -109,6 +109,29 @@ public sealed class TradePipelineTests
     /// 「相場項があり」を外しても判定そのものは変わらない(決定10だけが初日の値を決める)。
     /// 一般化はゲートを緩める方向には動かないので、この実測より上には戻らないはずである。
     /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(<c>mutator</c> が測定、2026-09-22、対象HEAD <c>624f5b1</c>、変異なしで
+    /// 445件緑を確認済み)。</b>
+    /// <list type="bullet">
+    /// <item><b>M-1</b>(<c>BuyerDemand.BuildLine</c> が <c>BaseValue</c> へ窓口価格ではなく
+    /// <c>cashCap</c> を渡す変異)は<b>全5シードで赤</b>。<b>ただし赤の理由は閾値の断定ではなく
+    /// <c>ArgumentOutOfRangeException</c></b>(<c>cashCap = 0</c> の行を <c>BaseValue</c> の戻り値
+    /// ガードが捕まえる)であり、<b>断定に到達しないためday0の輸入額は読めない</b>。仕様は
+    /// 「失敗メッセージから輸入額を読む」ことを期待していたが、本タスクで足した <c>BaseValue</c> の
+    /// ガードが検出器より手前で落とす ── 2つの機械が別の面を守っていることの現れである。</item>
+    /// <item><b>M-2</b>(<c>Decide</c> の分岐1を <c>if (line.HasMarketTerm &amp;&amp;
+    /// effectivePrice &gt; adjustedBaseValue)</c> に戻す変異)は<b>本テストでは全5シード緑のまま</b>。
+    /// 決定11は購入量を1つも変えない ── 初日の輸入額を決めているのは決定10だけ、という主張の
+    /// 実測であり、検出器を2本(本テストと<see
+    /// cref="BuyerBudgetTests.DecideClosesOnTheBaseValueWithoutAMarketReference"/>)に割った
+    /// 根拠そのものである。</item>
+    /// <item><b>M-3</b>(<c>BuyerDemand.WindowPrice</c> の分岐を落とし全品目
+    /// <c>ExternalSellPrice(itemId, season)</c> を使う変異)も<b>全5シードで赤</b>。day0の輸入額は
+    /// seed1=5752 / seed2=4568 / seed3=4568 / seed7=4744 / seed42=4408(閾値2400を大きく超える)。</item>
+    /// <item><b>M-4</b>(<c>WindowPrice</c> が季節を <c>Season.Spring</c> 固定で渡す変異)は
+    /// <b>緑のまま</b>。</item>
+    /// </list>
+    /// </remarks>
     [Theory]
     [InlineData(1)]
     [InlineData(2)]

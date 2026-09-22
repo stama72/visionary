@@ -614,6 +614,19 @@ public sealed class BuyerDemandTests
     /// 後、1次産品の行が <c>ExternalSellPrice(itemId, Season.Summer)</c>(穀物13)であって
     /// 基準値10ではないこと(決定10・12)。
     /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(<c>mutator</c> が測定、2026-09-22、対象HEAD <c>624f5b1</c>、変異なしで
+    /// 445件緑を確認済み、M-1・M-3・M-4)。</b>
+    /// <list type="bullet">
+    /// <item><b>M-1</b>(<c>BuildLine</c> が <c>BaseValue</c> へ窓口価格ではなく <c>cashCap</c> を
+    /// 渡す変異)は<b>赤</b>(期待10・実際600)。</item>
+    /// <item><b>M-3</b>(<c>WindowPrice</c> の分岐を落とし全品目 <c>ExternalSellPrice(itemId,
+    /// season)</c> を使う変異)は<b>(a)が赤</b>(期待10・実際20 ── 都市生産品に天井が返る)。</item>
+    /// <item><b>M-4</b>(<c>WindowPrice</c> が季節を <c>Season.Spring</c> 固定で渡す変異)は
+    /// <b>(c)だけが赤</b>(期待13・実際10)。(a)(b)は緑のまま(春は基準値と当日値が同値になり
+    /// 区別が付かない)。</item>
+    /// </list>
+    /// </remarks>
     [Fact]
     public void BaseValueFallsBackToTheWindowPriceOfTheDay()
     {

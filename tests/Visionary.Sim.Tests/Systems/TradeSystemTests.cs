@@ -658,6 +658,13 @@ public sealed class TradeSystemTests
     /// 相場項が立ち、基礎値が相場項由来(999付近)に上がって到達在庫が上側clamp(2T=20)へ戻る
     /// (実測: 購入量20)。<b>このテストは以後「相場項が無い日」の経路を通らない。</b>
     /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(<c>mutator</c> が測定、2026-09-22、対象HEAD <c>624f5b1</c>、変異なしで
+    /// 445件緑を確認済み、M-9)。</b>輸出の往復時間の検査を <c>&gt;</c> から <c>&gt;=</c> へ変える
+    /// 変異は<b>2件赤</b>。<b>ケースB</b>(往復12=Tちょうど)の <c>Assert.True(...)</c> が期待True・
+    /// 実際Falseで失敗(往復時間ちょうどの日に持ち込まなくなる。往復時間という判別軸が生きている
+    /// ことの実測)。他1件は波及。
+    /// </remarks>
     [Fact]
     public void ExportErrandIsSkippedWhenTheDayIsFull()
     {
@@ -826,6 +833,16 @@ public sealed class TradeSystemTests
     /// UnaffordableNecessityCount == 1、(2) ゲートは開くがFundsCapが0に切り詰める → 同じく1。
     /// 同じlineで2にならない。
     /// </summary>
+    /// <remarks>
+    /// <b>W2-15 変異の実測(<c>mutator</c> が測定、2026-09-22、対象HEAD <c>624f5b1</c>、変異なしで
+    /// 445件緑を確認済み、M-6)。</b><c>TradeSystem</c> の需要行の走査を <c>demand.Lines.Reverse()</c>
+    /// に反転する変異(走査順 必需→耐久→入力→嗜好 の破壊)は、本テストを含む
+    /// <b>ちょうど3件が赤</b>(本テスト / <see
+    /// cref="NecessityIsSettledBeforePreference"/> / <see
+    /// cref="NonNecessityFundsShortfallIsNotCounted"/>)。<see
+    /// cref="TradePipelineTests.NecessityIsSettledBeforePreference"/> は同じ変異で<b>緑のまま</b>
+    /// (訂正4赤Cの根拠 ── そちらのremarks参照)。
+    /// </remarks>
     [Fact]
     public void NecessityShortfallIsCountedOnBothPaths()
     {
@@ -880,6 +897,16 @@ public sealed class TradeSystemTests
     /// が実際値1(嗜好(穀物)の行が段4の古い現金上限100のゲートを通った後、段8で現在の流動資金0に
     /// 対する <c>fundsCap == 0</c> を踏んで数えられる)で失敗した(赤を確認)。変異を戻して
     /// 緑に復帰させた。
+    /// </remarks>
+    /// <remarks>
+    /// <b>W2-15 変異の実測(<c>mutator</c> が測定、2026-09-22、対象HEAD <c>624f5b1</c>、変異なしで
+    /// 445件緑を確認済み、M-6)。</b><c>TradeSystem</c> の需要行の走査を <c>demand.Lines.Reverse()</c>
+    /// に反転する変異(走査順 必需→耐久→入力→嗜好 の破壊)は、本テストを含む
+    /// <b>ちょうど3件が赤</b>(本テスト / <see
+    /// cref="NecessityIsSettledBeforePreference"/> / <see
+    /// cref="NecessityShortfallIsCountedOnBothPaths"/>)。<see
+    /// cref="TradePipelineTests.NecessityIsSettledBeforePreference"/> は同じ変異で<b>緑のまま</b>
+    /// (訂正4赤Cの根拠 ── そちらのremarks参照)。
     /// </remarks>
     [Fact]
     public void NonNecessityFundsShortfallIsNotCounted()
@@ -1026,6 +1053,16 @@ public sealed class TradeSystemTests
     /// <c>LiquidFunds</c> だけが期待3→4へ動く(15−10−1、代金は工具の1個ぶん)。原意
     /// (必需が先に決済されること)は保たれるので期待値だけを更新する。
     /// </remarks>
+    /// <remarks>
+    /// <b>W2-15 変異の実測(<c>mutator</c> が測定、2026-09-22、対象HEAD <c>624f5b1</c>、変異なしで
+    /// 445件緑を確認済み、M-6)。</b><c>TradeSystem</c> の需要行の走査を <c>demand.Lines.Reverse()</c>
+    /// に反転する変異(走査順 必需→耐久→入力→嗜好 の破壊)は、本テストを含む
+    /// <b>ちょうど3件が赤</b>(本テスト / <see
+    /// cref="NecessityShortfallIsCountedOnBothPaths"/> / <see
+    /// cref="NonNecessityFundsShortfallIsNotCounted"/>)。<see
+    /// cref="TradePipelineTests.NecessityIsSettledBeforePreference"/> は同じ変異で<b>緑のまま</b>
+    /// (訂正4赤Cの根拠 ── そちらのremarks参照)。
+    /// </remarks>
     [Fact]
     public void NecessityIsSettledBeforePreference()
     {
@@ -1132,8 +1169,15 @@ public sealed class TradeSystemTests
     /// </para>
     /// <para>
     /// <b>(ii) の実測。</b>数量はhome=distant=2で一致し、上側clamp(2T=4)には達していない
-    /// (非飽和のT=2そのもの)。<b>(iii)</b> は<c>mutator</c>がM-5として測る(後段、本タスクの
-    /// implementerは当てない。ADR-0013)。
+    /// (非飽和のT=2そのもの)。
+    /// </para>
+    /// <para>
+    /// <b>(iii) 変異の実測(<c>mutator</c> が測定、2026-09-22、対象HEAD <c>624f5b1</c>、変異なしで
+    /// 445件緑を確認済み、M-5)。</b>単価に外出の費用を混ぜる変異(<c>Decide(line,
+    /// store.UnitEffectivePrice + Errand.Cost(travelHours, errand.CostPerHour))</c>、#85が
+    /// 消した二重計上の復活)は、<c>TradeSystem.RunOneHouseholdsShopping</c> の当該スコープから
+    /// <c>travelHours</c> / <c>errand</c> を呼べないため<c>+ 4</c>で代替して当てられた。本テストは
+    /// <b>期待どおり赤</b>になった(計16件赤のうちの1件。他15件は波及)。
     /// </para>
     /// </remarks>
     [Fact]
@@ -1668,6 +1712,13 @@ public sealed class TradeSystemTests
     /// <c>Assert.True(travelerDay2Runs &lt; controlDay2Runs)</c> が実際値false
     /// (travelerDay2Runsがcontrolと同じになる。外出しても翌日の生産が減らない経路。
     /// issue #98の閉じる条件そのもの)で失敗した(赤を確認)。変異を戻して緑に復帰させた。
+    /// </remarks>
+    /// <remarks>
+    /// <b>W2-15 変異の実測(<c>mutator</c> が測定、2026-09-22、対象HEAD <c>624f5b1</c>、変異なしで
+    /// 445件緑を確認済み、M-10)。</b>段5aの <c>household.ErrandLaborLossPermille =
+    /// plan.LaborLossPermille;</c> の代入を削除する変異は<b>5件赤</b>。本テスト
+    /// (<c>NextDaysProductionDropsByTheErrandLaborLoss</c>)は<b>期待どおり赤</b>
+    /// (穀物の床を1→30へ置き直した後も#98の閉じる条件を守っていることの実測)。他4件は波及。
     /// </remarks>
     [Fact]
     public void NextDaysProductionDropsByTheErrandLaborLoss()

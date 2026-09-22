@@ -358,6 +358,18 @@ public sealed class BuyerBudgetTests
     /// (docの「常に1以上」がガードより広かった)。ガードを戻り値(<c>hasMarketTerm</c>の枝を
     /// 通った後の値)へ掛け直し、この組でも投げることを確認する。
     /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(<c>mutator</c> が測定、2026-09-22、対象HEAD <c>624f5b1</c>、変異なしで
+    /// 445件緑を確認済み、M-7・M-8)。</b>
+    /// <list type="bullet">
+    /// <item><b>M-7</b>(<c>BaseValue</c> の<b>戻り値</b>ガードを削除)は<b><c>(true, 0, 50)</c>の
+    /// 行だけが赤</b>(訂正3赤Bの直しが効いていることの実測)。他4行は緑のまま。</item>
+    /// <item><b>M-8</b>(<c>BaseValue</c> の<b>引数</b>ガード <c>windowPrice &lt;= 0</c> を削除。
+    /// 戻り値ガードは残す)は<b><c>(true, 100, 0)</c> / <c>(true, 100, -1)</c> の2行だけが赤</b>。
+    /// <c>hasMarketTerm: false</c> の2行と <c>(true, 0, 50)</c> の行は戻り値ガードが拾って
+    /// 緑のまま ── 2つのガードが別々の面を守っていることの実測。</item>
+    /// </list>
+    /// </remarks>
     [Theory]
     [InlineData(true, 100, 0)]
     [InlineData(true, 100, -1)]
@@ -505,6 +517,17 @@ public sealed class BuyerBudgetTests
     /// 理由MarketTerm(決定11の帰結そのもの ── 決定11の前はここで現金上限だけを見てゲートが開き、
     /// 線形解が0を返して理由がNoneになっていた。購入量は0のままで、変わるのは理由だけ)。
     /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(<c>mutator</c> が測定、2026-09-22、対象HEAD <c>624f5b1</c>、変異なしで
+    /// 445件緑を確認済み、M-2)。</b><c>BuyerBudget.Decide</c> の分岐1を <c>if (line.HasMarketTerm
+    /// &amp;&amp; effectivePrice &gt; adjustedBaseValue)</c> に戻す変異(決定11の反転)は、
+    /// <b>126の行だけが赤</b>(<c>Reason</c> の期待 <c>MarketTerm</c> に対し実際 <c>None</c>。購入量は
+    /// 0のまま)。<see
+    /// cref="TradePipelineTests.WindowImportsOnTheFirstDayStayBelowATenthOfTheCitysMoney"/>
+    /// (テスト1)は同じ変異で<b>全5シード緑のまま</b> ── これが「決定11は購入量を1つも変えない
+    /// ── 初日の輸入額を決めているのは決定10だけ」の実測であり、検出器を2本に割った根拠そのもの
+    /// である。
+    /// </remarks>
     [Fact]
     public void DecideClosesOnTheBaseValueWithoutAMarketReference()
     {
