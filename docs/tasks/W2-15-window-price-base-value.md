@@ -186,6 +186,7 @@ if (effectivePrice > adjustedBaseValue)
 | **M-2** | `BuyerBudget.Decide` の分岐1 を `if (line.HasMarketTerm && effectivePrice > adjustedBaseValue)` に戻す(**決定11 の反転**) | **【核心】赤: テスト2 の 126 の行だけ**(`Reason` が `None`。購入量は 0 のまま)。**テスト1 が緑のままであることを確かめて報告する** — これが「決定11 は購入量を1つも変えない」の実測であり、**検出器を2本に割った根拠そのものである**。**テスト1 が赤になったら、直さずに報告して止まる**(仕様側の主張が誤っている) |
 | **M-3** | `BuyerDemand.WindowPrice` の分岐を落とし、全品目で `ExternalSellPrice(itemId, season)` を使う | **【核心】赤: テスト3 の (a)**(パンの基礎値が 54 でなく 108)。**テスト1 も赤になりうる** — なったかどうかと輸入額を報告に含める |
 | **M-4** | `BuyerDemand.WindowPrice` が `season` ではなく `Season.Spring` を渡す(**決定12 の反転**。M0 の1次産品は春の係数が 1000‰ なので基準値と同値) | **【核心】赤: テスト3 の (c) だけ。(a)(b) は緑のまま**(春では区別が付かない)。**この非対称を報告に含める** — (c) が無ければ決定12 はどの変異でも守られていない |
+| **M-5**(訂正3 で追加) | `TradeSystem` の買い物が `Decide(line, store.UnitEffectivePrice)` ではなく `Decide(line, store.UnitEffectivePrice + Errand.Cost(travelHours, errand.CostPerHour))` を呼ぶ(**[#85](https://github.com/stama72/visionary/issues/85) が消した二重計上の復活**) | **赤: `TradeSystemTests.BudgetGateUsesTheEffectivePriceOnly`。** 本タスクは既存テストではないが、**訂正3 の赤A が「この変異で赤になるか」を配置の合否そのものにしている** — 緑のままなら赤A の直しは効いていない。落とし所を採った場合は**当てない**(飽和していることは分かっている) |
 
 ## 呼び出し側の配線(規則7)
 
@@ -271,6 +272,54 @@ if (effectivePrice > adjustedBaseValue)
 #### この族を今後の走行で取りこぼさないために
 
 **`dotnet test` が緑になるまで、赤の1件ずつについて「根は基礎値の族か、別の欠陥か」を明示的に分ける。** 族なら上の裁定に従い、**族でない赤が1件でも出たら止めて報告する** — 決定10・11 は `BuyerBudget` / `BuyerDemand` の外に触っていないので、族の外の赤は実装の誤りである。
+
+### 訂正3(2026-09-22、フェーズ2)— 対称化の梃子がテストの判別力を消した
+
+**出所はレビュー1巡目の象限I。** 訂正1 の裁定表が `BudgetGateUsesTheEffectivePriceOnly` に名指しした梃子(「偽の観測を home にも同じく入れるのが最小の直し方」)は、**テストを緑にすると同時にその判別力を消していた。** 裁定表自身が警告していた型([#154](https://github.com/stama72/visionary/issues/154) / W2-14 のテスト11)が、警告している当の指示で再現した。**仕様の欠陥であって実装の誤りではない** — implementer は指示どおりに手を動かし、求められた確認(足場の役割が保たれているか)にも正しく答えている。**求めた確認の中身が足りなかった。**
+
+#### 赤A `TradeSystemTests.BudgetGateUsesTheEffectivePriceOnly` — 両辺が上側 clamp に飽和した
+
+**機構**(レビュアーの算術。実測は implementer が取る):
+
+- 偽の観測(パン 999)を home にも入れたことで、**両世界とも基礎値が相場項由来になる** — 相場基準 999・許容乖離 1200‰ → 相場項 `ApplyPermille(999, 1200)` = **1199**
+- `necessityTargetStockDays[Bread] = 1`・消費1/日・NPC1人 → **T = 1**、予想在庫 0
+- 実効価格 10 → 到達在庫 = `clamp(3 − CeilDiv(2 × 10, 1199), 0, 2)` = **2 = 上側 clamp**。home も distant も同じ
+
+**何が消えたか:** 核心の断定 `Assert.Equal(home の購入量, distant の購入量)` が **「2 == 2」** になった。上側 clamp を割るには実効価格が 基礎値の半分(≈ 600)を超える必要があるので、**このテストは「外出の費用が単価に混ざる」摂動を一切検出しない。** doc コメントが記録している変異(`Decide(line, store.UnitEffectivePrice + Errand.Cost(...))`)は単価を 10 → 14 にするだけで、`CeilDiv(2 × 14, 1199) = 1` → 到達在庫は両辺とも 2 のまま。決済額も両辺 20 で一致する。**[#85](https://github.com/stama72/visionary/issues/85) が消した二重計上が戻っても、赤になるテストは1つも無い。**
+
+**直前の赤(実測「期待1・実際2」)は、home が基礎値 = 床10 で到達在庫 T = 1 という感度のある帯にいたことの裏返しである。** 訂正1 の梃子は**感度のある側を飽和側へ引き上げて**対称にした。逆向き(distant を床側へ落とす)なら両辺が感度帯に残る。
+
+**採る梃子: 偽の観測を両世界から外し、`necessityTargetStockDays[Bread]` を 1 → 2 にする。**
+
+- 外すだけでは外出が立たない(T = 1 では 支払い意思額 `ApplyPermille(10, 1500)` = 15、余剰 `FloorDiv(1 × (15 − 10), 2)` = **2** < 外出の費用 4)。**T = 2 が両方を同時に満たす** — 到達在庫 = `clamp(6 − CeilDiv(4 × 10, 10), 0, 4)` = **2 = T(非飽和)**、余剰 = `FloorDiv(2 × (15 − 10), 2)` = **5 > 4**
+- **変異(単価 10 → 14)では** 到達在庫 = `clamp(6 − CeilDiv(4 × 14, 10), 0, 4)` = **0** に落ちる。判別力が戻る
+
+**確かめて報告すること**(**(i) が満たせないなら、値を動かさずに報告する**):
+
+- **(i) 足場を外した後も、home・distant とも窓口(中心 = 区画4)が店の候補に入っていないこと。** 偽の観測はもともと窓口を候補から外すために置かれている。外すと**赤1 と同じ機構**(記憶が無い日は窓口も売り手も同じ床を読み、勝敗が距離だけで決まる)で窓口が勝ちうる。**`VisitedDistrictIds` を実測して報告する**
+- (ii) home・distant の購入量が**一致し、かつ上側 clamp(2T = 4)ではないこと**
+- (iii) doc コメントの変異(単価に外出の費用を混ぜる)を当てたときに**赤になること**。これは `mutator` の仕事である([ADR-0013](../adr/0013-mutation-measurement-separated.md))— implementer は当てず、**この変異を後段の `mutator` へ回す M-5 として記録するだけでよい**
+
+**不成立時の落とし所**(= (i) が満たせない / 両方を同時に満たす配置が無い): **配置を訂正1 のまま戻し、「両辺が上側 clamp に飽和しており、このテストは現状 `Decide` への単価の混入を検出しない」ことを doc コメントに明記したうえで issue へ落とす。** 黙って緑にしない。判別力が無いことが**読めば分かる**状態にすることが最低条件である([ADR-0008](../adr/0008-review-scope-narrowed-to-unnoticeable-defects.md) — 直さない選択は許されるが、気付けないまま残すことは許されない)。
+
+#### 赤B `BuyerBudget.BaseValue` の「常に1以上」は、ガードより広い
+
+**「作るもの 2」が `windowPrice <= 0` だけを検査すると決めたのに対し、doc は「常に1以上」「基礎値0の枝は例外で弾くので到達不能」と書いている。** `BaseValue(hasMarketTerm: true, marketTerm: 0, windowPrice: 50)` は**例外を投げずに 0 を返す。** 新テスト `BaseValueRejectsANonPositiveWindowPrice` は `marketTerm: 100` で呼ぶのでこの穴を通り抜ける。
+
+**同じ変更で削除された旧文「基礎値が0の日はゲートが必ず閉じる(実効価格 ≥ 1 > 0 = 予算)ので `PurchaseQuantity` の除算に到達しない」が、いま実際に効いている唯一の保証である。** 広い誤りは「見なくてよい」と読ませるので、`PurchaseQuantity` の除算のゼロ保護が何によって守られているかを確かめようとした人がそこで確認をやめる([docs/process/03-corrections.md](../process/03-corrections.md))。**M0 では相場項が 2 以上なので今日は踏まない。害は読者の側に出る。**
+
+**採る直し: ガードを戻り値に掛けて、doc の主張を機械が守る形にする。**
+
+- `BaseValue` の検査を **`hasMarketTerm` の枝を通った後の戻り値 ≤ 0** に対して行う(`windowPrice <= 0` の無条件検査という「作るもの 2」の趣旨は、これに含まれる形で満たされる)
+- テスト4 に **`hasMarketTerm: true, marketTerm: 0`** の行を足す
+- **前提の確認**: `hasMarketTerm = true` かつ `marketTerm = 0` で `BaseValue` を呼ぶ既存の呼び出し・既存テストが**無いこと**を確かめてから入れる。あれば投げてしまう
+- **あった場合の落とし所**: ガードは「作るもの 2」のまま(`windowPrice` のみ)にし、**doc を狭い側へ直す** — 「常に1以上」は `hasMarketTerm = false` の枝についての主張であること、`hasMarketTerm = true` の枝を守っているのは**実効価格 ≥ 1 という旧来の不変条件**であることを書き戻す。**どちらを採ったかを報告する**
+
+### レビューで足した断定(別表。上の表は実装に渡した時点の指示であって最終形ではない)
+
+| # | どこ | 足す断定 | なぜ |
+| - | ---- | -------- | ---- |
+| R-1 | `TradePipelineTests.UnaffordableNecessityCountsOnlyTheFundsShortfall` 第3ブロック | 選んだ (世帯, 日) が**その日に必需を1件以上約定していること**(例: `world.Ledgers` に day0 の `Purchase` が1件以上) | 訂正2 の裁定1 は (b) を**選び直しの条件**として置き、理由まで書いたが、実装は doc コメントの実測として書いただけで断定していない。**世帯Id8 が「店を1つも知らない」状態へ落ちても `Assert.False(boughtBeer)` と `Assert.Equal(0, ...)` は通る** — 訂正2 が `Assert.True` への反転を却下した理由が、別経路で成立してしまう |
 
 ## 実測して doc コメントへ転記すること
 
