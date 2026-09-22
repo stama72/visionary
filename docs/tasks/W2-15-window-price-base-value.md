@@ -186,7 +186,12 @@ if (effectivePrice > adjustedBaseValue)
 | **M-2** | `BuyerBudget.Decide` の分岐1 を `if (line.HasMarketTerm && effectivePrice > adjustedBaseValue)` に戻す(**決定11 の反転**) | **【核心】赤: テスト2 の 126 の行だけ**(`Reason` が `None`。購入量は 0 のまま)。**テスト1 が緑のままであることを確かめて報告する** — これが「決定11 は購入量を1つも変えない」の実測であり、**検出器を2本に割った根拠そのものである**。**テスト1 が赤になったら、直さずに報告して止まる**(仕様側の主張が誤っている) |
 | **M-3** | `BuyerDemand.WindowPrice` の分岐を落とし、全品目で `ExternalSellPrice(itemId, season)` を使う | **【核心】赤: テスト3 の (a)**(パンの基礎値が 54 でなく 108)。**テスト1 も赤になりうる** — なったかどうかと輸入額を報告に含める |
 | **M-4** | `BuyerDemand.WindowPrice` が `season` ではなく `Season.Spring` を渡す(**決定12 の反転**。M0 の1次産品は春の係数が 1000‰ なので基準値と同値) | **【核心】赤: テスト3 の (c) だけ。(a)(b) は緑のまま**(春では区別が付かない)。**この非対称を報告に含める** — (c) が無ければ決定12 はどの変異でも守られていない |
-| **M-5**(訂正3 で追加) | `TradeSystem` の買い物が `Decide(line, store.UnitEffectivePrice)` ではなく `Decide(line, store.UnitEffectivePrice + Errand.Cost(travelHours, errand.CostPerHour))` を呼ぶ(**[#85](https://github.com/stama72/visionary/issues/85) が消した二重計上の復活**) | **赤: `TradeSystemTests.BudgetGateUsesTheEffectivePriceOnly`。** 本タスクは既存テストではないが、**訂正3 の赤A が「この変異で赤になるか」を配置の合否そのものにしている** — 緑のままなら赤A の直しは効いていない。落とし所を採った場合は**当てない**(飽和していることは分かっている) |
+| **M-5**(訂正3 で追加) | `TradeSystem` の買い物が `Decide(line, store.UnitEffectivePrice)` ではなく `Decide(line, store.UnitEffectivePrice + Errand.Cost(travelHours, errand.CostPerHour))` を呼ぶ(**[#85](https://github.com/stama72/visionary/issues/85) が消した二重計上の復活**) | **赤: `TradeSystemTests.BudgetGateUsesTheEffectivePriceOnly`。** 本タスクは既存テストではないが、**訂正3 の赤A が「この変異で赤になるか」を配置の合否そのものにしている** — 緑のままなら赤A の直しは効いていない |
+| **M-6**(訂正4 で追加) | `TradeSystem` の需要行の走査を `demand.Lines.Reverse()` に反転する(**走査順 必需 → 耐久 → 入力 → 嗜好 の破壊**) | **赤: `TradeSystemTests` の3件**(`NecessityIsSettledBeforePreference` / `NecessityShortfallIsCountedOnBothPaths` / `NonNecessityFundsShortfallIsNotCounted`)。**`TradePipelineTests.NecessityIsSettledBeforePreference` は緑のまま** — これが訂正4 の赤C の根拠そのものである。**裁定のために2巡目の途中で一度測っており(2026-09-22)、そのとき 3赤 / 緑 だった。テストが動いたので測り直す** |
+| **M-7**(訂正4 で追加) | `BuyerBudget.BaseValue` の**戻り値**ガード(`<= 0` で例外)を削除する | **赤: テスト4 の `(hasMarketTerm: true, marketTerm: 0, windowPrice: 50)` の行だけ。** 訂正3 赤B の直しが効いていることの実測 |
+| **M-8**(訂正4 で追加) | `BuyerBudget.BaseValue` の**引数**ガード(`windowPrice <= 0`)を削除する(戻り値ガードは残す) | **赤: テスト4 の `(true, 100, 0)` と `(true, 100, -1)` の2行だけ**(`hasMarketTerm: false` の行は戻り値ガードが拾う)。**2つのガードが別々の面を守っていることの実測** |
+| **M-9**(訂正4 で追加) | `TradeSystem` の輸出の時間検査を `>` → `>=` にする | **赤: `ExportErrandIsSkippedWhenTheDayIsFull` の caseB**(往復 12 = T ちょうどで持ち込まなくなる)。**訂正2 で足場を入れ替えた後も、往復時間という判別軸が生きていることの実測** |
+| **M-10**(訂正4 で追加) | `TradeSystem` 段5a の `household.ErrandLaborLossPermille = plan.LaborLossPermille;` を削除する | **赤: `NextDaysProductionDropsByTheErrandLaborLoss`。** 穀物の床を 1 → 30 へ置き直した後も [#98](https://github.com/stama72/visionary/issues/98) の閉じる条件を守っていることの実測 |
 
 ## 呼び出し側の配線(規則7)
 
@@ -314,6 +319,58 @@ if (effectivePrice > adjustedBaseValue)
 - テスト4 に **`hasMarketTerm: true, marketTerm: 0`** の行を足す
 - **前提の確認**: `hasMarketTerm = true` かつ `marketTerm = 0` で `BaseValue` を呼ぶ既存の呼び出し・既存テストが**無いこと**を確かめてから入れる。あれば投げてしまう
 - **あった場合の落とし所**: ガードは「作るもの 2」のまま(`windowPrice` のみ)にし、**doc を狭い側へ直す** — 「常に1以上」は `hasMarketTerm = false` の枝についての主張であること、`hasMarketTerm = true` の枝を守っているのは**実効価格 ≥ 1 という旧来の不変条件**であることを書き戻す。**どちらを採ったかを報告する**
+
+### 訂正4(2026-09-22、フェーズ2)— 網羅パスが見つけた4件
+
+**出所はレビュー2巡目(網羅パス)。** 本タスクが配置・期待値・足場を変えたテストを全件(**既存10件 + 新規4件 = 14件**。仕様の「族は8件」は*赤になった*件数であって、触った件数ではない)列挙し、核心の断定が飽和・自明化していないかを1件ずつ算術で判定させた。**4件が出た** — うち1件は判別力の消失(赤A と同型)、3件は doc の記述が事実と食い違う。
+
+#### 赤C `TradePipelineTests.NecessityIsSettledBeforePreference` — 帯の置き直しでは復元できない
+
+**帯 `ScarceLiquidFunds` を 100 → 50 にした置き直し(訂正1 の裁定で implementer が実測して選んだ)が、走査順の判別力を消していた。**
+
+**実測(`mutator`・M-6・2026-09-22)**: `TradeSystem` の需要行の走査を `demand.Lines.Reverse()` に反転すると、**赤になるのは `TradeSystemTests` 側の3件**(`NecessityIsSettledBeforePreference` / `NecessityShortfallIsCountedOnBothPaths` / `NonNecessityFundsShortfallIsNotCounted`)で、**`TradePipelineTests.NecessityIsSettledBeforePreference` は緑のままである。**
+
+**帯の置き直しでは復元できない。** ビールの最小実効価格は床 `ExternalBuyPrice[Beer] = 72`。前回の走行の実測は「**1〜70 は薪の約定が成立しビールは0件、72 以降はビールも成立**」であり、**「必需は払えるが嗜好は走査順のせいで買えない」帯はこの世界に存在しない** — 70 以下では嗜好が絶対額で塞がれ、72 以上では買える。復元するには M0 の価格か世界の構成を変えることになり、**それは本タスクの外である。**
+
+**あわせて必需側の断定が空振りしている。** `Assert.True(HouseholdInventory[Item.Firewood] > 0)` は購入が1件も無くても真である — 初期在庫 薪28(`WorldDefinition.cs`)に対し、世帯2人・春の1日消費 `ApplyPermille(2 + 2, 800‰)` = 4 なので、3日走っても 16 残る。**doc の「初期の世帯在庫はその日のうちに `ConsumptionSystem` が使い切るので、値が残っていれば買い直した証拠になる」は薪については偽である。** パン(初期6・2/日)なら3日でちょうど 0 になり、断定が意味を持つ。
+
+**裁定 — 消さずに、持っていない保証を名指しで書く:**
+
+1. **空振りしている断定を直す。** 薪 → **パン**。「買い直した証拠になる」が実際に成り立つ品目へ移す
+2. **走査順の保証を持っていないことを doc コメントの冒頭1行で宣言する。** 名前(`NecessityIsSettledBeforePreference`)は**変えない** — 本タスクは `NoPurchaseReason.MarketTerm` で同じ裁きをしており(引き継ぎメモの却下1)、**「名前は残し、doc の1行が読み手を止める」が本タスクの一貫した形である**。書く内容は、**帯 50 がビールの床 72 を下回るため嗜好は走査順ではなく絶対額で塞がれていること**と、**M-6 の実測(反転しても緑)**、**引き取り先が `TradeSystemTests.NecessityIsSettledBeforePreference`(同じ変異で赤)であること**の3つ
+3. **パイプライン級の走査順の検出器を建て直すかは issue へ落とす。** M0 の価格を動かすか世界の構成を変えることになり、本タスクの外である。**走査順の規則そのものは `TradeSystemTests` の3件が機械で守っている**(M-6 で実測済み)ので、[M0 の Exit Criteria を脅かさない](../adr/0008-review-scope-narrowed-to-unnoticeable-defects.md)
+
+#### 赤D `BuyerBudget.Decide` の doc が、ゼロ除算を守っている当の不変条件を「もう要らない」と書いている
+
+**訂正3 の赤B が `BaseValue` だけを見て、`Decide` 側に同じ主張が残ったまま広くなった。** `Decide` は `BaseValue(...)` を**呼ばない** — 読むのは `in DemandLine line` の `line.BaseValue` である。手組みの `DemandLine` は実在する(`BuyerBudgetTests.BuildLine` / `ErrandPlannerTests.cs:89` / `TradeSystemTests.cs:1334`)ので、**`BaseValue = 0` の行が `Decide` に渡ることは型でも呼び出し規約でも防がれていない。**
+
+**いまも `PurchaseQuantity` の除算を守っているのは、旧版が書いていた不変条件そのものである** — `実効価格 ≥ 1 > 0 = ApplyPermille(0, 圧力)` で分岐1 が必ず立つ。
+
+**採る直し(狭い側へ)**: 「生産経路では `BuyerDemand.BuildLine` が `BaseValue` を通すので 0 は入らない。`Decide` 自身が除算を守っているのは、依然として『実効価格 ≥ 1』と分岐1 が厳密な `>` であることである」。**「その保証はもう要らない」を消す。**
+
+#### 赤E 窓口が候補から外れる理由が、同じ変更の中で2通りに説明されている
+
+**`BudgetGateUsesTheEffectivePriceOnly` の (i) の doc(訂正3 で implementer が書いた)が「窓口側の天井のぶん構造的に発火しない」としているが、これは誤りである。** 実測の結論(窓口の行が1件も無い)は正しく、機構の説明だけが違う。
+
+- **計画段(`ErrandPlanner`)に天井は現れない。** `EstimateWindowPrice` は距離 > R かつ記憶が無い日、都市生産品について `ExternalBuyPrice`(= **床10**)を返す。売り手側の `TryEstimateOfferPrice` の3段目も同じ床10。距離も往復時間も同じなので、**両者は完全に同点で、訂正2 の赤1 と同じタイの機構がここでも発火している**
+- 窓口を外しているのは `ErrandPlanner.Plan` の**区画Id昇順の走査と厳密な `>` 更新**である(区画2 が区画4 より先に評価される)。天井が効くのは訪問後の `StoreChoice` の段で、distant 世界では窓口はそもそも訪問区画に入っていない
+
+**「構造的に発火しない」は「もう見なくてよい」と読ませる記述である。** 実際には売り手を区画8 へ置くだけでタイが逆転する(= 訂正2 の赤1 の caseB とまったく同じ配置)。**同じ変更の中で `NextDaysProductionDropsByTheErrandLaborLoss` と `ExportErrandIsSkippedWhenTheDayIsFull` は同じ機構を「区画Id昇順・厳密 `>`」と正しく書いており、3か所が2通りの説明を持っている。** 訂正2 が「床を上げる梃子」を誤ったのは、まさにこの段の取り違えであった — **3度目を踏ませない。**
+
+**採る直し**: (i) の doc を「区画Id昇順・厳密な `>` 更新で区画2 が先に勝つ。窓口と売り手の見積もりは床で同点であり、天井が効くのは訪問後の `StoreChoice` の段である」へ直す。
+
+#### 赤F `TradeSystemTests.NecessityIsSettledBeforePreference` の期待値 3→4 の機構が誤り(木材ではなく工具)
+
+**この世界で木材は1個も買われない(旧コードでも買われていなかった)。** 買い手は Woodworker で `laborPermille = 1` → `ProductionCapacity = 1300` → `DailyInputQuantity(Woodworker, Timber) = 1300`。生産の入力の現金上限は `CashCap(15, 1300) = FloorDiv(15, 1300) = 0` なので、`Decide` は新旧とも `NoPurchaseReason.CashCap` を返す。
+
+**実際に動いたのは耐久(工具)の行である。**
+
+- 旧: 基礎値 = 現金上限 15 → 到達在庫 `clamp(90000 − CeilDiv(60000 × 1, 15), 0, 60000)` = 60000 → `CeilDiv(60000, 30000)` = **2個** → 代金2 → `15 − 10 − 2` = **3**
+- 新: 基礎値 = `ExternalSellPrice(Tools, 春)` = 1 → 到達在庫 `clamp(90000 − 60000, 0, 60000)` = 30000 → **1個** → 代金1 → `15 − 10 − 1` = **4**
+
+**期待値 4 も原意(必需が先に決済される)も正しい。壊れるのは次に触る人である** — この doc を読んだ人は `inputBufferDays` や木材の価格を動かせばこのテストが動くと予測し、工具の目標在庫・耐久値・`ToolTargetStockPermille` を動かしても動かないと予測する。**どちらも逆である。** 同じ誤りが [#38](https://github.com/stama72/visionary/issues/38) の remarks(「生産の入力(木材)が新たに約定するようになった」)から継承されている。
+
+**採る直し**: 当該 doc の機構を**工具の行**へ直す(上の算術を添える)。**引き継ぎメモの該当行も直す** — PR 説明へ転記されるためである。
 
 ### レビューで足した断定(別表。上の表は実装に渡した時点の指示であって最終形ではない)
 
