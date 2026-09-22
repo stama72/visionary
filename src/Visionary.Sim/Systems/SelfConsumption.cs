@@ -11,10 +11,15 @@ public static class SelfConsumption
     /// 目標日数 = 必需の日数 + 嗜好の日数(GDD02b §2)。単位: 日。
     /// </summary>
     /// <remarks>
-    /// <b>必需と嗜好を足すのは、世帯在庫が1本の在庫だからである。</b>M0 には両方が正の品目が
-    /// 無い(パン・薪は必需のみ、ビールは嗜好のみ)ので、この加算が発火するのは合成の
-    /// <see cref="WorldDefinition"/> を使うテストだけである。規則としては置く ──
-    /// <see cref="SellableStock.ReserveQuantity"/> の入力の枝と同じ扱い(GDD02b §1.1)。
+    /// <b>必需と嗜好を足すのは、世帯在庫が1本の在庫だからである。</b><see cref="WorldDefinition"/>
+    /// のコンストラクタが必需・嗜好の同時指定を <see cref="ArgumentException"/> で弾くため、
+    /// 合成の <see cref="WorldDefinition"/> を使っても両項が正の入力は作れない ──
+    /// <b>この加算は一度も発火しない</b>(2026-09-22 訂正。旧版は「M0には両方が正の品目が無いので
+    /// 合成のテストだけで発火する」と書いていたが、合成でも作れないので誤りだった)。
+    /// <see cref="SellableStock.ReserveQuantity"/> の入力の枝は<b>到達可能</b>
+    /// (合成レシピが実際に踏む)なので、到達しない加算の先例として成立していない。それでも
+    /// 和の形を採るのは、GDD02b §1.1「用途で分岐しない」を<b>分岐なしに書くため</b>である ──
+    /// 用途は排他(GDD02b §2 の表)なので、和は常に「該当する側の日数」と一致する。
     /// </remarks>
     public static int TargetStockDays(WorldDefinition definition, int itemId)
     {
@@ -35,9 +40,9 @@ public static class SelfConsumption
     /// 値は同じでも保証が消える(GDD02b §1.1)。
     /// </para>
     /// <para>
-    /// <b>目標日数が0の品目を早期 return で弾かない。</b>弾かなくても式が0を返す
-    /// (目標在庫0 + 今日の消費量0 − 世帯在庫 ≥ 0 の <c>max(0, …)</c>)。小麦粉と工具が移らないのは
-    /// 式の帰結である。
+    /// <b>目標日数が0の品目を早期 return で弾かない。</b>目標日数0でも今日の消費量が正なら、その分
+    /// だけ移る(目標在庫0 + 今日の消費量1 − 世帯在庫0 = 1)。<b>M0 で小麦粉と工具が移らないのは、
+    /// 消費表の行も0だからである</b>(式が一般に0を返すからではない)。
     /// </para>
     /// <para>
     /// <b><see cref="SellableStock.Of"/> を通す。</b><c>household.WorkshopInventory[itemId]</c> を

@@ -867,6 +867,12 @@ public sealed class TradePipelineTests
     /// <c>ScarceLiquidFunds</c>(50)・<c>AmpleLiquidFunds</c>(100,000)は動かしていない
     /// (どちらも新しい境界の外なのでそのまま成り立つ)。
     /// </remarks>
+    /// <remarks>
+    /// <b>留め具(2026-09-23、レビュー1巡目)。</b>対象世帯の職業(の出力品目)がパン・ビールの
+    /// いずれでもないことをassertで留める ── 帳簿の<c>Purchase</c>行で必需の成立を見る形(b)ではなく
+    /// 職業そのものをassertする形(a)を選んだのは、必需(パン)の証拠を<c>HouseholdInventory</c>で
+    /// 見る現行の作りを変えずに済み、配置の前提が崩れたことを1行で言い切れるため。
+    /// </remarks>
     [Fact]
     public void NecessityIsSettledBeforePreference()
     {
@@ -888,6 +894,18 @@ public sealed class TradePipelineTests
             scheduler.Advance(world, ticks: ObservationDays * 24);
 
             var household = world.Households[TargetHouseholdId];
+
+            // 留め具(レビュー1巡目)。対象世帯がパン・ビールいずれの生産者でもないことをassertする
+            // ── 配置の乱数消費が動く変更(世帯数・区画数・WorldGeneratorの順・
+            // HouseholdsPerOccupation)で世帯Id6がパン屋またはビール屋になると、下のBread在庫の
+            // assertは自家消費(#174)だけで購入0件でも真になり、必需側の証拠が空振りする
+            // (上記remarks「世帯の置き直し」参照)。
+            var producedItemId = definition.Recipes[(int)household.Occupation].Outputs[0].ItemId;
+            Assert.True(
+                producedItemId != Item.Bread && producedItemId != Item.Beer,
+                $"世帯Id{TargetHouseholdId}の職業({household.Occupation})の出力が"
+                    + $"パンまたはビール(itemId={producedItemId})になった"
+                    + "(配置が変わり、自家消費だけで下のBread在庫assertが空振りする前提になった)。");
 
             // 必需(パン)の約定が成立した ── TradeSettlement.Executeが用途で行き先を振り分けるので、
             // 世帯在庫が増えていることが必需の約定の証拠になる(GDD02b §3.2)。初期の世帯在庫
