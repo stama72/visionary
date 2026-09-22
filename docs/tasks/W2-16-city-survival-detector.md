@@ -242,7 +242,23 @@ public TradePipelineTests(ITestOutputHelper output) => _output = output;
 | `CitySurvivalScan.TotalCityGoodInternalRowsIgnoringDate` | **日付で絞らずに**、向き・相手・品目だけで数えた30日ぶんの都市内約定件数 |
 | 条件2 の検出器の空振り防止(核心より前、`TotalInternalSettlements > 0` の直後) | `Assert.Equal(scan.TotalCityGoodInternalRowsIgnoringDate, scan.TotalInternalSettlements)` |
 
-**日別に数えた合計が、日付を無視した全件と一致することを見る。** `dayIndex` が +1 なら `DayIndex == 0` の行が、−1 なら `DayIndex == 29` の行が落ちるので、**どちらの向きのずれでも赤になる**。30日の窓の外に行は存在しない(走行が30日で終わる)ので、素の実装では一致する。
+**日別に数えた合計が、日付を無視した全件と一致することを見る。** 30日の窓の外に行は存在しない(走行が30日で終わる)ので、素の実装では一致する。
+
+**訂正(レビュー3巡目)。この等値 assert は ±1 のずれを構造では守らない。** 当初ここには「どちらの向きのずれでも赤になる」と書いたが、**誤りである**。−1 方向で落ちる行があるのは `DayIndex == 29` に都市内約定が残っているシードだけで、**実測では条件2 の違反日に day 30 を含むシードが 1 / 2 / 3 / 7 の4つある**(= その日の都市内約定は0件)。つまり −1 方向で赤になるのは**シード42 の1本だけ**であり、しかもその1本は「たまたま最終日まで都市内で取引が残っている」というデータに乗っている。**この検出器が測っている病理が進めば、保護は無言で消える。** 等値 assert が構造で守るのは、日別の写像が飛んだり重なったりする形だけである(`dayIndex` が ±1 ずれても起きるのは取りこぼしだけで、**二重計上は起きない**)。
+
+#### 6.4 日付とラベルを構造で留める(レビュー3巡目)
+
+**6.2 では足りない2つを、データに依存しない形で留める。**
+
+- **違反日の番号(`Add(day)` の `day`)は、どの assert にも触れられていない。** `for (int day = 0; day < 30; day++)` への書き換え1つでラベルが 0 始まりに滑り、4本とも緑のまま `_output` の行と doc コメントの基準値が全部1日ずれる。仕様「順序・境界」が「違反日は k(1始まり)で記録する。issue #173 の表の『day 9』『day 30』はこの k である」と書いた対応が、黙って壊れる
+- **帳簿の絞り込みに使う `dayIndex` の窓**も同様に、データに依存せず留める必要がある(上の訂正)
+
+| 足すもの | assert(全検出器共通。`FinalDayIndex` / `HouseholdCount` と同じ段に置く) |
+| -------- | ---- |
+| `FirstDayLabel` / `LastDayLabel` — 走査が違反日として記録しうる最初と最後のラベル | `Assert.Equal(1, scan.FirstDayLabel)` / `Assert.Equal(30, scan.LastDayLabel)` |
+| `FirstScannedLedgerDayIndex` / `LastScannedLedgerDayIndex` — 帳簿の絞り込みに実際に使った `DayIndex` の最初と最後 | `Assert.Equal(0, scan.FirstScannedLedgerDayIndex)` / `Assert.Equal(29, scan.LastScannedLedgerDayIndex)` |
+
+**この4本はデータを1行も参照しない** — 帳簿が空でも、経済が直っても、値は 1 / 30 / 0 / 29 である。ラベルと窓のずれはこれで構造的に落ちる。
 
 #### 6.3 doc コメントに足す3行
 

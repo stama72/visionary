@@ -1527,10 +1527,44 @@ public sealed class TradePipelineTests
         /// <summary>
         /// 30日ぶんの都市内約定件数(都市生産品)を、日付で絞らずに向き・相手・品目だけで数えた値。
         /// <see cref="TotalInternalSettlements"/>(日別の合計)と一致するはずの日付の検算用
-        /// (W2-16 タスク仕様 6.2)。<c>dayIndex</c>が±1ずれると、30日の窓の端(day 0 か day 29)の
-        /// 行が漏れるか二重に数えられるかしてこの値と食い違う。
+        /// (W2-16 タスク仕様 6.2)。<c>dayIndex</c>がずれると、実際の<c>DayIndex</c>のうちどの回の
+        /// 絞り込みにも一致しない行が生まれてこの値と食い違いうる ── 1行は1つの<c>dayIndex</c>にしか
+        /// 属さないので、起きるのは取りこぼしだけであり、<b>二重に数えられることはない</b>。
         /// </summary>
+        /// <remarks>
+        /// <b>訂正(W2-16 タスク仕様 6.2)。</b>この等値assertは±1のずれを<b>構造では</b>守らない。
+        /// −1方向(<c>dayIndex</c>が1小さくなる)で落ちる行があるのは<c>DayIndex==29</c>に都市内約定
+        /// が残っているシードだけであり、実測では条件2の違反日にday30を含むシードが1/2/3/7の4つある
+        /// (= その日の都市内約定は0件)ため、−1方向で赤になるのはシード42の1本だけである。しかも
+        /// それは「たまたま最終日まで都市内で取引が残っている」というデータに乗っている。構造で
+        /// 留めているのは<see cref="FirstScannedLedgerDayIndex"/>・
+        /// <see cref="LastScannedLedgerDayIndex"/>(下記、W2-16 タスク仕様 6.4)のほうである。
+        /// </remarks>
         public long TotalCityGoodInternalRowsIgnoringDate { get; set; }
+
+        /// <summary>
+        /// 走査が違反日として記録しうる最初のラベル(= ループが最初に<c>Add(day)</c>へ渡す<c>day</c>)。
+        /// データを参照せず、ループが実際に使った値をそのまま記録する(W2-16 タスク仕様 6.4)。
+        /// </summary>
+        public int FirstDayLabel { get; set; }
+
+        /// <summary>
+        /// 走査が違反日として記録しうる最後のラベル(= ループが最後に<c>Add(day)</c>へ渡す<c>day</c>)。
+        /// 毎回上書きするので、走行後は最終回の値が残る(W2-16 タスク仕様 6.4)。
+        /// </summary>
+        public int LastDayLabel { get; set; }
+
+        /// <summary>
+        /// 帳簿の絞り込みに実際に使った最初の<c>DayIndex</c>(= ループが最初に使った<c>dayIndex</c>)。
+        /// データを参照せず、ループが実際に使った値をそのまま記録する(W2-16 タスク仕様 6.4)。
+        /// </summary>
+        public long FirstScannedLedgerDayIndex { get; set; }
+
+        /// <summary>
+        /// 帳簿の絞り込みに実際に使った最後の<c>DayIndex</c>(= ループが最後に使った<c>dayIndex</c>)。
+        /// 毎回上書きするので、走行後は最終回の値が残る(W2-16 タスク仕様 6.4)。
+        /// </summary>
+        public long LastScannedLedgerDayIndex { get; set; }
 
         /// <summary>ITestOutputHelper へ流す1行(W2-16 タスク仕様「4. 基準値を読む口」の書式)。</summary>
         public string Format(long seed)
@@ -1583,6 +1617,18 @@ public sealed class TradePipelineTests
             // Advance(24)のk回目の直後はDayIndex==k。終わったばかりの日はDayIndex==k-1
             // (W2-16タスク仕様「順序・境界」)。
             long dayIndex = day - 1;
+
+            // ラベルと窓の端を、ループが実際に使った値としてそのまま記録する(定数を代入すると
+            // 恒真になって何も守らない。W2-16 タスク仕様 6.4)。Firstは最初の回だけ書き、Lastは
+            // 毎回上書きするので走行後は最終回の値が残る。
+            if (day == 1)
+            {
+                scan.FirstDayLabel = day;
+                scan.FirstScannedLedgerDayIndex = dayIndex;
+            }
+
+            scan.LastDayLabel = day;
+            scan.LastScannedLedgerDayIndex = dayIndex;
 
             // 条件1: 全世帯のProductionRunsの合計。
             long productionRuns = 0;
@@ -1641,9 +1687,17 @@ public sealed class TradePipelineTests
         }
 
         // 日付の検算(W2-16 タスク仕様 6.2)。日別に数えた合計(TotalInternalSettlements)と、
-        // 日付で絞らずに全帳簿を1回走査した値が一致するはずである。dayIndexが±1ずれると、
-        // 30日の窓の外側の端(DayIndex==0またはDayIndex==29)の行が漏れるか二重に数えられるかして
-        // 食い違う(30日の窓の外に行は存在しないので、素の実装では一致する)。
+        // 日付で絞らずに全帳簿を1回走査した値が一致するはずである。dayIndexがずれると、どの回の
+        // 絞り込みにも一致しない行が生まれてこの値と食い違いうる(30日の窓の外に行は存在しないので、
+        // 素の実装では一致する)。1行は1つのdayIndexにしか属さないので、起きるのは取りこぼしだけで
+        // あり、二重に数えられることはない。
+        //
+        // 訂正(W2-16 タスク仕様 6.2)。この等値assertは±1のずれを構造では守らない ──
+        // −1方向で落ちる行があるのはDayIndex==29に都市内約定が残っているシードだけで、実測では
+        // 条件2の違反日にday30を含むシードが1/2/3/7の4つある(その日の都市内約定は0件)ため、
+        // −1方向で赤になるのはシード42の1本だけであり、それも「たまたま最終日まで都市内で取引が
+        // 残っている」というデータに乗っている。構造で留めているのは下のFirstScannedLedgerDayIndex
+        // /LastScannedLedgerDayIndexのほうである(W2-16 タスク仕様 6.4)。
         foreach (var household in world.Households)
         {
             foreach (var entry in world.Ledgers[household.Id])
@@ -1719,9 +1773,15 @@ public sealed class TradePipelineTests
         var scan = ScanThirtyDays(seed);
         _output.WriteLine(scan.Format(seed));
 
-        // 核心と独立な空振り防止。
+        // 核心と独立な空振り防止。この4本はデータを1行も参照しない ── 帳簿が空でも、経済が直っても
+        // 値は1/30/0/29である(W2-16 タスク仕様 6.4)。ラベルが0始まりに滑る書き換えや、帳簿の
+        // 絞り込みのdayIndexの窓が±1ずれる書き換えを構造で落とす。
         Assert.Equal(30, scan.FinalDayIndex);
         Assert.Equal(10, scan.HouseholdCount);
+        Assert.Equal(1, scan.FirstDayLabel);
+        Assert.Equal(30, scan.LastDayLabel);
+        Assert.Equal(0, scan.FirstScannedLedgerDayIndex);
+        Assert.Equal(29, scan.LastScannedLedgerDayIndex);
 
         // 条件別の空振り防止。ProductionRuns以外を合計している/読む先を間違えて常に0を見ている
         // ケースを塞ぐ。
@@ -1779,9 +1839,15 @@ public sealed class TradePipelineTests
         var scan = ScanThirtyDays(seed);
         _output.WriteLine(scan.Format(seed));
 
-        // 核心と独立な空振り防止。
+        // 核心と独立な空振り防止。この4本はデータを1行も参照しない ── 帳簿が空でも、経済が直っても
+        // 値は1/30/0/29である(W2-16 タスク仕様 6.4)。ラベルが0始まりに滑る書き換えや、帳簿の
+        // 絞り込みのdayIndexの窓が±1ずれる書き換えを構造で落とす。
         Assert.Equal(30, scan.FinalDayIndex);
         Assert.Equal(10, scan.HouseholdCount);
+        Assert.Equal(1, scan.FirstDayLabel);
+        Assert.Equal(30, scan.LastDayLabel);
+        Assert.Equal(0, scan.FirstScannedLedgerDayIndex);
+        Assert.Equal(29, scan.LastScannedLedgerDayIndex);
 
         // 条件別の空振り防止。絞り込みが全行を落としている(向き・相手・品目のいずれかの取り違え)
         // ケースを塞ぐ。
@@ -1791,8 +1857,12 @@ public sealed class TradePipelineTests
                 + "可能性)。");
 
         // 日付の検算(W2-16 タスク仕様 6.2)。条件2の帳簿の絞り込みだけが日付を使うので、その日付が
-        // 正しいかをここで見る。dayIndexが±1ずれても他のassertは緑のまま通るが、これだけは
-        // 日付を無視した全件と日別合計の食い違いとして捕まえる。
+        // 正しいかをここで見る。訂正(レビュー3巡目)。この等値assertは±1のずれを構造では
+        // 守らない ── −1方向で落ちる行があるのはDayIndex==29に都市内約定が残っているシードだけで、
+        // 実測(2026-09-22)では条件2の違反日にday30を含むシードが1/2/3/7の4つあるため、−1方向で
+        // 赤になるのはシード42の1本だけであり、それも「たまたま最終日まで都市内で取引が残っている」
+        // というデータに乗っている(構造で留めているのは上のFirstScannedLedgerDayIndex/
+        // LastScannedLedgerDayIndexのほうである。W2-16 タスク仕様 6.4)。
         Assert.Equal(scan.TotalCityGoodInternalRowsIgnoringDate, scan.TotalInternalSettlements);
 
         // 核心。反転側。
@@ -1857,9 +1927,15 @@ public sealed class TradePipelineTests
         var scan = ScanThirtyDays(seed);
         _output.WriteLine(scan.Format(seed));
 
-        // 核心と独立な空振り防止。
+        // 核心と独立な空振り防止。この4本はデータを1行も参照しない ── 帳簿が空でも、経済が直っても
+        // 値は1/30/0/29である(W2-16 タスク仕様 6.4)。ラベルが0始まりに滑る書き換えや、帳簿の
+        // 絞り込みのdayIndexの窓が±1ずれる書き換えを構造で落とす。
         Assert.Equal(30, scan.FinalDayIndex);
         Assert.Equal(10, scan.HouseholdCount);
+        Assert.Equal(1, scan.FirstDayLabel);
+        Assert.Equal(30, scan.LastDayLabel);
+        Assert.Equal(0, scan.FirstScannedLedgerDayIndex);
+        Assert.Equal(29, scan.LastScannedLedgerDayIndex);
 
         // 条件別の空振り防止。在庫の添字を間違えて常に空に見えているケースを塞ぐ ── 初期在庫は
         // 薪28・パン6・ビール1なので、day 1は必ず空でない(全30日が違反にはなりえない)。
@@ -1909,9 +1985,15 @@ public sealed class TradePipelineTests
         var scan = ScanThirtyDays(seed);
         _output.WriteLine(scan.Format(seed));
 
-        // 核心と独立な空振り防止。
+        // 核心と独立な空振り防止。この4本はデータを1行も参照しない ── 帳簿が空でも、経済が直っても
+        // 値は1/30/0/29である(W2-16 タスク仕様 6.4)。ラベルが0始まりに滑る書き換えや、帳簿の
+        // 絞り込みのdayIndexの窓が±1ずれる書き換えを構造で落とす。
         Assert.Equal(30, scan.FinalDayIndex);
         Assert.Equal(10, scan.HouseholdCount);
+        Assert.Equal(1, scan.FirstDayLabel);
+        Assert.Equal(30, scan.LastDayLabel);
+        Assert.Equal(0, scan.FirstScannedLedgerDayIndex);
+        Assert.Equal(29, scan.LastScannedLedgerDayIndex);
 
         // 条件別の空振り防止(正の向きでは核心が論理的に含意するので、成立していれば必ず緑)。
         Assert.True(
