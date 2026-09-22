@@ -52,6 +52,28 @@ public static class SelfConsumption
     /// (<see cref="SellableStock"/> の doc コメントが既に書いている穴と同じもの)。
     /// </para>
     /// </remarks>
+    /// <remarks>
+    /// <b>核心の変異の実測(実測日 2026-09-22、<c>mutator</c> が使い捨てworktreeで1件ずつ当て、
+    /// 毎回 <c>dotnet test Visionary.sln -c Release</c>(477件)を走らせて測定。対象コミット
+    /// <c>13144cf</c>)。期待と食い違った件数は0件。</b>
+    /// <list type="bullet">
+    /// <item><b>M-1</b>(<c>TransferQuantity</c> から <c>+ 今日の消費量</c> の項を落とす)は
+    /// <b>赤</b>。<c>SelfConsumptionTests</c> 3件・
+    /// <c>TradePipelineTests.UnaffordableNecessityCountsOnlyTheFundsShortfall</c>・
+    /// <c>ProductionAndConsumptionPipelineTests.ProductionAndConsumptionRunInPipelineOrder</c>に
+    /// 加え、<c>TradePipelineTests.OwnOutputIsNeverHoardedWhileTheHouseholdGoesWithout</c>の
+    /// 全5シードが【核心】(<c>HoardedWhileEmptyEntries.Count == 0</c>)で落ちた(計10件)。</item>
+    /// <item><b>M-2</b>(上限を <c>SellableStock.Of</c> から <c>household.WorkshopInventory</c> へ
+    /// 置換)は<b>赤</b>。<c>TransferNeverExceedsTheSellableStock</c>(Expected 5, Actual 0)。</item>
+    /// <item><b>M-3</b>(<c>max(0, …)</c> から <c>− 世帯在庫</c> の項を落とす)は<b>赤</b>。
+    /// <c>SelfConsumptionTests</c> 3件・
+    /// <c>TradePipelineTests.UnaffordableNecessityCountsOnlyTheFundsShortfall</c>(計4件)。</item>
+    /// <item><b>M-5</b>(式の世帯在庫を工房在庫に取り違える)は<b>赤</b>。
+    /// <c>TradePipelineTests.OwnOutputIsNeverHoardedWhileTheHouseholdGoesWithout</c>の全5シードが
+    /// 【核心】で落ちたことに加え、
+    /// <c>SomeHouseholdAlwaysHoldsNecessitiesOverThirtyDays(seed:7)</c>他5件(計11件)。</item>
+    /// </list>
+    /// </remarks>
     public static int TransferQuantity(
         WorldDefinition definition, World world, HouseholdState household, int itemId, Season season)
     {

@@ -53,6 +53,24 @@ public sealed class ConsumptionSystem : ISimSystem
         }
     }
 
+    /// <remarks>
+    /// <b>核心の変異の実測(実測日 2026-09-22、<c>mutator</c> が使い捨てworktreeで1件ずつ当て、
+    /// 毎回 <c>dotnet test Visionary.sln -c Release</c>(477件)を走らせて測定。対象コミット
+    /// <c>13144cf</c>)。期待と食い違った件数は0件。</b>
+    /// <list type="bullet">
+    /// <item><b>M-4</b>(<c>TakeOwnOutputHome</c> の呼び出しを消費ループの後へ移す)は<b>赤</b>。
+    /// <c>ProductionAndConsumptionPipelineTests.ProductionAndConsumptionRunInPipelineOrder</c>・
+    /// <c>TradePipelineTests.UnaffordableNecessityCountsOnlyTheFundsShortfall</c>・
+    /// <c>SelfConsumptionTests</c> 4件(計6件)。</item>
+    /// <item><b>M-7</b>(<c>TakeOwnOutputHome</c> の呼び出しそのものを削除)は
+    /// <b>赤(全5シード)</b>。
+    /// <c>TradePipelineTests.OwnOutputIsNeverHoardedWhileTheHouseholdGoesWithout</c>の全5シードが
+    /// 【核心】(<c>HoardedWhileEmptyEntries.Count == 0</c>)で落ちた ──
+    /// <b>空振り防止4本(<c>FinalDayIndex == 30</c> / <c>SelfSuppliableHouseholdCount == 6</c> /
+    /// 観測件数180 / 最終日の突き合わせ)はすべて通過している。</b>タスク仕様が #7 に求めていた
+    /// 判別力が、空振り防止ではなく核心にあることの実測である。あわせて他6件(計12件)。</item>
+    /// </list>
+    /// </remarks>
     private void RunOneHousehold(World world, HouseholdState household, Season season)
     {
         TakeOwnOutputHome(world, household, season); // GDD02b §1.1。消費の前
@@ -90,6 +108,15 @@ public sealed class ConsumptionSystem : ISimSystem
     /// <b>世帯の走査順(Id昇順)は既存のループがそのまま持つ。</b>自家消費は世帯内で閉じている
     /// (共有資源に触れない)ので、順序が結果を変えない。
     /// </para>
+    /// </remarks>
+    /// <remarks>
+    /// <b>核心の変異の実測(実測日 2026-09-22、<c>mutator</c> が使い捨てworktreeで1件ずつ当て、
+    /// 毎回 <c>dotnet test Visionary.sln -c Release</c>(477件)を走らせて測定。対象コミット
+    /// <c>13144cf</c>)。期待と食い違った件数は0件。</b>
+    /// <b>M-6</b>(走査を <c>recipe.Outputs</c> から全品目のループへ変える)は<b>赤</b>。
+    /// <c>SelfConsumptionTests.TransferMovesOnlyTheHouseholdsOwnOutputs</c>(Expected 5,
+    /// Actual 1)・
+    /// <c>TradePipelineTests.UnaffordableNecessityCountsOnlyTheFundsShortfall</c>(計2件)。
     /// </remarks>
     private void TakeOwnOutputHome(World world, HouseholdState household, Season season)
     {
