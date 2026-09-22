@@ -1,4 +1,5 @@
 using Visionary.Sim.Numerics;
+using Visionary.Sim.Time;
 
 namespace Visionary.Sim.Systems;
 
@@ -9,10 +10,17 @@ public readonly record struct DemandLine
 
     public int ItemId { get; init; }
 
-    /// <summary>相場項 = ApplyPermille(相場基準, 許容乖離‰)。<b>在庫圧力を掛ける前</b>(GDD02c §2.1)。</summary>
+    /// <summary>
+    /// 相場項 = ApplyPermille(相場基準, 許容乖離‰)。<b>在庫圧力を掛ける前</b>(GDD02c §2.1)。
+    /// <b><see cref="BuyerBudget.Decide"/> はもう読まない</b>(決定11) ── ゲートが読むのは
+    /// <see cref="BaseValue"/> である。
+    /// </summary>
     public int MarketTerm { get; init; }
 
-    /// <summary>相場基準が立ったか。false なら <see cref="MarketTerm"/> は0で、min から落ちる。</summary>
+    /// <summary>
+    /// 相場基準が立ったか。<b><see cref="BuyerBudget.Decide"/> はもう読まない</b>(決定11)。
+    /// 相場基準が立ったかどうかの記録として残す(<c>WorldDefinitionTests</c> が観測する)。
+    /// </summary>
     public bool HasMarketTerm { get; init; }
 
     /// <summary>現金上限 = FloorDiv(用途に使える資金, max(1日分の数量, 1))。<b>常にある</b>(GDD02c §2.1)。</summary>
@@ -32,10 +40,15 @@ public readonly record struct DemandLine
     /// <summary>在庫圧力‰(GDD02b §5.1)。500〜1500、目標在庫の2倍超で0。</summary>
     public int StockPressurePermille { get; init; }
 
-    /// <summary>線形解の基礎値。相場項、無ければ現金上限(GDD02b §5.2)。<b>在庫圧力を掛けない</b>。</summary>
+    /// <summary>
+    /// 線形解の基礎値。相場項、無ければ窓口の当日価格(GDD02b §5.2)。<b>在庫圧力を掛けない</b>。
+    /// </summary>
     public int BaseValue { get; init; }
 
-    /// <summary>予算 = min( ApplyPermille(相場項, 在庫圧力‰) , 現金上限 , 利潤上限 )(GDD02c §2.1)。</summary>
+    /// <summary>
+    /// 予算 = min( ApplyPermille(基礎値, 在庫圧力‰) , 現金上限 , 利潤上限 )(GDD02c §2.1)。
+    /// <b>第1項(基礎値)は常にある</b>(決定11)。
+    /// </summary>
     public int Budget { get; init; }
 }
 
@@ -129,6 +142,16 @@ public sealed class BuyerDemand
                 out reference[itemId]);
         }
 
+        // 0b. 窓口の当日価格を品目ごとに1回だけ解く(相場項が無い日の基礎値。決定10)。
+        // 呼び出し順は「相場基準を引いた後、行を組み立てる前」(規則7)。
+        var season = GameDate.FromTick(world.Now).Season;
+        var windowPrice = new int[itemCount];
+
+        for (int itemId = 0; itemId < itemCount; itemId++)
+        {
+            windowPrice[itemId] = WindowPrice(itemId, season);
+        }
+
         var lines = new List<DemandLine>();
         long necessityReserve = 0L;
         long workingCapital = 0L;
@@ -157,7 +180,7 @@ public sealed class BuyerDemand
                 DemandPurpose.Necessity, household.LiquidFunds, necessityReserve, workingCapital);
 
             lines.Add(BuildLine(
-                DemandPurpose.Necessity, itemId, hasReference[itemId], reference[itemId],
+                DemandPurpose.Necessity, itemId, hasReference[itemId], reference[itemId], windowPrice[itemId],
                 definition.TolerancePermille, target, expected, dailyQuantity, availableFunds,
                 hasProfitCap: false, profitCap: 0));
         }
@@ -176,6 +199,7 @@ public sealed class BuyerDemand
 
             lines.Add(BuildLine(
                 DemandPurpose.Durable, Item.Tools, hasReference[Item.Tools], reference[Item.Tools],
+                windowPrice[Item.Tools],
                 definition.TolerancePermille, target, expected, dailyQuantity: 1, availableFunds,
                 hasProfitCap: false, profitCap: 0));
         }
@@ -224,7 +248,7 @@ public sealed class BuyerDemand
                 DemandPurpose.ProductionInput, household.LiquidFunds, necessityReserve, workingCapital: 0);
 
             lines.Add(BuildLine(
-                DemandPurpose.ProductionInput, itemId, hasReference[itemId], reference[itemId],
+                DemandPurpose.ProductionInput, itemId, hasReference[itemId], reference[itemId], windowPrice[itemId],
                 definition.TolerancePermille, target, expected, dailyQuantity, availableFunds,
                 hasProfitCap[itemId], profitCap[itemId]));
         }
@@ -245,7 +269,7 @@ public sealed class BuyerDemand
                 DemandPurpose.Preference, household.LiquidFunds, necessityReserve, workingCapital);
 
             lines.Add(BuildLine(
-                DemandPurpose.Preference, itemId, hasReference[itemId], reference[itemId],
+                DemandPurpose.Preference, itemId, hasReference[itemId], reference[itemId], windowPrice[itemId],
                 definition.TolerancePermille, target, expected, dailyQuantity, availableFunds,
                 hasProfitCap: false, profitCap: 0));
         }
@@ -258,16 +282,34 @@ public sealed class BuyerDemand
         };
     }
 
+    /// <summary>
+    /// 窓口の当日価格(GDD02b §5.2 / GDD02d §2.1・§3・§5)。相場項が無い日の線形解の基礎値。
+    /// 都市生産品は外部買値(= 床。季節に依らない)、1次産品は当日の外部売値。
+    /// </summary>
+    /// <remarks>
+    /// <b>都市生産品に <see cref="WorldDefinition.ExternalSellPrice"/> を使ってはならない。</b>
+    /// 都市生産品のそれは天井(<c>ApplyPermille(外部買値, 1000 + 交易マージン‰)</c>)であって
+    /// 床ではない。<b>1次産品に <see cref="WorldDefinition.ExternalBuyPrice"/> を使ってはならない。</b>
+    /// <see cref="WorldDefinition"/> が <see cref="ArgumentException"/> を投げる。
+    /// <para>
+    /// <b>基準値ではなく当日値である</b>(決定12)。<paramref name="season"/> を渡すことがその実体。
+    /// </para>
+    /// </remarks>
+    private int WindowPrice(int itemId, Season season) =>
+        _definition.IsPrimaryItem(itemId)
+            ? _definition.ExternalSellPrice(itemId, season)
+            : _definition.ExternalBuyPrice(itemId);
+
     private static DemandLine BuildLine(
-        DemandPurpose purpose, int itemId, bool hasReference, int reference, int tolerancePermille,
-        int targetStock, int expectedStock, int dailyQuantity, int availableFunds,
+        DemandPurpose purpose, int itemId, bool hasReference, int reference, int windowPrice,
+        int tolerancePermille, int targetStock, int expectedStock, int dailyQuantity, int availableFunds,
         bool hasProfitCap, int profitCap)
     {
         int stockPressure = BuyerBudget.StockPressurePermille(expectedStock, targetStock);
         int cashCap = BuyerBudget.CashCap(availableFunds, dailyQuantity);
         int marketTerm = hasReference ? IntegerMath.ApplyPermille(reference, tolerancePermille) : 0;
-        int baseValue = BuyerBudget.BaseValue(hasReference, marketTerm, cashCap);
-        int budget = BuyerBudget.Budget(hasReference, marketTerm, stockPressure, cashCap, hasProfitCap, profitCap);
+        int baseValue = BuyerBudget.BaseValue(hasReference, marketTerm, windowPrice);
+        int budget = BuyerBudget.Budget(baseValue, stockPressure, cashCap, hasProfitCap, profitCap);
 
         return new DemandLine
         {

@@ -93,6 +93,85 @@ public sealed class TradePipelineTests
     }
 
     /// <summary>
+    /// 【核心】W2-15 タスク仕様テスト表 #1(検出器)。M0・シード1/2/3/7/42・60日。観測ゼロの
+    /// 初日(<c>DayIndex == 0</c>)に、全世帯の外部 <c>Purchase</c>(<see cref="world.Ledgers"/>、
+    /// <c>CounterpartyId == HouseholdState.ExternalMarketSellerId</c>)の
+    /// <c>Quantity × UnitPrice</c> を合計した額が、都市の初期総資金の1/10未満であること
+    /// (決定10・11。相場項が無い初日は基礎値が窓口の当日価格に落ちるので、旧規則(基礎値=現金上限)
+    /// で起きていた一撃買いが縮む)。
+    /// </summary>
+    /// <remarks>
+    /// <b>実測して doc コメントへ転記すること(タスク仕様)。</b>2026-09-22 実測: seed1=816 /
+    /// seed2=816 / seed3=816 / seed7=816 / seed42=776(いずれも <c>10 × 合計 &lt; 24,000</c>
+    /// を大きく下回る)。#120 の使い捨て実測(816 / 816 / 776、決定11を入れる前、シード3・7は
+    /// 未測定)と比べ、シード1・2・42は同値、シード3・7も同じ816である。決定11は初日には効かない
+    /// ── 初日は誰も相場基準を持たない(<c>HasMarketTerm = false</c>)ので、分岐1から
+    /// 「相場項があり」を外しても判定そのものは変わらない(決定10だけが初日の値を決める)。
+    /// 一般化はゲートを緩める方向には動かないので、この実測より上には戻らないはずである。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(<c>mutator</c> が測定、2026-09-22、対象HEAD <c>624f5b1</c>、変異なしで
+    /// 445件緑を確認済み)。</b>
+    /// <list type="bullet">
+    /// <item><b>M-1</b>(<c>BuyerDemand.BuildLine</c> が <c>BaseValue</c> へ窓口価格ではなく
+    /// <c>cashCap</c> を渡す変異)は<b>全5シードで赤</b>。<b>ただし赤の理由は閾値の断定ではなく
+    /// <c>ArgumentOutOfRangeException</c></b>(<c>cashCap = 0</c> の行を <c>BaseValue</c> の戻り値
+    /// ガードが捕まえる)であり、<b>断定に到達しないためday0の輸入額は読めない</b>。仕様は
+    /// 「失敗メッセージから輸入額を読む」ことを期待していたが、本タスクで足した <c>BaseValue</c> の
+    /// ガードが検出器より手前で落とす ── 2つの機械が別の面を守っていることの現れである。</item>
+    /// <item><b>M-2</b>(<c>Decide</c> の分岐1を <c>if (line.HasMarketTerm &amp;&amp;
+    /// effectivePrice &gt; adjustedBaseValue)</c> に戻す変異)は<b>本テストでは全5シード緑のまま</b>。
+    /// 決定11は購入量を1つも変えない ── 初日の輸入額を決めているのは決定10だけ、という主張の
+    /// 実測であり、検出器を2本(本テストと<see
+    /// cref="BuyerBudgetTests.DecideClosesOnTheBaseValueWithoutAMarketReference"/>)に割った
+    /// 根拠そのものである。</item>
+    /// <item><b>M-3</b>(<c>BuyerDemand.WindowPrice</c> の分岐を落とし全品目
+    /// <c>ExternalSellPrice(itemId, season)</c> を使う変異)も<b>全5シードで赤</b>。day0の輸入額は
+    /// seed1=5752 / seed2=4568 / seed3=4568 / seed7=4744 / seed42=4408(閾値2400を大きく超える)。</item>
+    /// <item><b>M-4</b>(<c>WindowPrice</c> が季節を <c>Season.Spring</c> 固定で渡す変異)は
+    /// <b>緑のまま</b>。</item>
+    /// </list>
+    /// </remarks>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(7)]
+    [InlineData(42)]
+    public void WindowImportsOnTheFirstDayStayBelowATenthOfTheCitysMoney(long seed)
+    {
+        var definition = WorldDefinition.M0;
+        var world = WorldGenerator.Generate(definition, new RandomSource(seed));
+
+        var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(seed));
+        scheduler.Advance(world, ticks: 60 * 24);
+
+        long day0Imports = 0;
+
+        foreach (var household in world.Households)
+        {
+            foreach (var entry in world.Ledgers[household.Id])
+            {
+                if (entry.CounterpartyId == HouseholdState.ExternalMarketSellerId
+                    && entry.Direction == LedgerDirection.Purchase
+                    && entry.OccurredAt.DayIndex == 0)
+                {
+                    day0Imports += (long)entry.Quantity * entry.UnitPrice;
+                }
+            }
+        }
+
+        // 空振り防止(タスク仕様)。
+        Assert.True(day0Imports >= 1, $"seed={seed}: 初日に窓口からの輸入が1件も無い(値の問題の可能性)。");
+        Assert.Equal(60, world.Now.DayIndex);
+
+        Assert.True(
+            10 * day0Imports < (long)definition.InitialLiquidFunds * definition.HouseholdCount,
+            $"seed={seed}: 初日の窓口からの輸入額({day0Imports})が都市の初期総資金の1/10以上"
+                + $"(初期総資金={(long)definition.InitialLiquidFunds * definition.HouseholdCount})。");
+    }
+
+    /// <summary>
     /// 【核心】テスト表 #17(#38)。M0・60日・シード1: Σ(流動資金の変化) ==
     /// Σ(外部 <c>Sale</c> の額) − Σ(外部 <c>Purchase</c> の額)。GDD02d §4.1 の恒等式そのもの。
     /// </summary>
@@ -714,6 +793,21 @@ public sealed class TradePipelineTests
     /// 対照で確かめる ── 同じ世帯の初期資金だけを増やした世界で嗜好の約定が成立すること。
     /// </summary>
     /// <remarks>
+    /// <b>W2-15 訂正4赤C(2026-09-22)。</b>本テストは「必需が嗜好より先に決済される(走査順)」を
+    /// <b>検出しない。</b>帯<c>ScarceLiquidFunds</c>=50はビールの床72を下回るため、嗜好は走査順
+    /// ではなく絶対額(資金不足)で塞がれている ── 70以下は薪の約定が成立しビールが0件、72以降は
+    /// ビールも成立する世界であり、「必需は払えるが嗜好は走査順のせいで買えない」帯はこの世界に
+    /// 存在しない。<c>mutator</c>による実測(M-6、2026-09-22): <c>TradeSystem</c>の需要行の走査を
+    /// <c>demand.Lines.Reverse()</c>に反転しても本テストは<b>緑のまま</b>(赤になるのは
+    /// <see cref="TradeSystemTests.NecessityIsSettledBeforePreference"/> /
+    /// <see cref="TradeSystemTests.NecessityShortfallIsCountedOnBothPaths"/> /
+    /// <see cref="TradeSystemTests.NonNecessityFundsShortfallIsNotCounted"/>の3件)。走査順の規則
+    /// そのものは<see cref="TradeSystemTests.NecessityIsSettledBeforePreference"/>が機械で守って
+    /// いる(同じ変異で赤)。帯の置き直しでは復元できない(M0の価格か世界の構成を変える必要があり
+    /// 本タスクの外、issue化)。名前は変えない(本タスクが<c>NoPurchaseReason.MarketTerm</c>で
+    /// 採った「名前は残しdocの1行が読み手を止める」形にあわせる)。
+    /// </remarks>
+    /// <remarks>
     /// <b>W2-11 追随(2026-09-20)。§1.1 の頭打ちが入って値付けが直ったことで、資金の絞り方・
     /// 観察に要する日数を実測し直した</b>(シード1・世帯Id0=Brewer・区画4)。
     /// <list type="bullet">
@@ -737,15 +831,28 @@ public sealed class TradePipelineTests
     /// <c>Assert.False(boughtBeer, ...)</c> が失敗した(赤を確認: 嗜好が必需より先に
     /// 決済され、流動資金が先に嗜好へ回って必需を圧迫する経路が再現する)。
     /// <b>W2-11 の頭打ち(GDD02c §1.1)が入った後の経済でも判別力が維持されている。</b>
+    /// <b>この測定は帯100(<c>ScarceLiquidFunds</c>=100)の配置についてのものであり、帯を50へ
+    /// 置き直した本タスク(W2-15)で無効になった。M-6(2026-09-22)がこれを置き換える。</b>
     /// <b>旧い記録(2026-09-17、#98・<c>13e9251</c>、頭打ちが入る<b>前</b>の経済で測ったもの)は
     /// 参考として残す:</b>同じ変異で同じ <c>Assert.False(boughtBeer, ...)</c> が実際値trueで
     /// 失敗していた(赤を確認)。<b>今回(<c>87d4837</c>)の実測がこれを置き換える。</b>
+    /// </remarks>
+    /// <remarks>
+    /// <b>帯の置き直し(2026-09-22、W2-15)。</b>決定10で必需(薪)の基礎値が現金上限から
+    /// 窓口の当日価格(=床)へ落ち、必需の支出が大幅に下がった結果、旧い帯(絞った資金100)でも
+    /// 嗜好(ビール)の約定まで成立するようになった(実測: <c>boughtBeer</c> が実際値true)。
+    /// <b>帯の原意(必需1日分は払えるが必需+嗜好1日分は払えない流動資金)は変わらないので、
+    /// 帯を置き直した。</b>M0・シード1・世帯Id0・3日で流動資金を段階的に振った実測:
+    /// 1〜70は薪の約定が成立しビールの約定が0件のまま、72以降はビールの約定も成立する
+    /// (境界は70と72の間)。安全側に寄せて <c>ScarceLiquidFunds</c> = 50 を採る。
+    /// <c>AmpleLiquidFunds</c>(100,000)・観察日数(3日)は動かしていない(どちらも境界の外なので
+    /// そのまま成り立つ)。
     /// </remarks>
     [Fact]
     public void NecessityIsSettledBeforePreference()
     {
         const int TargetHouseholdId = 0;
-        const int ScarceLiquidFunds = 100; // 必需は買えるが嗜好へは届かない額(値の検算対象、#28)
+        const int ScarceLiquidFunds = 50; // 必需は買えるが嗜好へは届かない額(値の検算対象、#28。W2-15で置き直した)
         const int AmpleLiquidFunds = 100_000; // 嗜好も届く額(対照。値の検算対象、#28。remarks参照)
 
         var definition = WorldDefinition.M0;
@@ -760,12 +867,14 @@ public sealed class TradePipelineTests
 
             var household = world.Households[TargetHouseholdId];
 
-            // 必需(薪)の約定が成立した ── TradeSettlement.Executeが用途で行き先を振り分けるので、
-            // 世帯在庫が増えていることが必需の約定の証拠になる(GDD02b §3.2)。初期の世帯在庫は
-            // その日のうちにConsumptionSystemが使い切るので、値が残っていれば買い直した証拠になる。
+            // 必需(パン)の約定が成立した ── TradeSettlement.Executeが用途で行き先を振り分けるので、
+            // 世帯在庫が増えていることが必需の約定の証拠になる(GDD02b §3.2)。初期の世帯在庫
+            // (パン6、WorldDefinition.cs)は消費2/日(2人世帯)で3日ちょうど0になるので、値が
+            // 残っていれば買い直した証拠になる(W2-15訂正4赤C。薪は初期28・3日で12しか消費しない
+            // ため購入0件でも真になり空振りしていた ── 薪からパンへ差し替えた)。
             Assert.True(
-                household.HouseholdInventory[Item.Firewood] > 0,
-                "必需(薪)の約定が成立しなかった(値の問題の可能性)。");
+                household.HouseholdInventory[Item.Bread] > 0,
+                "必需(パン)の約定が成立しなかった(値の問題の可能性)。");
 
             bool boughtBeer = world.Ledgers[TargetHouseholdId].Any(
                 entry => entry.Direction == LedgerDirection.Purchase && entry.ItemId == Item.Beer);
@@ -865,24 +974,30 @@ public sealed class TradePipelineTests
     /// <c>Assert.Equal(0, …)</c> が11日目時点で崩れていた)。0→1→0のきれいな遷移を持つ最初の
     /// 組を60日走査して選び直した。この実測値も、窓口が絡む変更が入れば再び動きうる。
     /// </remarks>
+    /// <remarks>
+    /// <b>W2-15 追随(2026-09-22)。</b>相場項が無い日の基礎値が窓口の当日価格になった(決定10・11)
+    /// ことで経済の形がまた変わり、自然発生する日・世帯が動いた(doc コメントの確立した手順
+    /// どおり60日を走査。実測: 世帯Id4、7日目に0→1→0のきれいな遷移を持つ最初の組が現れる。
+    /// 世帯Id6、8日目ではもう自然発生しない)。
+    /// </remarks>
     [Fact]
     public void UnaffordableNecessityCountsOnlyTheFundsShortfall()
     {
         var definition = WorldDefinition.M0;
 
-        // 資金不足のケース(シード1・操作なし。世帯Id6、8日目に自然発生する。上のremarks参照)。
+        // 資金不足のケース(シード1・操作なし。世帯Id4、7日目に自然発生する。上のremarks参照)。
         {
             var world = WorldGenerator.Generate(definition, new RandomSource(1));
             var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(1));
 
-            scheduler.Advance(world, ticks: 7 * 24); // 7日目まで。
-            Assert.Equal(0, world.Households[6].UnaffordableNecessityCount);
+            scheduler.Advance(world, ticks: 6 * 24); // 6日目まで。
+            Assert.Equal(0, world.Households[4].UnaffordableNecessityCount);
 
-            scheduler.Advance(world, ticks: 24); // 8日目。資金不足が1件自然発生する。
-            Assert.Equal(1, world.Households[6].UnaffordableNecessityCount);
+            scheduler.Advance(world, ticks: 24); // 7日目。資金不足が1件自然発生する。
+            Assert.Equal(1, world.Households[4].UnaffordableNecessityCount);
 
-            scheduler.Advance(world, ticks: 24); // 9日目。毎日上書きする(GDD02b §3.3)ので0に戻る。
-            Assert.Equal(0, world.Households[6].UnaffordableNecessityCount);
+            scheduler.Advance(world, ticks: 24); // 8日目。毎日上書きする(GDD02b §3.3)ので0に戻る。
+            Assert.Equal(0, world.Households[4].UnaffordableNecessityCount);
         }
 
         // 在庫切れのケース。木工2戸の薪(工房在庫)と入力の木材(工房在庫)を0にして生産による
@@ -909,19 +1024,37 @@ public sealed class TradePipelineTests
             Assert.Equal(0, world.Households[0].UnaffordableNecessityCount);
         }
 
-        // 嗜好が買えなくても0のまま。素のM0世界の1日目、世帯Id1はビールを一度も買わないが
-        // (実測、シード1。W2-09で価値の式(A-1)が変わり、1日目にビールを買わない世帯が
-        // 世帯Id3から世帯Id1へ動いた)、UnaffordableNecessityCountは用途がNecessityの行しか
-        // 数えないので0のままである(GDD02b §3.2)。
+        // 嗜好が買えなくても0のまま。W2-15追随(2026-09-22、訂正2)。決定10・11で基礎値が
+        // 窓口の当日価格へ落ちたことで、素のM0世界1日目・世帯Id1はビールを買うようになった
+        // (実測、シード1)。裁定の第一案どおり60日を走査し、(a)その日に嗜好(ビール)を買っていない
+        // /(b)その日に必需を1件以上約定している/(c)UnaffordableNecessityCount==0を満たす
+        // 最初の(世帯, 日)を選び直した ── 世帯Id8・0日目(実測)。(b)は、ビールを買わなかった
+        // 理由が「店を1つも知らない」側に落ちていないことを示す。
+        // <b>機構(実測)。</b>世帯Id8は0日目に必需(パン2個・穀物14個)を約定させている
+        // (店を知らないのではない)。ビールは知っている店(実効価格144)が見つかったが、
+        // BuyerBudget.Decideの理由はCashCap(現金上限)でも在庫圧力0(StockPressurePermille=1500、
+        // 非0)でもなく、決定11の基礎値ゲート(MarketTerm。実効価格144 >
+        // ApplyPermille(基礎値72, 1500‰)=108)である ── 相場項が無い日の基礎値(窓口の当日
+        // 価格=72)に対して実効価格が高すぎたため、資金不足ではなく「高すぎて買わなかった」
+        // 経路で0個になった。UnaffordableNecessityCountはNecessityの行しか数えないので0のまま
+        // (GDD02b §3.2)。
         {
             var world = WorldGenerator.Generate(definition, new RandomSource(1));
             var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(1));
             scheduler.Advance(world, ticks: 24);
 
-            bool boughtBeer = world.Ledgers[1].Any(
+            bool boughtBeer = world.Ledgers[8].Any(
                 entry => entry.Direction == LedgerDirection.Purchase && entry.ItemId == Item.Beer);
             Assert.False(boughtBeer);
-            Assert.Equal(0, world.Households[1].UnaffordableNecessityCount);
+            Assert.Equal(0, world.Households[8].UnaffordableNecessityCount);
+
+            // R-1(訂正3の別表)。裁定表の選び直しの条件(b)「その日に必需を1件以上約定している」
+            // は、これまでdocコメントの実測として書くだけで断定していなかった ── 世帯Id8が
+            // 「店を1つも知らない」状態へ落ちても上の2つのAssertは通ってしまう。断定として足す
+            // (実測: 上記remarksのとおりパン2個・穀物14個が0日目に約定している)。
+            Assert.Contains(
+                world.Ledgers[8],
+                entry => entry.Direction == LedgerDirection.Purchase && entry.OccurredAt.DayIndex == 0);
         }
     }
 

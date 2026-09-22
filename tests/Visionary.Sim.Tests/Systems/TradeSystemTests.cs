@@ -637,6 +637,34 @@ public sealed class TradeSystemTests
     /// 持ち込まなくなる)、いずれの実装ミスでもケースA・ケースBの少なくとも一方が崩れる
     /// (タスク仕様)。
     /// </remarks>
+    /// <remarks>
+    /// <b>配置の変更(2026-09-22、W2-15、訂正2)。</b>決定10・11で相場項が無い日の穀物の基礎値が
+    /// 窓口の当日価格(このテストの世界ではItem.Grainが<c>UnusedRecipe</c>の出力に当たり都市生産品
+    /// 扱いになるので、外部買値=床=1)へ落ちたことで、窓口(中心=区画4、買い手の区画0から距離2)の
+    /// 提示価格(床の2倍=2)と、遠方の売り手(区画2/8)の見積もり(記憶が無ければ同じ床1)を比べると
+    /// <b>窓口の方が高い</b>が、床が持つ意味は<see cref="ErrandPlanner"/>の見積もり段では「床は
+    /// 差を作らない軸」──買い物5aの計画がどの店にも行く価値なしと判断し(相場項が無い日の
+    /// 穀物の需要量そのものが小さくなったため)、5aが1件も外出を選ばなくなり、6(輸出)だけが
+    /// 単独で成立してしまう(実測: ケースAでVisitedDistrictIds=[]・輸出のみ成立)。<b>採る梃子は
+    /// 窓口価格ではなく、買い手に窓口の高値の価格記憶を仕込んで窓口を候補から実質的に外すこと</b>
+    /// (<see cref="ErrandPlannerAndSettlementAgreeOnQuantity"/>の工具999999と同じ足場。
+    /// <see cref="BudgetGateUsesTheEffectivePriceOnly"/>はW2-15訂正3でこの足場を外している
+    /// ── そちらは飽和回避に目標在庫日数を使う別の梃子を採った)。
+    /// 買い手の区画0から中心までの距離2はR=1の外なので、<c>EstimateWindowPrice</c>は
+    /// 有効な記憶(999)を読み、窓口の見積もりが売り手の見積もり(床1)より高くなって窓口が
+    /// 実質的に外れる ── 5aが売り手の区画へ実際に外出するようになる(実測:
+    /// ケースA・ケースBともVisitedDistrictIds=[売り手の区画]で中心(4)を含まない)。
+    /// <b>副作用</b>: この観測は<see cref="MarketReference.TryBuyer"/>にも拾われるので、穀物の
+    /// 相場項が立ち、基礎値が相場項由来(999付近)に上がって到達在庫が上側clamp(2T=20)へ戻る
+    /// (実測: 購入量20)。<b>このテストは以後「相場項が無い日」の経路を通らない。</b>
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(<c>mutator</c> が測定、2026-09-22、対象HEAD <c>624f5b1</c>、変異なしで
+    /// 445件緑を確認済み、M-9)。</b>輸出の往復時間の検査を <c>&gt;</c> から <c>&gt;=</c> へ変える
+    /// 変異は<b>2件赤</b>。<b>ケースB</b>(往復12=Tちょうど)の <c>Assert.True(...)</c> が期待True・
+    /// 実際Falseで失敗(往復時間ちょうどの日に持ち込まなくなる。往復時間という判別軸が生きている
+    /// ことの実測)。他1件は波及。
+    /// </remarks>
     [Fact]
     public void ExportErrandIsSkippedWhenTheDayIsFull()
     {
@@ -644,6 +672,20 @@ public sealed class TradeSystemTests
         {
             var definition = BuildExportAndShoppingDefinition(travelHoursPerDistrict: 2);
             var world = BuildExportAndShoppingWorld(definition, exporterDistrictId: 0, sellerDistrictId: 2);
+
+            // W2-15追随(2026-09-22、訂正2)。窓口の穀物の高値記憶(999)を仕込み、窓口を
+            // 買い物の候補から実質的に外す(上記remarks参照)。実測: 購入元は区画2の売り手
+            // (cp=1)、数量20(相場項が立ち上側clampへ戻った)、価格1(床)。
+            EconomySystemTestFixtures.AdvanceClockOnly(world, ticks: 24);
+            world.Knowledge[0].Add(new PriceObservation
+            {
+                ItemId = Item.Grain,
+                LocationId = 0,
+                Price = 999,
+                SellerId = HouseholdState.ExternalMarketSellerId,
+                ObservedAt = Tick.Zero,
+                Source = ObservationSource.Direct,
+            });
 
             EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
 
@@ -663,6 +705,21 @@ public sealed class TradeSystemTests
         {
             var definition = BuildExportAndShoppingDefinition(travelHoursPerDistrict: 1);
             var world = BuildExportAndShoppingWorld(definition, exporterDistrictId: 0, sellerDistrictId: 8);
+
+            // W2-15追随(2026-09-22、訂正2)。ケースAと同じ記憶をケースBにも入れる ──
+            // 片方だけだと<see cref="BudgetGateUsesTheEffectivePriceOnly"/>で起きたのと同じ
+            // 非対称が生まれる。実測: 購入元は区画8の売り手(cp=1)、数量20、価格1。輸出も
+            // 別途成立する(Sale item=Bread qty=99 cp=ExternalMarketSellerId)。
+            EconomySystemTestFixtures.AdvanceClockOnly(world, ticks: 24);
+            world.Knowledge[0].Add(new PriceObservation
+            {
+                ItemId = Item.Grain,
+                LocationId = 0,
+                Price = 999,
+                SellerId = HouseholdState.ExternalMarketSellerId,
+                ObservedAt = Tick.Zero,
+                Source = ObservationSource.Direct,
+            });
 
             EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
 
@@ -776,6 +833,16 @@ public sealed class TradeSystemTests
     /// UnaffordableNecessityCount == 1、(2) ゲートは開くがFundsCapが0に切り詰める → 同じく1。
     /// 同じlineで2にならない。
     /// </summary>
+    /// <remarks>
+    /// <b>W2-15 変異の実測(<c>mutator</c> が測定、2026-09-22、対象HEAD <c>624f5b1</c>、変異なしで
+    /// 445件緑を確認済み、M-6)。</b><c>TradeSystem</c> の需要行の走査を <c>demand.Lines.Reverse()</c>
+    /// に反転する変異(走査順 必需→耐久→入力→嗜好 の破壊)は、本テストを含む
+    /// <b>ちょうど3件が赤</b>(本テスト / <see
+    /// cref="NecessityIsSettledBeforePreference"/> / <see
+    /// cref="NonNecessityFundsShortfallIsNotCounted"/>)。<see
+    /// cref="TradePipelineTests.NecessityIsSettledBeforePreference"/> は同じ変異で<b>緑のまま</b>
+    /// (訂正4赤Cの根拠 ── そちらのremarks参照)。
+    /// </remarks>
     [Fact]
     public void NecessityShortfallIsCountedOnBothPaths()
     {
@@ -830,6 +897,16 @@ public sealed class TradeSystemTests
     /// が実際値1(嗜好(穀物)の行が段4の古い現金上限100のゲートを通った後、段8で現在の流動資金0に
     /// 対する <c>fundsCap == 0</c> を踏んで数えられる)で失敗した(赤を確認)。変異を戻して
     /// 緑に復帰させた。
+    /// </remarks>
+    /// <remarks>
+    /// <b>W2-15 変異の実測(<c>mutator</c> が測定、2026-09-22、対象HEAD <c>624f5b1</c>、変異なしで
+    /// 445件緑を確認済み、M-6)。</b><c>TradeSystem</c> の需要行の走査を <c>demand.Lines.Reverse()</c>
+    /// に反転する変異(走査順 必需→耐久→入力→嗜好 の破壊)は、本テストを含む
+    /// <b>ちょうど3件が赤</b>(本テスト / <see
+    /// cref="NecessityIsSettledBeforePreference"/> / <see
+    /// cref="NecessityShortfallIsCountedOnBothPaths"/>)。<see
+    /// cref="TradePipelineTests.NecessityIsSettledBeforePreference"/> は同じ変異で<b>緑のまま</b>
+    /// (訂正4赤Cの根拠 ── そちらのremarks参照)。
     /// </remarks>
     [Fact]
     public void NonNecessityFundsShortfallIsNotCounted()
@@ -955,6 +1032,37 @@ public sealed class TradeSystemTests
     /// <c>LiquidFunds</c> だけが窓口での木材の代金ぶん動く。<see cref="BuildShoppingDefinition"/> の
     /// 定数(流動資金15など)は動かさない。<b>判別力は変異M-5で測り直す</b>。
     /// </remarks>
+    /// <remarks>
+    /// <b>W2-15 追随(2026-09-22、訂正4赤F)。</b>初版の本remarksは機構を「木材(生産の入力)の
+    /// 代金が2→1に下がった」としていたが誤りである。<b>この世界で木材は1個も買われない</b>
+    /// (旧版でも新版でも)── 買い手はWoodworkerで<c>laborPermille=1</c> → <c>ProductionCapacity
+    /// =1300</c> → <c>DailyInputQuantity(Woodworker, Timber)=1300</c>、生産の入力の現金上限
+    /// <c>CashCap(15, 1300) = FloorDiv(15, 1300) = 0</c> なので、<c>Decide</c>は新旧とも
+    /// <c>NoPurchaseReason.CashCap</c>を返し購入量0のままである。
+    /// <para>
+    /// <b>実際に動いたのは耐久(工具)の行である</b>(このテストの世界ではToolsを出力するレシピが
+    /// 無いため1次産品扱いになり、基礎値は<c>ExternalSellPrice(Tools, 春)</c>を使う)。
+    /// <list type="bullet">
+    /// <item>旧: 基礎値=現金上限15 → 到達在庫=<c>clamp(90000 − CeilDiv(60000×1,15), 0, 60000)
+    /// = 60000</c> → <c>CeilDiv(60000, 30000) = 2個</c> → 代金2 → <c>15−10−2 = 3</c></item>
+    /// <item>新: 基礎値=<c>ExternalSellPrice(Tools, 春) = 1</c> → 到達在庫=<c>clamp(90000 −
+    /// 60000, 0, 60000) = 30000</c> → 1個 → 代金1 → <c>15−10−1 = 4</c></item>
+    /// </list>
+    /// </para>
+    /// <c>UnaffordableNecessityCount</c>・各品目の数量(パン1・穀物0)は変わらず、
+    /// <c>LiquidFunds</c> だけが期待3→4へ動く(15−10−1、代金は工具の1個ぶん)。原意
+    /// (必需が先に決済されること)は保たれるので期待値だけを更新する。
+    /// </remarks>
+    /// <remarks>
+    /// <b>W2-15 変異の実測(<c>mutator</c> が測定、2026-09-22、対象HEAD <c>624f5b1</c>、変異なしで
+    /// 445件緑を確認済み、M-6)。</b><c>TradeSystem</c> の需要行の走査を <c>demand.Lines.Reverse()</c>
+    /// に反転する変異(走査順 必需→耐久→入力→嗜好 の破壊)は、本テストを含む
+    /// <b>ちょうど3件が赤</b>(本テスト / <see
+    /// cref="NecessityShortfallIsCountedOnBothPaths"/> / <see
+    /// cref="NonNecessityFundsShortfallIsNotCounted"/>)。<see
+    /// cref="TradePipelineTests.NecessityIsSettledBeforePreference"/> は同じ変異で<b>緑のまま</b>
+    /// (訂正4赤Cの根拠 ── そちらのremarks参照)。
+    /// </remarks>
     [Fact]
     public void NecessityIsSettledBeforePreference()
     {
@@ -979,8 +1087,8 @@ public sealed class TradeSystemTests
         Assert.Equal(0, buyer.UnaffordableNecessityCount);
         Assert.Equal(1, buyer.HouseholdInventory[Item.Bread]); // 必需は約定する
         Assert.Equal(0, buyer.HouseholdInventory[Item.Grain]); // 嗜好はFundsCapで0個
-        // 15 − 10(パンの代金) − 窓口での木材(生産の入力)の代金(#38追随。上のremarks参照)。
-        Assert.Equal(3, buyer.LiquidFunds);
+        // 15 − 10(パンの代金) − 耐久(工具)の代金1(W2-15追随・訂正4赤F。上のremarks参照)。
+        Assert.Equal(4, buyer.LiquidFunds);
     }
 
     /// <summary>
@@ -1018,18 +1126,77 @@ public sealed class TradeSystemTests
     /// </list>
     /// district2の床10・窓口の天井の導出式そのものは動かしていない。
     /// </remarks>
+    /// <remarks>
+    /// <b>配置の変更(2026-09-22、W2-15 訂正1)。</b>決定10・11で相場項が無い日の基礎値が窓口の
+    /// 当日価格(旧版は現金上限)へ変わったことで、上記remarksの偽の観測(パン999)が<b>相場基準
+    /// としても拾われる</b>ようになった。旧版はhome/distantとも基礎値が現金上限(1000)で、両者
+    /// とも上側clamp(2T)に張り付いていたので一致していたが、決定10後はhomeが基礎値=床10(相場
+    /// 基準無し)でT、distantが基礎値=相場項(999由来)で2Tになり、対称性が崩れていた(実測:
+    /// 期待1・実際2)。<b>訂正1はこの偽の観測をhomeにも同じく入れて対称にする梃子を採ったが、
+    /// レビュー1巡目(訂正3)で、それが判別力を消していたことが分かった</b>
+    /// ── 対称化した結果、両世界とも基礎値が相場項由来(<c>ApplyPermille(999, 1200) = 1199</c>)
+    /// になり、到達在庫が上側clamp(<c>T=1</c> なら2)に飽和して、核心の断定
+    /// <c>Assert.Equal(home, distant)</c> が「2 == 2」の恒等式になっていた(単価に外出の費用が
+    /// 混ざる変異=M-5を当てても赤にならない)。
+    /// <para>
+    /// <b>訂正3が採った梃子: 偽の観測を両世界から外し、<c>necessityTargetStockDays[Bread]</c> を
+    /// 1 → 2 にする。</b>T=2 で到達在庫が非飽和(<c>clamp(6 − CeilDiv(4×10,10), 0, 4) = 2 = T</c>)
+    /// になり、外出の余剰(<c>FloorDiv(2×(15−10),2) = 5</c>)も外出の費用(往復2時間×2 = 4)を
+    /// 上回って外出が立つ。
+    /// </para>
+    /// <para>
+    /// <b>(i) の実測(2026-09-22)。</b><c>world.Ledgers[0]</c> を実測したところ home・distant
+    /// とも購入元は<c>CounterpartyId=1</c>(Miller)の1行だけで(数量2・単価10・決済後resources
+    /// funds=980)、窓口(<c>HouseholdState.ExternalMarketSellerId</c>)を相手にした行(購入・輸出
+    /// のいずれも)は1件も現れない。<b>足場を外しても窓口は店の候補として実際に選ばれていない</b>
+    /// が、その理由はhome/distantで異なる(W2-15訂正4赤E。訂正3が書いた「窓口側の天井のぶん
+    /// 構造的に発火しない」は<b>distant側については誤り</b> ── 実測の結論は正しいが機構の説明が
+    /// 違っていた)。
+    /// <list type="bullet">
+    /// <item><b>home</b>(買い手の区画=窓口の中心=区画4、距離0 ≤ R): <see cref="ErrandPlanner"/>
+    /// が<c>EstimateWindowPrice</c>で読むのは「1.今日の知覚」(<c>ExternalSellPrice</c> = 床の
+    /// 2倍=天井20)で、Millerの床10より単純に高い(タイではない)。<see cref="StoreChoice"/>の
+    /// 実際の店選びでも同じ価格差でMillerが厳密に安く勝つ ── ここは元の説明どおりである。</item>
+    /// <item><b>distant</b>(買い手の区画0から中心まで距離2 &gt; R、記憶なし): <c>EstimateWindowPrice</c>
+    /// が読むのは「3.未知価格の床」で、都市生産品でも<c>ExternalBuyPrice</c>(= 床10)を返す。
+    /// Millerの見積もり(同じ床10)とタイになる ── 訂正2の赤1とまったく同じタイの機構である。
+    /// 外しているのは<see cref="ErrandPlanner"/>の区画ループの区画Id昇順の走査と厳密な
+    /// <c>&gt;</c>更新であって天井ではない(区画2が区画4より先に評価され、同点の区画4は
+    /// 上書きしない。<see cref="NextDaysProductionDropsByTheErrandLaborLoss"/> /
+    /// <see cref="ExportErrandIsSkippedWhenTheDayIsFull"/>と同じ機構)。窓口は<b>訪問区画に
+    /// すら入らない</b>ため、天井が効く<see cref="StoreChoice"/>の段まで到達しない。</item>
+    /// </list>
+    /// </para>
+    /// <para>
+    /// <b>(ii) の実測。</b>数量はhome=distant=2で一致し、上側clamp(2T=4)には達していない
+    /// (非飽和のT=2そのもの)。
+    /// </para>
+    /// <para>
+    /// <b>(iii) 変異の実測(<c>mutator</c> が測定、2026-09-22、対象HEAD <c>624f5b1</c>、変異なしで
+    /// 445件緑を確認済み、M-5)。</b>単価に外出の費用を混ぜる変異(<c>Decide(line,
+    /// store.UnitEffectivePrice + Errand.Cost(travelHours, errand.CostPerHour))</c>、#85が
+    /// 消した二重計上の復活)は、<c>TradeSystem.RunOneHouseholdsShopping</c> の当該スコープから
+    /// <c>travelHours</c> / <c>errand</c> を呼べないため<c>+ 4</c>で代替して当てられた。本テストは
+    /// <b>期待どおり赤</b>になった(計16件赤のうちの1件。他15件は波及)。
+    /// </para>
+    /// </remarks>
     [Fact]
     public void BudgetGateUsesTheEffectivePriceOnly()
     {
+        // T=2(必需目標在庫日数2)。訂正3の梃子 ── 偽の観測を外向きに使わず、到達在庫を
+        // 上側clampの外(非飽和)に保つことで判別力を保つ(上記remarks参照)。
+        var necessityTargetStockDays = new int[Item.Count];
+        necessityTargetStockDays[Item.Bread] = 2;
+
         var definition = BuildShoppingDefinition(
-            breadFloor: 10, necessityTargetStockDays: TargetStockDaysFor(Item.Bread));
+            breadFloor: 10, necessityTargetStockDays: necessityTargetStockDays);
 
         // 距離0(自区画に売り手)。
         var homeWorld = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
         AddHousehold(homeWorld, id: 0, districtId: 4, Occupation.Woodworker, liquidFunds: 1000);
         AddHousehold(homeWorld, id: 1, districtId: 4, Occupation.Miller);
         homeWorld.Households[1].WorkshopInventory[Item.Bread] = 100;
-        // 買い手自身の入力(木材)・耐久(工具)の需要を中立化する(下記remarks参照。本テストの
+        // 買い手自身の入力(木材)・耐久(工具)の需要を中立化する(上記remarks参照。本テストの
         // 関心はパンだけである)。
         homeWorld.Households[0].WorkshopInventory[Item.Timber] = 100_000;
         homeWorld.Households[0].WorkshopInventory[Item.Tools] = 5;
@@ -1047,17 +1214,6 @@ public sealed class TradeSystemTests
         distantWorld.Households[0].WorkshopInventory[Item.Timber] = 100_000;
         distantWorld.Households[0].WorkshopInventory[Item.Tools] = 5;
 
-        EconomySystemTestFixtures.AdvanceClockOnly(distantWorld, ticks: 24);
-        distantWorld.Knowledge[0].Add(new PriceObservation
-        {
-            ItemId = Item.Bread,
-            LocationId = 0,
-            Price = 999,
-            SellerId = HouseholdState.ExternalMarketSellerId,
-            ObservedAt = Tick.Zero,
-            Source = ObservationSource.Direct,
-        });
-
         EconomySystemTestFixtures.RunDays(distantWorld, new TradeSystem(definition), days: 1);
 
         var distantBuyer = distantWorld.Households[0];
@@ -1065,8 +1221,9 @@ public sealed class TradeSystemTests
         // 外出が実際に起きたこと(訪問区画にしか売り手がいない以上、外出しなければ約定しえない)。
         Assert.True(distantBuyer.HouseholdInventory[Item.Bread] > 0);
 
-        // 数量が一致する(外出の費用は数量の解にも予算にも混ざらない。GDD02b §7)。
+        // 数量が一致し、かつ上側clamp(2T=4)に飽和していないこと(訂正3の判別力の確認)。
         Assert.Equal(homeBuyer.HouseholdInventory[Item.Bread], distantBuyer.HouseholdInventory[Item.Bread]);
+        Assert.NotEqual(4, distantBuyer.HouseholdInventory[Item.Bread]);
 
         // 決済額も一致する(実効価格のみを使う。Errand.Costは価値の比較にだけ使われ、
         // LiquidFundsからは一切引かれない)。
@@ -1175,9 +1332,10 @@ public sealed class TradeSystemTests
     /// </remarks>
     /// <remarks>
     /// <b>耐久側の設計。</b>買い手に工具の市場参照(平均2000)を仕込み、基礎値を流動資金から
-    /// 切り離す ── 参照が無いと基礎値=現金上限=流動資金となり、ゲートを通る実効価格の範囲では
-    /// 資金上限が数量を1個に切り詰めてしまい、CeilDiv(1500,1000)=2 と FloorDiv(1500,1000)=1 の
-    /// 分岐が資金上限の背後に隠れて見えなくなる(実測で確認した構造的な制約)。
+    /// 切り離す ── 参照が無いと基礎値が工具の外部買値になり(W2-15、決定10)、ゲートを通る
+    /// 実効価格の範囲では資金上限が数量を1個に切り詰めてしまい、CeilDiv(1500,1000)=2 と
+    /// FloorDiv(1500,1000)=1 の分岐が資金上限の背後に隠れて見えなくなる
+    /// (実測で確認した構造的な制約)。
     /// </remarks>
     /// <remarks>
     /// <b>変異の実測(2026-09-20)。</b><c>BuyerBudget.QuantityInUnits</c> の <c>CeilDiv</c> を
@@ -1236,9 +1394,12 @@ public sealed class TradeSystemTests
 
             EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
 
-            // 独立予測: baseValue=cashCap=100000(参照なし)・実効価格1(床、距離1はR以内なので
-            // 当日の提示価格をそのまま使う)・target6・expected0 ── PurchaseQuantityが上側
-            // clamp(2×target)に当たり12。QuantityInUnits(Necessity)は恒等。
+            // W2-15追随(2026-09-22、決定10・11)。相場参照が無い日の基礎値は現金上限ではなく
+            // 窓口の当日価格(パンの外部買値breadFloor=1)になった。独立予測: baseValue=1・
+            // 在庫圧力=StockPressurePermille(expected:0,target:6)=1500(第1項が読む。ゲートは
+            // HasMarketTermではなくBaseValueで立つ)・実効価格1(床、距離1はR以内なので当日の
+            // 提示価格をそのまま使う) ── 到達在庫=clamp(18-CeilDiv(2×6×1,1),0,12)=6。
+            // QuantityInUnits(Necessity)は恒等なのでq_個=6(旧値12から変わる)。
             var line = new DemandLine
             {
                 Purpose = DemandPurpose.Necessity,
@@ -1250,8 +1411,8 @@ public sealed class TradeSystemTests
                 ProfitCap = 0,
                 TargetStock = 6,
                 ExpectedStock = 0,
-                StockPressurePermille = 0, // HasMarketTerm=falseのゲートでは読まれない。
-                BaseValue = 100_000,
+                StockPressurePermille = BuyerBudget.StockPressurePermille(expectedStock: 0, targetStock: 6),
+                BaseValue = 1,
                 Budget = 1,
             };
             int predictedQuantity = BuyerBudget.QuantityInUnits(
@@ -1552,6 +1713,13 @@ public sealed class TradeSystemTests
     /// (travelerDay2Runsがcontrolと同じになる。外出しても翌日の生産が減らない経路。
     /// issue #98の閉じる条件そのもの)で失敗した(赤を確認)。変異を戻して緑に復帰させた。
     /// </remarks>
+    /// <remarks>
+    /// <b>W2-15 変異の実測(<c>mutator</c> が測定、2026-09-22、対象HEAD <c>624f5b1</c>、変異なしで
+    /// 445件緑を確認済み、M-10)。</b>段5aの <c>household.ErrandLaborLossPermille =
+    /// plan.LaborLossPermille;</c> の代入を削除する変異は<b>5件赤</b>。本テスト
+    /// (<c>NextDaysProductionDropsByTheErrandLaborLoss</c>)は<b>期待どおり赤</b>
+    /// (穀物の床を1→30へ置き直した後も#98の閉じる条件を守っていることの実測)。他4件は波及。
+    /// </remarks>
     [Fact]
     public void NextDaysProductionDropsByTheErrandLaborLoss()
     {
@@ -1567,7 +1735,15 @@ public sealed class TradeSystemTests
             laborPermille: 300);
 
         var externalBuyPrice = new int[Item.Count];
-        externalBuyPrice[Item.Grain] = 1; // 床(安い。travelerを誘引する)。
+        // W2-15追随(2026-09-22)。決定10で基礎値が現金上限から窓口の当日価格(=この床)へ落ちた結果、
+        // 床1では支払い意思額が最大2までしか伸びず、外出そのものが起きなくなっていた(実測:
+        // ErrandLaborLossPermille==0)。裁定表の梃子どおり床を30へ上げて支払い意思額を回復する。
+        // 確かめたこと: 窓口(district4)もdistrict2と同じ距離2(travelHoursPerDistrict1で往復4時間、
+        // ともに床の見積もりを使うため見積もり価格も同額)で「同点」になるが、ErrandPlanner.Planは
+        // 区画Id昇順に走査し`>`(厳密な優越)でだけ更新するので、同点は先に評価される区画2が勝つ
+        // (ADR-0002の列挙順規約どおり)。実測でtravelerの購入相手が窓口ではなくSellerId(district2)
+        // であることを確認した(counterparty=SellerId)。
+        externalBuyPrice[Item.Grain] = 30;
         externalBuyPrice[Item.Flour] = 1; // recipeの出力(都市生産品)。値そのものは使わない。
 
         var definition = EconomySystemTestFixtures.BuildDefinition(
