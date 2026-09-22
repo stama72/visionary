@@ -196,7 +196,24 @@ function Get-DirtyWorkTree {
         ForEach-Object { $_.Substring(3).Trim('"') }
 }
 
-function Send-DesktopNotification {
+function Send-Notification {
+    <#
+        **2経路に出す。デスクトップ通知と、issue へのコメントである。**
+
+        デスクトップ通知だけだと、**誰も見ていないマシンの画面に出る。** 実装タスクは
+        デスクトップで走らせる([#146](https://github.com/stama72/visionary/issues/146) 決定5)ので、開発者は出先にいる。そのままだと
+        「出先から起動 -> 数分で `IMPL-BLOCKED` -> 気付くのは帰宅後」になり、
+        [ADR-0010](../docs/adr/0010-phase-pipeline-and-halt-conditions.md) が消した待ちが形を変えて戻る。
+
+        **issue コメントが出先へ届くのは、GitHub の「自分の更新」メール通知に乗るからである**
+        (実測 2026-09-22)。GitHub Mobile のプッシュ通知は直接メンション / アサイン /
+        レビュー依頼 / デプロイ承認依頼の4種だけで、**issue コメント自体は対象外**である。
+        経路はメールであって、GitHub のプッシュではない。
+
+        **`claude -p` の外側で打つので、Remote Control の可否に依存しない。**
+
+        **どちらの経路も、出せなくてもパイプラインの判定は変えない。** 通知は補助である。
+    #>
     param([string]$Title, [string]$Text, [string]$Level = 'Info')
     try {
         Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
@@ -216,6 +233,22 @@ function Send-DesktopNotification {
     } catch {
         # 通知はあくまで補助。出せなくてもパイプラインの判定は変えない。
         Write-Warning "デスクトップ通知を出せませんでした: $_"
+    }
+
+    # **出先へ届く経路。** `gh` は本体ツリーの origin から repo を解決するので、
+    # cwd を本体に寄せてから打つ。`-Status` では $Issue が束縛されないが、
+    # そちらからはこの関数を呼ばない。
+    if (-not $Issue) { return }
+    $tmp = Join-Path ([IO.Path]::GetTempPath()) ("visionary-notify-{0}.md" -f [guid]::NewGuid())
+    try {
+        [IO.File]::WriteAllText($tmp, ("**{0}**{1}{1}{2}" -f $Title, [Environment]::NewLine, $Text), [Text.UTF8Encoding]::new($false))
+        Push-Location $RepoRoot
+        try { & gh issue comment $Issue --body-file $tmp 2>&1 | Out-Null } finally { Pop-Location }
+        if ($LASTEXITCODE -ne 0) { Write-Warning "issue コメントを出せませんでした(gh 終了コード $LASTEXITCODE)。" }
+    } catch {
+        Write-Warning "issue コメントを出せませんでした: $_"
+    } finally {
+        Remove-Item $tmp -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -464,7 +497,7 @@ function Test-BudgetGate {
     if (-not $w) {
         Write-Host "!!! 枠の残りを読めませんでした。起動しません(fail-closed)。" -ForegroundColor Red
         Write-Host "    検査を外して打つなら -MinRemaining 0 です。"
-        Send-DesktopNotification -Title "Visionary #$Issue — 起動しませんでした" `
+        Send-Notification -Title "Visionary #$Issue — 起動しませんでした" `
             -Text "5 時間枠の残りを読めませんでした(fail-closed)。" -Level 'Warning'
         return $false
     }
@@ -489,7 +522,7 @@ function Test-BudgetGate {
         Write-Host ""
         Write-Host "!!! 枠が足りないので起動しません。$text" -ForegroundColor Yellow
         Write-Host "    リセットを待つか、-MinRemaining で閾値を変えてください。"
-        Send-DesktopNotification -Title "Visionary #$Issue — 枠が足りず起動しませんでした" `
+        Send-Notification -Title "Visionary #$Issue — 枠が足りず起動しませんでした" `
             -Text $text -Level 'Warning'
         return $false
     }
@@ -512,7 +545,7 @@ function Test-FreshnessGate {
         **守るのは本体の世代であって、ブランチ上のタスク仕様の新しさではない。** 仕様は
         フェーズ1 がブランチに積むので(05「差分で見えるものは機械が見ている」)、ここの
         述語には入らない。**タスク仕様を凍らせるフェーズ1 もデスクトップで開く**(決定5)
-        ので、仕様がマシンをまたぐ経路自体が無い。
+        ので、仕様がマシンをまたぐ経路は**規律の上では**無い — 機械は見ていない。
 
         決定1 が開いたもう一方の穴(コミットし忘れた作業が片方のマシンに取り残される)は
         機械では塞げないが、**こちらは塞げるので塞ぐ。**
@@ -540,7 +573,7 @@ function Test-FreshnessGate {
     if (-not $fetched) {
         Write-Host "!!! origin から fetch できませんでした。起動しません(fail-closed)。" -ForegroundColor Red
         Write-Host "    フェーズ本体は claude -p なので、ネットワークが無ければどのみち走りません。"
-        Send-DesktopNotification -Title "Visionary #$Issue — 起動しませんでした" `
+        Send-Notification -Title "Visionary #$Issue — 起動しませんでした" `
             -Text "origin から fetch できませんでした(fail-closed)。" -Level 'Warning'
         return $false
     }
@@ -556,7 +589,7 @@ function Test-FreshnessGate {
         Write-Host ""
         Write-Host "!!! $text" -ForegroundColor Yellow
         Write-Host "    そのまま打つと、フェーズ2 が一世代前のタスク仕様を実装します(#146 決定4)。"
-        Send-DesktopNotification -Title "Visionary #$Issue — 本体が古いので起動しませんでした" `
+        Send-Notification -Title "Visionary #$Issue — 本体が古いので起動しませんでした" `
             -Text $text -Level 'Warning'
         return $false
     }
@@ -710,7 +743,7 @@ try {
             $text = "{0}`n{1}`n`nlog: {2}" -f $r.Reason, $r.Detail, $r.Log
             Write-Host ""
             Write-Host "!!! HALT [$($r.Reason)] $($r.Detail)" -ForegroundColor Yellow
-            Send-DesktopNotification -Title $title -Text $text -Level 'Warning'
+            Send-Notification -Title $title -Text $text -Level 'Warning'
             exit 2
         }
     }
@@ -718,7 +751,7 @@ try {
     if ($DryRun) {
         Write-Host "    (DryRun: 完了通知を1回出します — 通知が届くかの確認を兼ねています)"
     }
-    Send-DesktopNotification -Title "Visionary #$Issue — PR まで完了" `
+    Send-Notification -Title "Visionary #$Issue — PR まで完了" `
         -Text "フェーズ2・3 が停止則に当たらず通りました。PR を確認してください。"
     Write-Host ""
     Write-Host "=== #$Issue 完了 ===" -ForegroundColor Green

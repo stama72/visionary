@@ -64,7 +64,7 @@ dotnet format Visionary.sln               # CIのフォーマット検証を通�
 
 **どのマシンで開くかは [05「どこで走らせるか」](docs/process/05-phase-sessions.md) が持つ。** 実装タスクはフェーズ1 からデスクトップ、`/design` はラップトップである。**フェーズ1 と `pipeline.ps1` の間にマシン境界を入れない** — 背景起動が ADR-0010 の要だからである。
 
-**パイプラインは停止則4つ**(`SPEC-OUTSIDE` / `IMPL-BLOCKED` / `REVIEW-EXHAUSTED` / `RED`)**に当たったときだけ止まり、デスクトップ通知を出す。** `SPEC-OUTSIDE`(フェーズ2 が GDD / TDD / ADR を触った)は機械が差分で見ている。**`DONE` 時に本体の作業ツリーが汚れていれば `RED` で止まる**(コミット漏れか、戻し忘れた変異)。止まったら `.pipeline/*.jsonl`(走行中も伸びる生ログ)を読む。**停止すると制御は起動したフェーズ1 に戻るので、新しいフェーズ1 を立てない。** 手で回すときは `/clear` してから `/impl <issue番号>` `/wrap <issue番号>` を開く。
+**パイプラインは停止則4つ**(`SPEC-OUTSIDE` / `IMPL-BLOCKED` / `REVIEW-EXHAUSTED` / `RED`)**に当たったときだけ止まり、通知を2経路に出す**(デスクトップ通知と対象 issue へのコメント。**出先へ届くのは後者で、GitHub の「自分の更新」メール通知に乗る**)**。** `SPEC-OUTSIDE`(フェーズ2 が GDD / TDD / ADR を触った)は機械が差分で見ている。**`DONE` 時に本体の作業ツリーが汚れていれば `RED` で止まる**(コミット漏れか、戻し忘れた変異)。止まったら `.pipeline/*.jsonl`(走行中も伸びる生ログ)を読む。**停止すると制御は起動したフェーズ1 に戻るので、新しいフェーズ1 を立てない。** 手で回すときは `/clear` してから `/impl <issue番号>` `/wrap <issue番号>` を開く。
 
 **走行中かは `pwsh scripts/pipeline.ps1 -Status` で見る。停止の唯一の証拠はプロセスが消えることである** — 生ログの末尾も、オーケストレータの「止まりました」も証拠にならない([#109](https://github.com/stama72/visionary/issues/109))。
 
