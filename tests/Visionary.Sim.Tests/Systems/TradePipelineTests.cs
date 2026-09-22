@@ -1601,6 +1601,31 @@ public sealed class TradePipelineTests
     /// (<see cref="SomeHouseholdAlwaysHoldsNecessitiesOverThirtyDays"/>)を持つため両方向を見ている。</b>
     /// 正側は核心の向きが逆(= 0)なので、数え落とし(違反日が現れる)を正側の核心が捕まえる。
     /// 向きが反転しきって条件1・2にも正側が立てば、この非対称は自然に消える。
+    /// <para>
+    /// <b>変異の実測(<c>mutator</c> が測定、2026-09-22)がこの非対称を裏づける。</b>
+    /// 数え落とし方向の取り違え(M-6: 条件2の向き<c>Purchase</c>→<c>Sale</c> / M-7: 条件2の品目範囲を
+    /// 0〜8へ広げる / M-10: 条件1の合計を<c>world.Households[0]</c>の1戸だけにする)は
+    /// <b>3件とも緑のまま</b>だった。捕まったのは数え過ぎ方向(M-1: 条件1の<c>ProductionRuns</c>を
+    /// <c>Math.Max(1, runs)</c>にする / M-8: 条件3の判定を<c>WorkshopInventory</c>にする)と
+    /// 全滅型(M-2 / M-11 / M-12)だった。
+    /// </para>
+    /// </remarks>
+    /// <remarks>
+    /// <b>6.4 の留め具の変異の実測(<c>mutator</c> が測定、2026-09-22)。</b>
+    /// <c>FirstDayLabel</c> / <c>LastDayLabel</c> / <c>FirstScannedLedgerDayIndex</c> /
+    /// <c>LastScannedLedgerDayIndex</c> は4検出器メソッド共通の空振り防止であり、この4本の実測は
+    /// どのメソッドでも同一である。
+    /// <list type="bullet">
+    /// <item><b>M-13</b>(<c>dayIndex = day - 1;</c> を <c>day - 2</c> へ変える)は<b>赤</b>。
+    /// 4本すべて・全15インスタンスが落ちた。落ちたのは
+    /// <c>Assert.Equal(0, scan.FirstScannedLedgerDayIndex)</c>(<c>Last</c>より先に評価されるため)。</item>
+    /// <item><b>M-14</b>(走査ループを <c>for (int day = 0; day &lt; 30; day++)</c> へ変える)は
+    /// <b>赤</b>。4本すべて・全15インスタンスが落ちた。落ちたのは
+    /// <c>Assert.Equal(30, scan.LastDayLabel)</c>(<c>FirstDayLabel</c>はday 1の回が来るので
+    /// 1のまま残るため)。</item>
+    /// </list>
+    /// このずれは6.4を足す前は4本とも緑で通っていた(レビュー3巡目の指摘)。データを1行も
+    /// 参照せずに落ちている。
     /// </remarks>
     private static CitySurvivalScan ScanThirtyDays(long seed)
     {
@@ -1760,7 +1785,25 @@ public sealed class TradePipelineTests
     /// </list>
     /// </remarks>
     /// <remarks>
-    /// <b>変異の実測。</b>(未実施。<c>mutator</c>の報告が来たら転記する。)
+    /// <b>変異の実測(<c>mutator</c> が測定、2026-09-22、14件)。</b>
+    /// <list type="bullet">
+    /// <item><b>M-1</b>(<c>ProductionSystem.RunOneHousehold</c> の
+    /// <c>household.ProductionRuns = runs;</c> を <c>household.ProductionRuns = Math.Max(1, runs);</c>
+    /// へ変える)は<b>赤</b>。本テスト(反転側)の核心(全世帯が毎日1以上を報告するので違反日が
+    /// 消える)が全5シードで落ちた。検出器が生産回数そのものを見ていることの実測。</item>
+    /// <item><b>M-11</b>(<c>household.ProductionRuns = runs;</c> を行ごと削る)は<b>赤</b>。
+    /// 条件別の空振り防止(<c>TotalProductionRuns &gt; 0</c>)が全5シードで落ちた。</item>
+    /// <item><b>M-10</b>(条件1の合計を <c>world.Households[0]</c> の1戸だけにする)は
+    /// <b>緑のまま</b>。部分和が0の日は全体和が0の日を含むので、違反日が増えるだけで核心は
+    /// 動じない ── 6.1(<see cref="ScanThirtyDays"/> のdocコメント)が説明する「数え落とし」方向の
+    /// 取り違えであり、原理的に見えない。</item>
+    /// <item><b>M-4</b>(<c>ConsumptionSystem</c> の世帯在庫の減算を削る。条件3向けに選んだ変異)は
+    /// <b>赤</b>。条件3(<see cref="AllHouseholdsRunEmptyWithinThirtyDays"/>)の核心だけでなく、
+    /// 本テスト(条件1の反転側)も全5シードで落ちた。<b>予測外の巻き込みであり、原因は特定して
+    /// いない。</b></item>
+    /// <item><b>M-13 / M-14</b>(6.4の留め具の変異)は本テストを含む4本すべて・全15インスタンスで
+    /// 赤。詳細は <see cref="ScanThirtyDays"/> のdocコメントを参照。</item>
+    /// </list>
     /// </remarks>
     [Theory]
     [InlineData(1)]
@@ -1826,7 +1869,34 @@ public sealed class TradePipelineTests
     /// ものと同一(1回の走行で3条件をまとめて採るため)。
     /// </remarks>
     /// <remarks>
-    /// <b>変異の実測。</b>(未実施。<c>mutator</c>の報告が来たら転記する。)
+    /// <b>変異の実測(<c>mutator</c> が測定、2026-09-22、14件)。</b>
+    /// <list type="bullet">
+    /// <item><b>M-2</b>(<c>TradeSettlement.Execute</c> の買い手側の記帳
+    /// <c>world.Ledgers[buyer.Id].Add(...)</c> を行ごと削る)は<b>赤</b>。条件別の空振り防止
+    /// (<c>TotalInternalSettlements &gt; 0</c>)が全5シードで落ちた。反転側の核心には到達していない
+    /// ── 反転した検出器が空振りで緑になる経路を、この空振り防止が塞いでいることの実測である。</item>
+    /// <item><b>M-3</b>(<c>TradeSettlement.ExecuteImport</c> の <c>CounterpartyId</c> を0にする。
+    /// 窓口からの輸入を都市内に見せる)は<b>緑のまま</b>。4本とも赤にならなかった。</item>
+    /// <item><b>M-5</b>(本テストの絞り込み <c>CounterpartyId != ExternalMarketSellerId</c> を
+    /// <c>==</c> へ変える。母数を窓口からの輸入へ丸ごと入れ替える)は<b>緑のまま</b>。4本とも
+    /// 赤にならなかった。</item>
+    /// <item><b>M-6</b>(絞り込みの <c>Direction == Purchase</c> を <c>Sale</c> へ変える)は
+    /// <b>緑のまま</b>。件数が完全に一致した。</item>
+    /// <item><b>M-7</b>(品目範囲の下限を <c>Item.Flour</c> から <c>Item.Grain</c> へ広げ0〜8にする)は
+    /// <b>緑のまま</b>。都市内で売買される品目は必ず4〜8なので恒等変換になる。</item>
+    /// <item><b>M-13 / M-14</b>(6.4の留め具の変異)は本テストを含む4本すべて・全15インスタンスで
+    /// 赤。詳細は <see cref="ScanThirtyDays"/> のdocコメントを参照。</item>
+    /// </list>
+    /// <b>守られていないと確定したもの(2026-09-22実測)。</b>
+    /// <b>条件2の母数を「都市内の約定だけ」にした決定(開発者の決定、2026-09-22)を守る assert は、
+    /// 無い。</b> M-5(本テスト側で相手条件 <c>!=</c> を <c>==</c> へ)もM-3(<c>src</c>側で
+    /// <c>ExecuteImport</c> の <c>CounterpartyId</c> を0にする)も緑のまま通る。<b>したがって、
+    /// この絞り込みを書き換えるときは機械に頼れない</b> ── 母数が「都市内」から「窓口からの
+    /// 輸入」へ丸ごと入れ替わっても、4本とも緑である。向き(<c>Purchase</c>、M-6)と品目範囲
+    /// (4〜8、M-7)の取り違えも緑のまま通る。<b>絞り込みの4軸(日付・向き・相手・品目)のうち、
+    /// 機械が見ているのは日付だけである</b>(6.4の留め具、M-13/M-14)。空振り防止
+    /// (<c>TotalInternalSettlements &gt; 0</c>、M-2)が捕まえるのは母数が0になる「全滅型」だけ
+    /// である。
     /// </remarks>
     [Theory]
     [InlineData(1)]
@@ -1918,7 +1988,27 @@ public sealed class TradePipelineTests
     /// 区別できるようにするため。
     /// </remarks>
     /// <remarks>
-    /// <b>変異の実測。</b>(未実施。<c>mutator</c>の報告が来たら転記する。)
+    /// <b>変異の実測(<c>mutator</c> が測定、2026-09-22、14件)。</b>
+    /// <list type="bullet">
+    /// <item><b>M-4</b>(<c>ConsumptionSystem</c> の <c>household.HouseholdInventory[itemId] -=
+    /// consumedQuantity;</c> を行ごと削る)は<b>赤</b>。本テスト(反転側、seed7)の核心(世帯在庫が
+    /// 減らないので全戸空の日が来ない)が落ちた。同じ変異は条件1の反転側
+    /// (<see cref="ProductionStopsForAWholeDayWithinThirtyDays"/>)も全5シードで落としている
+    /// (予測外の巻き込み、原因は特定していない)。</item>
+    /// <item><b>M-8</b>(判定を <c>HouseholdInventory</c> から <c>WorkshopInventory</c> へ変える)は
+    /// <b>赤</b>。本テスト(反転側、seed7)の核心が落ちた。正側
+    /// (<see cref="SomeHouseholdAlwaysHoldsNecessitiesOverThirtyDays"/>)の4シードは緑のまま
+    /// だった。</item>
+    /// <item><b>M-9</b>(3品目の判定の <c>&amp;&amp;</c> を <c>||</c> へ変える。論理積を論理和にする)は、
+    /// 本テスト(反転側、seed7)では<b>緑のまま</b>。落ちたのは正側4シード
+    /// (<see cref="SomeHouseholdAlwaysHoldsNecessitiesOverThirtyDays"/>)の核心である ──
+    /// この取り違えを突いているのは正側の存在であって、反転側ではない。</item>
+    /// <item><b>M-12</b>(3品目を <c>Grain</c>/<c>Timber</c>/<c>IronOre</c> へ変える。品目添字の
+    /// 取り違え)は<b>赤</b>。条件別の空振り防止(<c>AllHouseholdsEmptyDays.Count &lt; 30</c>)が
+    /// 5件(本テスト+正側4シード)で落ちた。</item>
+    /// <item><b>M-13 / M-14</b>(6.4の留め具の変異)は本テストを含む4本すべて・全15インスタンスで
+    /// 赤。詳細は <see cref="ScanThirtyDays"/> のdocコメントを参照。</item>
+    /// </list>
     /// </remarks>
     [Theory]
     [InlineData(7)]
@@ -1973,7 +2063,22 @@ public sealed class TradePipelineTests
     /// (反転側)へ割り振った。
     /// </remarks>
     /// <remarks>
-    /// <b>変異の実測。</b>(未実施。<c>mutator</c>の報告が来たら転記する。)
+    /// <b>変異の実測(<c>mutator</c> が測定、2026-09-22、14件)。</b>
+    /// <list type="bullet">
+    /// <item><b>M-9</b>(3品目の判定の <c>&amp;&amp;</c> を <c>||</c> へ変える。論理積を論理和にする)は
+    /// <b>赤</b>。本テスト(正側)の4シードの核心が落ちた。反転側(seed7、<see
+    /// cref="AllHouseholdsRunEmptyWithinThirtyDays"/>)は緑のままだった ── この取り違えを捕まえて
+    /// いるのは正側の存在そのものである(<see cref="ScanThirtyDays"/> のdocコメント、6.1の
+    /// 非対称)。</item>
+    /// <item><b>M-8</b>(判定を <c>HouseholdInventory</c> から <c>WorkshopInventory</c> へ変える)は、
+    /// 本テスト(正側4シード)では<b>緑のまま</b>。落ちたのは反転側(seed7、<see
+    /// cref="AllHouseholdsRunEmptyWithinThirtyDays"/>)の核心である。</item>
+    /// <item><b>M-12</b>(3品目を <c>Grain</c>/<c>Timber</c>/<c>IronOre</c> へ変える。品目添字の
+    /// 取り違え)は<b>赤</b>。条件別の空振り防止(<c>AllHouseholdsEmptyDays.Count &lt; 30</c>)が
+    /// 5件(本テスト4シード+反転側1シード)で落ちた。</item>
+    /// <item><b>M-13 / M-14</b>(6.4の留め具の変異)は本テストを含む4本すべて・全15インスタンスで
+    /// 赤。詳細は <see cref="ScanThirtyDays"/> のdocコメントを参照。</item>
+    /// </list>
     /// </remarks>
     [Theory]
     [InlineData(1)]
