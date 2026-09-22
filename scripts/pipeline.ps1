@@ -609,38 +609,50 @@ function Write-DetachedLaunchWarning {
         前景(pty に繋がった形)で打つと、ssh の切断でパイプラインごと死ぬ。これは
         実測してある(2026-09-23。[05](../docs/process/05-phase-sessions.md)「フェーズ1 は背景セッションで開く」)。
 
-        **拒否にしないのは、拒否が手で回す再開路そのものを塞ぐからである**(決定12)。
-        停止の後始末に来た開発者が、机の前で `-From wrap` を打てなくなる。守りたいのは
-        「気付かずに素で打った」であって「素で打つこと」ではない。
+        **拒否にしないのは、この判定が「不明」を返すからである**(決定12)。非昇格から
+        SYSTEM 持ちのプロセス(`sshd.exe` / `services.exe` / `WmiPrvSE.exe`)を見ると
+        `CommandLine` が空で返り、**そこから上は辿れない。** 拒否にすると、正しく打った回が
+        止まる。**A-1 を解消して判定が2値になれば、拒否にするかを再検討してよい。**
 
-        **判定できないときは黙る。** 祖先の `CommandLine` は、別のログオンセッションの
-        プロセスでは読めないことがある(ssh は Session 0 に入る)。読めないことを
-        「破った」と読み替えると、**正しく打った回に警告が出て、警告そのものが無視される。**
+        **判定は3値である。** `inside`(マーカーが見つかった)/ `outside`(根まで辿って
+        見つからなかった)/ `unknown`(読めない祖先に当たった・深さを使い切った)。
+        **`unknown` は黙らない。** 黙ると「警告が出なかった = `--bg` の下だった」と読まれるが、
+        **ssh の前景はその `unknown` を必ず通る**(祖先鎖が SYSTEM の `sshd` を通るため)。
+        つまり**いちばん守りたい形が、沈黙で「合格」に見える。**
     #>
+    $verdict = 'outside'
+    $blockedBy = ''
     try {
         $seen = @{}
         $pid_ = $PID
         for ($depth = 0; $depth -lt 12; $depth++) {
-            if ($seen.ContainsKey($pid_)) { break }
+            if ($seen.ContainsKey($pid_)) { $verdict = 'unknown'; $blockedBy = '祖先が輪になっている(PID の再利用)'; break }
             $seen[$pid_] = $true
             $p = Get-CimInstance Win32_Process -Filter "ProcessId=$pid_" -ErrorAction Stop
-            if (-not $p) { break }   # 親が既に終わっている。ここが walk の普通の終端である
-            # **読めない祖先が1つでもあれば判定しない。** 別のログオンセッションの
-            # プロセスは `CommandLine` が空で返る(ssh は Session 0 に入る)。空を
-            # 「破った」と読み替えると、正しく打った回に警告が出て、警告が無視される。
-            if ([string]::IsNullOrWhiteSpace($p.CommandLine)) { return }
+            if (-not $p) { $verdict = 'unknown'; $blockedBy = "PID $pid_ が既に居ない"; break }
+            if ([string]::IsNullOrWhiteSpace($p.CommandLine)) {
+                # SYSTEM 持ちのプロセスは非昇格から CommandLine が空で返る。ここから上は辿れない。
+                $verdict = 'unknown'; $blockedBy = "$($p.Name) (PID $($p.ProcessId)) の CommandLine が読めない"; break
+            }
             # pty ホストでもデーモンでも、居れば `--bg` の下である。
             if ($p.CommandLine -match '--bg-pty-host' -or $p.CommandLine -match '\bdaemon run\b') { return }
             if (-not $p.ParentProcessId -or $p.ParentProcessId -eq 0) { break }
             $pid_ = $p.ParentProcessId
         }
+        if ($depth -ge 12) { $verdict = 'unknown'; $blockedBy = '祖先が深すぎる(12 段で打ち切り)' }
     } catch {
-        return  # 判定できない。黙る側に倒す
+        $verdict = 'unknown'; $blockedBy = "祖先を辿れなかった: $_"
     }
 
     Write-Host ""
-    Write-Host '!!! claude --bg のセッションの下ではないようです(#146 決定8・決定11)。' -ForegroundColor Yellow
-    Write-Host '    ssh で繋いでいるなら、切断でこのパイプラインごと落ちます。拒否はしません。' -ForegroundColor Yellow
+    if ($verdict -eq 'unknown') {
+        Write-Host "!!! claude --bg の下かどうか判定できませんでした($blockedBy)。" -ForegroundColor Yellow
+        Write-Host '    ssh の前景で打つと、この形になります(#146 決定13 は ssh の --bg から打つことを求めています)。' -ForegroundColor Yellow
+    } else {
+        Write-Host '!!! claude --bg のセッションの下ではありません(#146 決定8・決定11・決定13)。' -ForegroundColor Yellow
+        Write-Host '    ssh で繋いでいるなら、切断でこのパイプラインごと落ちます。' -ForegroundColor Yellow
+    }
+    Write-Host '    拒否はしません。この警告は画面にしか出ないので、いま読んでください。' -ForegroundColor Yellow
 }
 
 function Invoke-Phase {
