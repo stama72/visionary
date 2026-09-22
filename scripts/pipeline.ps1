@@ -25,6 +25,10 @@
     設計をラップトップ、実装パイプラインをデスクトップで回すため、pull を忘れると
     フェーズ2 が一世代前のタスク仕様を実装する — 出来上がりを読んでも気付けない形になる。
 
+    **Windows の Session 0 では起動しない**(終了コード 6。#146 決定15)。そこでは `gh` の
+    トークン(keyring)が開けず、フェーズ3 が PR を作れずに終わる。ssh のログオンは
+    Session 0 に入るので、**デーモンは机の前の console で立てておく**(#146 決定14)。
+
 .EXAMPLE
     pwsh scripts/pipeline.ps1 -Issue 35
     pwsh scripts/pipeline.ps1 -Issue 35 -From wrap   # フェーズ3 だけやり直す
@@ -598,6 +602,41 @@ function Test-FreshnessGate {
     return $true
 }
 
+function Test-SessionGate {
+    <#
+        **自分が Windows の Session 0(サービス側)に居たら `$false` を返す。**
+
+        Session 0 に居ると **`gh` が通らない**。トークンは keyring(Windows 資格情報
+        マネージャ)にあり、**ssh のログオンからは開けない**(実測 2026-09-23。
+        `gh auth status` が `The token in default is invalid` を返す)。失うのは停止通知
+        だけではない — **フェーズ3 は `gh` で PR を作るので、成果物が出ない。**
+
+        **そこへ落ちるのは、デーモンの居場所を取り違えたときである**([#146](https://github.com/stama72/visionary/issues/146) 決定14)。
+        `--bg` のセッションは**先に立ったデーモンの側に生える。** console から立てれば
+        Session 1 で、そこへは ssh からも足せる(実測)。**Session 1 のデーモンが無い
+        まま ssh から打つと、Session 0 に立つ。**
+
+        **拒否にするのは、判定が2値だからである**(決定15)。祖先歩き
+        (`Write-DetachedLaunchWarning`)は「不明」を返すので警告どまりにしてあるが、
+        `SessionId` は不明を返さない。**枠を使い切ってからフェーズ3 で PR を作れずに
+        終わるより、起動時に落とすほうが安い。**
+
+        **通知は標準出力だけである。** `gh` もデスクトップ通知も、まさにこの場面で
+        死んでいる経路である。打った本人がその端末を見ている場面なので、それで足りる。
+    #>
+    $sid = try { (Get-Process -Id $PID -ErrorAction Stop).SessionId } catch { $null }
+    if ($sid -ne 0) { return $true }
+
+    Write-Host ""
+    Write-Host "!!! Windows の Session 0 で走っています(#146 決定15)。起動しません。" -ForegroundColor Red
+    Write-Host "    ここでは gh が通らない(トークンが keyring にあり、ssh のログオンからは開けない)ので、" -ForegroundColor Red
+    Write-Host "    フェーズ3 が PR を作れずに終わります。" -ForegroundColor Red
+    Write-Host ""
+    Write-Host '    直し方: 机の前の console で一度 claude --bg を立ててから、ssh で入り直してください。' -ForegroundColor Yellow
+    Write-Host "    デーモンが Session 1 に居れば、ssh から開いたセッションもそちらに生えます。" -ForegroundColor Yellow
+    return $false
+}
+
 function Write-DetachedLaunchWarning {
     <#
         **`--bg` のセッションから打たれたかを見て、違えば警告を1行出す。拒否はしない。**
@@ -629,7 +668,9 @@ function Write-DetachedLaunchWarning {
             if ($seen.ContainsKey($pid_)) { $verdict = 'unknown'; $blockedBy = '祖先が輪になっている(PID の再利用)'; break }
             $seen[$pid_] = $true
             $p = Get-CimInstance Win32_Process -Filter "ProcessId=$pid_" -ErrorAction Stop
-            if (-not $p) { $verdict = 'unknown'; $blockedBy = "PID $pid_ が既に居ない"; break }
+            # **親が既に終わっている = `--bg` の下ではない。** マーカーを持つプロセスは、
+            # セッションが生きている限り生きているからである(2巡目 B-3)。
+            if (-not $p) { break }
             if ([string]::IsNullOrWhiteSpace($p.CommandLine)) {
                 # SYSTEM 持ちのプロセスは非昇格から CommandLine が空で返る。ここから上は辿れない。
                 $verdict = 'unknown'; $blockedBy = "$($p.Name) (PID $($p.ProcessId)) の CommandLine が読めない"; break
@@ -647,9 +688,9 @@ function Write-DetachedLaunchWarning {
     Write-Host ""
     if ($verdict -eq 'unknown') {
         Write-Host "!!! claude --bg の下かどうか判定できませんでした($blockedBy)。" -ForegroundColor Yellow
-        Write-Host '    ssh の前景で打つと、この形になります(#146 決定13 は ssh の --bg から打つことを求めています)。' -ForegroundColor Yellow
+        Write-Host '    ssh の前景で打つと、この形になります(#146 決定8・決定11 は --bg のセッションから打つことを求めています)。' -ForegroundColor Yellow
     } else {
-        Write-Host '!!! claude --bg のセッションの下ではありません(#146 決定8・決定11・決定13)。' -ForegroundColor Yellow
+        Write-Host '!!! claude --bg のセッションの下ではありません(#146 決定8・決定11)。' -ForegroundColor Yellow
         Write-Host '    ssh で繋いでいるなら、切断でこのパイプラインごと落ちます。' -ForegroundColor Yellow
     }
     Write-Host '    拒否はしません。この警告は画面にしか出ないので、いま読んでください。' -ForegroundColor Yellow
@@ -777,6 +818,10 @@ if (-not $lockPath) {
 $env:VISIONARY_PIPELINE_ISSUE = [string]$Issue
 
 try {
+    # **Session 0 では起動しない**(#146 決定15)。ここが最初なのは、判定が2値で
+    # ただ同然であり、かつ**この先のすべてが `gh` に依存している**ためである。
+    if (-not (Test-SessionGate)) { exit 6 }
+
     # **決定8・決定11 を破っていないかを見る。拒否はしない**(#146 決定12)。
     # ガードより先に置くのは、拒否されて終わる回でも「打った場所が違う」は伝わるべき
     # だからである。読めなければ黙るので、ここが誤検知で止まることは無い。
