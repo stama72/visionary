@@ -637,6 +637,26 @@ public sealed class TradeSystemTests
     /// 持ち込まなくなる)、いずれの実装ミスでもケースA・ケースBの少なくとも一方が崩れる
     /// (タスク仕様)。
     /// </remarks>
+    /// <remarks>
+    /// <b>配置の変更(2026-09-22、W2-15、訂正2)。</b>決定10・11で相場項が無い日の穀物の基礎値が
+    /// 窓口の当日価格(このテストの世界ではItem.Grainが<c>UnusedRecipe</c>の出力に当たり都市生産品
+    /// 扱いになるので、外部買値=床=1)へ落ちたことで、窓口(中心=区画4、買い手の区画0から距離2)の
+    /// 提示価格(床の2倍=2)と、遠方の売り手(区画2/8)の見積もり(記憶が無ければ同じ床1)を比べると
+    /// <b>窓口の方が高い</b>が、床が持つ意味は<see cref="ErrandPlanner"/>の見積もり段では「床は
+    /// 差を作らない軸」──買い物5aの計画がどの店にも行く価値なしと判断し(相場項が無い日の
+    /// 穀物の需要量そのものが小さくなったため)、5aが1件も外出を選ばなくなり、6(輸出)だけが
+    /// 単独で成立してしまう(実測: ケースAでVisitedDistrictIds=[]・輸出のみ成立)。<b>採る梃子は
+    /// 窓口価格ではなく、買い手に窓口の高値の価格記憶を仕込んで窓口を候補から実質的に外すこと</b>
+    /// (<see cref="BudgetGateUsesTheEffectivePriceOnly"/>のパン999、
+    /// <see cref="ErrandPlannerAndSettlementAgreeOnQuantity"/>の工具999999と同じ足場)。
+    /// 買い手の区画0から中心までの距離2はR=1の外なので、<c>EstimateWindowPrice</c>は
+    /// 有効な記憶(999)を読み、窓口の見積もりが売り手の見積もり(床1)より高くなって窓口が
+    /// 実質的に外れる ── 5aが売り手の区画へ実際に外出するようになる(実測:
+    /// ケースA・ケースBともVisitedDistrictIds=[売り手の区画]で中心(4)を含まない)。
+    /// <b>副作用</b>: この観測は<see cref="MarketReference.TryBuyer"/>にも拾われるので、穀物の
+    /// 相場項が立ち、基礎値が相場項由来(999付近)に上がって到達在庫が上側clamp(2T=20)へ戻る
+    /// (実測: 購入量20)。<b>このテストは以後「相場項が無い日」の経路を通らない。</b>
+    /// </remarks>
     [Fact]
     public void ExportErrandIsSkippedWhenTheDayIsFull()
     {
@@ -644,6 +664,20 @@ public sealed class TradeSystemTests
         {
             var definition = BuildExportAndShoppingDefinition(travelHoursPerDistrict: 2);
             var world = BuildExportAndShoppingWorld(definition, exporterDistrictId: 0, sellerDistrictId: 2);
+
+            // W2-15追随(2026-09-22、訂正2)。窓口の穀物の高値記憶(999)を仕込み、窓口を
+            // 買い物の候補から実質的に外す(上記remarks参照)。実測: 購入元は区画2の売り手
+            // (cp=1)、数量20(相場項が立ち上側clampへ戻った)、価格1(床)。
+            EconomySystemTestFixtures.AdvanceClockOnly(world, ticks: 24);
+            world.Knowledge[0].Add(new PriceObservation
+            {
+                ItemId = Item.Grain,
+                LocationId = 0,
+                Price = 999,
+                SellerId = HouseholdState.ExternalMarketSellerId,
+                ObservedAt = Tick.Zero,
+                Source = ObservationSource.Direct,
+            });
 
             EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
 
@@ -663,6 +697,21 @@ public sealed class TradeSystemTests
         {
             var definition = BuildExportAndShoppingDefinition(travelHoursPerDistrict: 1);
             var world = BuildExportAndShoppingWorld(definition, exporterDistrictId: 0, sellerDistrictId: 8);
+
+            // W2-15追随(2026-09-22、訂正2)。ケースAと同じ記憶をケースBにも入れる ──
+            // 片方だけだと<see cref="BudgetGateUsesTheEffectivePriceOnly"/>で起きたのと同じ
+            // 非対称が生まれる。実測: 購入元は区画8の売り手(cp=1)、数量20、価格1。輸出も
+            // 別途成立する(Sale item=Bread qty=99 cp=ExternalMarketSellerId)。
+            EconomySystemTestFixtures.AdvanceClockOnly(world, ticks: 24);
+            world.Knowledge[0].Add(new PriceObservation
+            {
+                ItemId = Item.Grain,
+                LocationId = 0,
+                Price = 999,
+                SellerId = HouseholdState.ExternalMarketSellerId,
+                ObservedAt = Tick.Zero,
+                Source = ObservationSource.Direct,
+            });
 
             EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
 

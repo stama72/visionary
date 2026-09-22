@@ -982,19 +982,29 @@ public sealed class TradePipelineTests
             Assert.Equal(0, world.Households[0].UnaffordableNecessityCount);
         }
 
-        // 嗜好が買えなくても0のまま。素のM0世界の1日目、世帯Id1はビールを一度も買わないが
-        // (実測、シード1。W2-09で価値の式(A-1)が変わり、1日目にビールを買わない世帯が
-        // 世帯Id3から世帯Id1へ動いた)、UnaffordableNecessityCountは用途がNecessityの行しか
-        // 数えないので0のままである(GDD02b §3.2)。
+        // 嗜好が買えなくても0のまま。W2-15追随(2026-09-22、訂正2)。決定10・11で基礎値が
+        // 窓口の当日価格へ落ちたことで、素のM0世界1日目・世帯Id1はビールを買うようになった
+        // (実測、シード1)。裁定の第一案どおり60日を走査し、(a)その日に嗜好(ビール)を買っていない
+        // /(b)その日に必需を1件以上約定している/(c)UnaffordableNecessityCount==0を満たす
+        // 最初の(世帯, 日)を選び直した ── 世帯Id8・0日目(実測)。(b)は、ビールを買わなかった
+        // 理由が「店を1つも知らない」側に落ちていないことを示す。
+        // <b>機構(実測)。</b>世帯Id8は0日目に必需(パン2個・穀物14個)を約定させている
+        // (店を知らないのではない)。ビールは知っている店(実効価格144)が見つかったが、
+        // BuyerBudget.Decideの理由はCashCap(現金上限)でも在庫圧力0(StockPressurePermille=1500、
+        // 非0)でもなく、決定11の基礎値ゲート(MarketTerm。実効価格144 >
+        // ApplyPermille(基礎値72, 1500‰)=108)である ── 相場項が無い日の基礎値(窓口の当日
+        // 価格=72)に対して実効価格が高すぎたため、資金不足ではなく「高すぎて買わなかった」
+        // 経路で0個になった。UnaffordableNecessityCountはNecessityの行しか数えないので0のまま
+        // (GDD02b §3.2)。
         {
             var world = WorldGenerator.Generate(definition, new RandomSource(1));
             var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(1));
             scheduler.Advance(world, ticks: 24);
 
-            bool boughtBeer = world.Ledgers[1].Any(
+            bool boughtBeer = world.Ledgers[8].Any(
                 entry => entry.Direction == LedgerDirection.Purchase && entry.ItemId == Item.Beer);
             Assert.False(boughtBeer);
-            Assert.Equal(0, world.Households[1].UnaffordableNecessityCount);
+            Assert.Equal(0, world.Households[8].UnaffordableNecessityCount);
         }
     }
 
