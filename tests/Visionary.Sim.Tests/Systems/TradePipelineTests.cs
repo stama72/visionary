@@ -1524,6 +1524,14 @@ public sealed class TradePipelineTests
         /// <summary>走行後の world.Now.DayIndex。空振り防止に使う。</summary>
         public long FinalDayIndex { get; set; }
 
+        /// <summary>
+        /// 30日ぶんの都市内約定件数(都市生産品)を、日付で絞らずに向き・相手・品目だけで数えた値。
+        /// <see cref="TotalInternalSettlements"/>(日別の合計)と一致するはずの日付の検算用
+        /// (W2-16 タスク仕様 6.2)。<c>dayIndex</c>が±1ずれると、30日の窓の端(day 0 か day 29)の
+        /// 行が漏れるか二重に数えられるかしてこの値と食い違う。
+        /// </summary>
+        public long TotalCityGoodInternalRowsIgnoringDate { get; set; }
+
         /// <summary>ITestOutputHelper へ流す1行(W2-16 タスク仕様「4. 基準値を読む口」の書式)。</summary>
         public string Format(long seed)
         {
@@ -1543,6 +1551,23 @@ public sealed class TradePipelineTests
     /// #173 の3条件(生産・都市内約定・世帯在庫)を M0・30日について1回の走行でまとめて評価する。
     /// 最初の違反で止めない(W2-16 タスク仕様「1. 走査」手順3。既存の60日検出器と同じ規律)。
     /// </summary>
+    /// <remarks>
+    /// <b>シードが効く経路は <see cref="WorldGenerator"/> だけである。</b><c>FullPipeline</c>の3系統
+    /// (<c>ProductionSystem</c>・<c>ConsumptionSystem</c>・<c>TradeSystem</c>)はいずれも
+    /// <c>SimContext.OpenRandom</c>を呼ばないので、<c>SimScheduler</c>に渡すシードは結果に影響しない。
+    /// 「5シードで見た」は<see cref="WorldGenerator.Generate"/>(世界生成)の5通りを見たという意味である
+    /// (W2-16 タスク仕様 6.3 #1、レビュー2巡目 指摘2)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>反転した検出器が原理的に見ないもの(W2-16 タスク仕様 6.1)。</b>核心が「違反日が1日以上ある
+    /// (= 存在)」なので、母数を減らす方向の取り違えは違反日を<b>増やす</b>だけで、反転側の核心は
+    /// 緑のまま通ってしまう。反転側が捕まえられるのは「数え過ぎ(違反日が消える)」と
+    /// 「全滅(母数が常に0)」だけであり、「数え落とし」は条件別の空振り防止にも反転側の核心にも
+    /// 引っ掛からない。<b>条件3だけが正側
+    /// (<see cref="SomeHouseholdAlwaysHoldsNecessitiesOverThirtyDays"/>)を持つため両方向を見ている。</b>
+    /// 正側は核心の向きが逆(= 0)なので、数え落とし(違反日が現れる)を正側の核心が捕まえる。
+    /// 向きが反転しきって条件1・2にも正側が立てば、この非対称は自然に消える。
+    /// </remarks>
     private static CitySurvivalScan ScanThirtyDays(long seed)
     {
         var definition = WorldDefinition.M0;
@@ -1612,6 +1637,23 @@ public sealed class TradePipelineTests
             if (allHouseholdsEmpty)
             {
                 scan.AllHouseholdsEmptyDays.Add(day);
+            }
+        }
+
+        // 日付の検算(W2-16 タスク仕様 6.2)。日別に数えた合計(TotalInternalSettlements)と、
+        // 日付で絞らずに全帳簿を1回走査した値が一致するはずである。dayIndexが±1ずれると、
+        // 30日の窓の外側の端(DayIndex==0またはDayIndex==29)の行が漏れるか二重に数えられるかして
+        // 食い違う(30日の窓の外に行は存在しないので、素の実装では一致する)。
+        foreach (var household in world.Households)
+        {
+            foreach (var entry in world.Ledgers[household.Id])
+            {
+                if (entry.Direction == LedgerDirection.Purchase
+                    && entry.CounterpartyId != HouseholdState.ExternalMarketSellerId
+                    && entry.ItemId >= Item.Flour && entry.ItemId <= Item.Tools)
+                {
+                    scan.TotalCityGoodInternalRowsIgnoringDate++;
+                }
             }
         }
 
@@ -1693,7 +1735,7 @@ public sealed class TradePipelineTests
             $"seed={seed}: 条件1が30日すべてで成立した。この条件はこのシードについて直っている。"
                 + "W2-16 の手順に従い、このシードを"
                 + "ProductionNeverStopsForAWholeDayOverThirtyDays の [InlineData] へ移し、"
-                + "doc コメントの基準値を更新すること(#173)。");
+                + $"doc コメントの基準値を更新すること(#173)。{scan.Format(seed)}");
     }
 
     /// <summary>
@@ -1748,13 +1790,18 @@ public sealed class TradePipelineTests
             $"seed={seed}: 30日間の延べ都市内約定が0(向き・相手・品目のいずれかの取り違えの"
                 + "可能性)。");
 
+        // 日付の検算(W2-16 タスク仕様 6.2)。条件2の帳簿の絞り込みだけが日付を使うので、その日付が
+        // 正しいかをここで見る。dayIndexが±1ずれても他のassertは緑のまま通るが、これだけは
+        // 日付を無視した全件と日別合計の食い違いとして捕まえる。
+        Assert.Equal(scan.TotalCityGoodInternalRowsIgnoringDate, scan.TotalInternalSettlements);
+
         // 核心。反転側。
         Assert.True(
             scan.NoInternalSettlementDays.Count > 0,
             $"seed={seed}: 条件2が30日すべてで成立した。この条件はこのシードについて直っている。"
                 + "W2-16 の手順に従い、このシードを"
                 + "InternalSettlementsOfCityGoodsNeverDisappearOverThirtyDays の [InlineData] へ移し、"
-                + "doc コメントの基準値を更新すること(#173)。");
+                + $"doc コメントの基準値を更新すること(#173)。{scan.Format(seed)}");
     }
 
     /// <summary>
@@ -1788,6 +1835,19 @@ public sealed class TradePipelineTests
     /// cref="ProductionStopsForAWholeDayWithinThirtyDays"/> の doc コメントに転記済み)。
     /// </remarks>
     /// <remarks>
+    /// <b>issue #173 本文の実測表は条件3について再現しない(W2-16 タスク仕様 6.3 #2、
+    /// レビュー1巡目 II-1)。</b>#173は「シード1・day30に全10戸が0」と記録したが、
+    /// 本実測(2026-09-22)ではシード1は条件3の違反0日であり、違反を持つのはシード7の
+    /// day30だけである。原因は特定していない。
+    /// </remarks>
+    /// <remarks>
+    /// <b>条件3の反転側は30日の地平線の端に1日だけぶら下がっている(W2-16 タスク仕様 6.3 #3、
+    /// レビュー1巡目 II-2 / 2巡目 疑い2)。</b>シード7の違反日はday30のみである。地平線を縮めれば
+    /// 「経済が直った」と同じ失敗メッセージが出る。反転側の失敗メッセージには
+    /// <c>scan.Format(seed)</c>の1行を添える ── 地平線の話か経済の話かを、受け取った側が
+    /// 区別できるようにするため。
+    /// </remarks>
+    /// <remarks>
     /// <b>変異の実測。</b>(未実施。<c>mutator</c>の報告が来たら転記する。)
     /// </remarks>
     [Theory]
@@ -1814,7 +1874,7 @@ public sealed class TradePipelineTests
             $"seed={seed}: 条件3が30日すべてで成立した。この条件はこのシードについて直っている。"
                 + "W2-16 の手順に従い、このシードを"
                 + "SomeHouseholdAlwaysHoldsNecessitiesOverThirtyDays の [InlineData] へ移し、"
-                + "doc コメントの基準値を更新すること(#173)。");
+                + $"doc コメントの基準値を更新すること(#173)。{scan.Format(seed)}");
     }
 
     /// <summary>
