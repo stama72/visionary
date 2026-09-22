@@ -955,6 +955,14 @@ public sealed class TradeSystemTests
     /// <c>LiquidFunds</c> だけが窓口での木材の代金ぶん動く。<see cref="BuildShoppingDefinition"/> の
     /// 定数(流動資金15など)は動かさない。<b>判別力は変異M-5で測り直す</b>。
     /// </remarks>
+    /// <remarks>
+    /// <b>W2-15 追随(2026-09-22)。</b>相場項が無い日の基礎値が窓口の当日価格になったこと
+    /// (決定10・11)で、生産の入力(木材)の窓口価格が下がった(<c>ExternalSellPrice(Timber,
+    /// 春) = 1</c>。旧版は基礎値が現金上限級だったため代金2まで払っていた)。
+    /// <c>UnaffordableNecessityCount</c>・各品目の数量(パン1・穀物0)は変わらず、
+    /// <c>LiquidFunds</c> だけが期待3→4へ動く(15−10−1)。原意(必需が先に決済されること)は
+    /// 保たれるので期待値だけを更新する。
+    /// </remarks>
     [Fact]
     public void NecessityIsSettledBeforePreference()
     {
@@ -979,8 +987,8 @@ public sealed class TradeSystemTests
         Assert.Equal(0, buyer.UnaffordableNecessityCount);
         Assert.Equal(1, buyer.HouseholdInventory[Item.Bread]); // 必需は約定する
         Assert.Equal(0, buyer.HouseholdInventory[Item.Grain]); // 嗜好はFundsCapで0個
-        // 15 − 10(パンの代金) − 窓口での木材(生産の入力)の代金(#38追随。上のremarks参照)。
-        Assert.Equal(3, buyer.LiquidFunds);
+        // 15 − 10(パンの代金) − 窓口での木材(生産の入力)の代金(W2-15追随。上のremarks参照)。
+        Assert.Equal(4, buyer.LiquidFunds);
     }
 
     /// <summary>
@@ -1175,9 +1183,10 @@ public sealed class TradeSystemTests
     /// </remarks>
     /// <remarks>
     /// <b>耐久側の設計。</b>買い手に工具の市場参照(平均2000)を仕込み、基礎値を流動資金から
-    /// 切り離す ── 参照が無いと基礎値=現金上限=流動資金となり、ゲートを通る実効価格の範囲では
-    /// 資金上限が数量を1個に切り詰めてしまい、CeilDiv(1500,1000)=2 と FloorDiv(1500,1000)=1 の
-    /// 分岐が資金上限の背後に隠れて見えなくなる(実測で確認した構造的な制約)。
+    /// 切り離す ── 参照が無いと基礎値が工具の外部買値になり(W2-15、決定10)、ゲートを通る
+    /// 実効価格の範囲では資金上限が数量を1個に切り詰めてしまい、CeilDiv(1500,1000)=2 と
+    /// FloorDiv(1500,1000)=1 の分岐が資金上限の背後に隠れて見えなくなる
+    /// (実測で確認した構造的な制約)。
     /// </remarks>
     /// <remarks>
     /// <b>変異の実測(2026-09-20)。</b><c>BuyerBudget.QuantityInUnits</c> の <c>CeilDiv</c> を
@@ -1236,9 +1245,12 @@ public sealed class TradeSystemTests
 
             EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
 
-            // 独立予測: baseValue=cashCap=100000(参照なし)・実効価格1(床、距離1はR以内なので
-            // 当日の提示価格をそのまま使う)・target6・expected0 ── PurchaseQuantityが上側
-            // clamp(2×target)に当たり12。QuantityInUnits(Necessity)は恒等。
+            // W2-15追随(2026-09-22、決定10・11)。相場参照が無い日の基礎値は現金上限ではなく
+            // 窓口の当日価格(パンの外部買値breadFloor=1)になった。独立予測: baseValue=1・
+            // 在庫圧力=StockPressurePermille(expected:0,target:6)=1500(第1項が読む。ゲートは
+            // HasMarketTermではなくBaseValueで立つ)・実効価格1(床、距離1はR以内なので当日の
+            // 提示価格をそのまま使う) ── 到達在庫=clamp(18-CeilDiv(2×6×1,1),0,12)=6。
+            // QuantityInUnits(Necessity)は恒等なのでq_個=6(旧値12から変わる)。
             var line = new DemandLine
             {
                 Purpose = DemandPurpose.Necessity,
@@ -1250,8 +1262,8 @@ public sealed class TradeSystemTests
                 ProfitCap = 0,
                 TargetStock = 6,
                 ExpectedStock = 0,
-                StockPressurePermille = 0, // HasMarketTerm=falseのゲートでは読まれない。
-                BaseValue = 100_000,
+                StockPressurePermille = BuyerBudget.StockPressurePermille(expectedStock: 0, targetStock: 6),
+                BaseValue = 1,
                 Budget = 1,
             };
             int predictedQuantity = BuyerBudget.QuantityInUnits(

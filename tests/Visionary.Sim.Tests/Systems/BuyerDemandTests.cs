@@ -1,3 +1,4 @@
+using Visionary.Sim.Randomness;
 using Visionary.Sim.Systems;
 using Visionary.Sim.Time;
 
@@ -601,5 +602,94 @@ public sealed class BuyerDemandTests
             world, world.Households[0], hasPreviousOutputOfferPrice: true, previousOutputOfferPrice: 20);
         var flourLineControl = FindLine(control, DemandPurpose.ProductionInput, Item.Flour);
         Assert.Equal(flourLineAfter.ProfitCap, flourLineControl.ProfitCap);
+    }
+
+    /// <summary>
+    /// 【核心】W2-15 タスク仕様テスト表 #3。<c>WorldDefinition.M0</c> + <c>WorldGenerator.Generate</c>
+    /// (シード1)。観測ゼロの初日に全世帯で <c>Build</c> を呼び、(a) 都市生産品の行(必需パン・
+    /// 必需薪・耐久工具)の <c>BaseValue</c> が <c>definition.ExternalBuyPrice(itemId)</c>、
+    /// (b) <c>IsPrimaryItem</c> の行の <c>BaseValue</c> が
+    /// <c>definition.ExternalSellPrice(itemId, Season.Spring)</c>、
+    /// (c) システムを1つも登録しない <c>SimScheduler</c> で30日ぶん時計だけ進めた(観測は生まれない)
+    /// 後、1次産品の行が <c>ExternalSellPrice(itemId, Season.Summer)</c>(穀物13)であって
+    /// 基準値10ではないこと(決定10・12)。
+    /// </summary>
+    [Fact]
+    public void BaseValueFallsBackToTheWindowPriceOfTheDay()
+    {
+        var definition = WorldDefinition.M0;
+        var world = WorldGenerator.Generate(definition, new RandomSource(1));
+
+        // (a)(b): 観測ゼロの初日(DayIndex==0)。世帯はId昇順(ADR-0002)で回す。
+        bool anyCityGoodLine = false;
+        bool anyPrimaryLine = false;
+
+        foreach (var household in world.Households)
+        {
+            var demand = new BuyerDemand(definition).Build(
+                world, household, hasPreviousOutputOfferPrice: false, previousOutputOfferPrice: 0);
+
+            foreach (var line in demand.Lines)
+            {
+                if (definition.IsPrimaryItem(line.ItemId))
+                {
+                    anyPrimaryLine = true;
+                    Assert.Equal(
+                        definition.ExternalSellPrice(line.ItemId, Season.Spring), line.BaseValue);
+                    continue;
+                }
+
+                bool isCityGoodUnderTest =
+                    (line.Purpose == DemandPurpose.Necessity && line.ItemId == Item.Bread)
+                    || (line.Purpose == DemandPurpose.Necessity && line.ItemId == Item.Firewood)
+                    || (line.Purpose == DemandPurpose.Durable && line.ItemId == Item.Tools);
+
+                if (isCityGoodUnderTest)
+                {
+                    anyCityGoodLine = true;
+                    Assert.Equal(definition.ExternalBuyPrice(line.ItemId), line.BaseValue);
+                }
+            }
+        }
+
+        // 空振り防止(タスク仕様)。
+        Assert.True(anyCityGoodLine, "都市生産品(パン・薪・工具)の行が1件も無い(値の問題の可能性)。");
+        Assert.True(anyPrimaryLine, "1次産品の行が1件も無い(値の問題の可能性)。");
+
+        // (c): システムを1つも登録せず、時計だけ30日進める(観測は生まれない。決定12)。
+        var idleScheduler = new SimScheduler(Array.Empty<ISimSystem>(), new RandomSource(1));
+        idleScheduler.Advance(world, ticks: 30 * 24);
+
+        Assert.Equal(Season.Summer, GameDate.FromTick(world.Now).Season);
+
+        bool anySummerPrimaryLine = false;
+
+        foreach (var household in world.Households)
+        {
+            var demand = new BuyerDemand(definition).Build(
+                world, household, hasPreviousOutputOfferPrice: false, previousOutputOfferPrice: 0);
+
+            foreach (var line in demand.Lines)
+            {
+                if (!definition.IsPrimaryItem(line.ItemId))
+                {
+                    continue;
+                }
+
+                anySummerPrimaryLine = true;
+
+                int expected = definition.ExternalSellPrice(line.ItemId, Season.Summer);
+                Assert.Equal(expected, line.BaseValue);
+
+                if (line.ItemId == Item.Grain)
+                {
+                    // 基準値10ではなく、夏の当日値13であること(決定12。季節係数1300‰)。
+                    Assert.Equal(13, line.BaseValue);
+                    Assert.NotEqual(10, line.BaseValue);
+                }
+            }
+        }
+
+        Assert.True(anySummerPrimaryLine, "夏の1次産品の行が1件も無い(値の問題の可能性)。");
     }
 }

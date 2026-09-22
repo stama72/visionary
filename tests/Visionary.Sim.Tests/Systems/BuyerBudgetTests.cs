@@ -262,66 +262,105 @@ public sealed class BuyerBudgetTests
     }
 
     /// <summary>
-    /// 【核心】テスト表 #16。相場項100・在庫圧力1500‰・現金上限200・利潤上限なし → 150。
-    /// 現金上限120なら120(相場項に圧力が乗った150より小さい側)。
+    /// 【核心】テスト表 #16。基礎値100・在庫圧力1500‰・現金上限200・利潤上限なし → 150。
+    /// 現金上限120なら120(基礎値に圧力が乗った150より小さい側)。
     /// </summary>
     /// <remarks>
+    /// <b>W2-15 追随(2026-09-22)。</b>第1項の材料が相場項から基礎値へ一般化された(決定11)ため、
+    /// <c>hasMarketTerm</c> / <c>marketTerm</c> 引数を <c>baseValue</c> へ書き換えた。期待値
+    /// (150・120)と変異は変わらない。
+    /// </remarks>
+    /// <remarks>
     /// <b>変異の実測(2026-09-19)。</b>現金上限にも在庫圧力を掛ける変異
-    /// (<c>Math.Min(ApplyPermille(marketTerm,pressure), ApplyPermille(cashCap,pressure))</c>)を
+    /// (<c>Math.Min(ApplyPermille(baseValue,pressure), ApplyPermille(cashCap,pressure))</c>)を
     /// 当てたところ、現金上限120のケースの <c>Assert.Equal(120, ...)</c> が実際値150
     /// (<c>min(150, ApplyPermille(120,1500)=180)=150</c>。払えない金を緊急性で払う経路)で
-    /// 失敗した(赤を確認)。相場項に圧力を掛け忘れる変異(<c>marketTerm</c> をそのまま使う)では、
+    /// 失敗した(赤を確認)。第1項に圧力を掛け忘れる変異(<c>baseValue</c> をそのまま使う)では、
     /// 現金上限200のケースの <c>Assert.Equal(150, ...)</c> が実際値100(§5.1の1500‰の行が死ぬ)
     /// で失敗した。いずれも変異を戻して緑に復帰させた。
     /// </remarks>
     [Fact]
-    public void BudgetAppliesStockPressureToMarketTermOnly()
+    public void BudgetAppliesStockPressureToTheFirstTermOnly()
     {
         Assert.Equal(
             150,
             BuyerBudget.Budget(
-                hasMarketTerm: true, marketTerm: 100, stockPressurePermille: 1500,
+                baseValue: 100, stockPressurePermille: 1500,
                 cashCap: 200, hasProfitCap: false, profitCap: 0));
         Assert.Equal(
             120,
             BuyerBudget.Budget(
-                hasMarketTerm: true, marketTerm: 100, stockPressurePermille: 1500,
+                baseValue: 100, stockPressurePermille: 1500,
                 cashCap: 120, hasProfitCap: false, profitCap: 0));
     }
 
     /// <summary>
-    /// テスト表 #17。相場項なし・現金上限50 → 50。利潤上限あり(30)なら30。
+    /// テスト表 #5。基礎値100・在庫圧力1000‰・現金上限50 → 50(現金上限が勝つ)。基礎値40なら
+    /// 40(第1項が勝つ。旧形ではこの日も50だった ── 決定11が第1項を常に立てる帰結)。利潤上限30を
+    /// 足すと30。
     /// </summary>
+    /// <remarks>
+    /// <b>W2-15 で <c>BudgetDropsAbsentTerms</c>(#17)を置き換える(2026-09-22)。</b>
+    /// <c>Budget</c> のシグネチャから <c>hasMarketTerm</c> / <c>marketTerm</c> が消え、第1項が
+    /// 常にある形になった(決定11)。旧テストは「相場項なし → 現金上限がそのまま予算になる」を
+    /// 固定していたが、これはもう成り立たない(基礎値40のケースがその反例)。
+    /// </remarks>
     [Fact]
-    public void BudgetDropsAbsentTerms()
+    public void BudgetKeepsTheFirstTermWithoutAMarketReference()
     {
         Assert.Equal(
             50,
             BuyerBudget.Budget(
-                hasMarketTerm: false, marketTerm: 0, stockPressurePermille: 1000,
+                baseValue: 100, stockPressurePermille: 1000,
+                cashCap: 50, hasProfitCap: false, profitCap: 0));
+        Assert.Equal(
+            40,
+            BuyerBudget.Budget(
+                baseValue: 40, stockPressurePermille: 1000,
                 cashCap: 50, hasProfitCap: false, profitCap: 0));
         Assert.Equal(
             30,
             BuyerBudget.Budget(
-                hasMarketTerm: false, marketTerm: 0, stockPressurePermille: 1000,
+                baseValue: 100, stockPressurePermille: 1000,
                 cashCap: 50, hasProfitCap: true, profitCap: 30));
     }
 
     /// <summary>
     /// 【核心】テスト表 #18。相場項100あり → 100(在庫圧力1500‰でも100のまま)。相場項なし・
-    /// 現金上限50 → 50。
+    /// 窓口価格50 → 50。
     /// </summary>
+    /// <remarks>
+    /// <b>W2-15 で <c>BaseValueFallsBackToCashCapWithoutMarketTerm</c> を置き換える
+    /// (2026-09-22)。</b>決定10により、相場項が無い日の基礎値は現金上限ではなく窓口の当日価格
+    /// (<see cref="BuyerBudget.BaseValue"/> の第3引数)になった。名前と引数名をそれに合わせる。
+    /// </remarks>
     /// <remarks>
     /// <b>変異の実測(2026-09-19)。</b><c>BaseValue</c> に在庫圧力を掛ける変異
     /// (<c>ApplyPermille(marketTerm, 1500)</c> を返す)を当てたところ、
     /// <c>Assert.Equal(100, BaseValue(true, 100, 50))</c> が実際値150で失敗した(赤を確認、
-    /// 線形解で二重に効く経路)。変異を戻して緑に復帰させた。
+    /// 線形解で二重に効く経路)。変異を戻して緑に復帰させた。**変異も期待も変わらない**
+    /// (引数名が <c>cashCap</c> から <c>windowPrice</c> に変わっただけ)。
     /// </remarks>
     [Fact]
-    public void BaseValueFallsBackToCashCapWithoutMarketTerm()
+    public void BaseValueFallsBackToTheWindowPriceOfTheDay()
     {
-        Assert.Equal(100, BuyerBudget.BaseValue(hasMarketTerm: true, marketTerm: 100, cashCap: 50));
-        Assert.Equal(50, BuyerBudget.BaseValue(hasMarketTerm: false, marketTerm: 0, cashCap: 50));
+        Assert.Equal(100, BuyerBudget.BaseValue(hasMarketTerm: true, marketTerm: 100, windowPrice: 50));
+        Assert.Equal(50, BuyerBudget.BaseValue(hasMarketTerm: false, marketTerm: 0, windowPrice: 50));
+    }
+
+    /// <summary>
+    /// テスト表 #4。窓口価格が0と-1でArgumentOutOfRangeException。<c>hasMarketTerm</c> が
+    /// true でも false でも投げる(無条件の検査であることの証拠)。
+    /// </summary>
+    [Theory]
+    [InlineData(true, 0)]
+    [InlineData(true, -1)]
+    [InlineData(false, 0)]
+    [InlineData(false, -1)]
+    public void BaseValueRejectsANonPositiveWindowPrice(bool hasMarketTerm, int windowPrice)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            BuyerBudget.BaseValue(hasMarketTerm, marketTerm: 100, windowPrice));
     }
 
     /// <summary>
@@ -448,6 +487,40 @@ public sealed class BuyerBudgetTests
         var tiedDecision = BuyerBudget.Decide(tiedLine, effectivePrice: 100);
         Assert.Equal(0, tiedDecision.Quantity);
         Assert.Equal(NoPurchaseReason.MarketTerm, tiedDecision.Reason);
+    }
+
+    /// <summary>
+    /// 【核心】テスト表 #2(W2-15)。決定11(分岐1から「相場項があり」を外す)の境界。目標在庫10・
+    /// 予想在庫5(→在庫圧力1250‰)・基礎値100・現金上限1000・利潤上限なし・
+    /// <c>HasMarketTerm = false</c> / <c>MarketTerm = 0</c>。第1項 = ApplyPermille(100,1250) = 125。
+    /// 実効価格120 → 購入量1(到達在庫6)・理由None。125(同点)→ 購入量0(到達在庫5=予想在庫)・
+    /// 理由None(ゲートは開く。判定は<c>&gt;</c>であって<c>&gt;=</c>ではない)。126 → 購入量0(到達在庫4)・
+    /// 理由MarketTerm(決定11の帰結そのもの ── 決定11の前はここで現金上限だけを見てゲートが開き、
+    /// 線形解が0を返して理由がNoneになっていた。購入量は0のままで、変わるのは理由だけ)。
+    /// </summary>
+    [Fact]
+    public void DecideClosesOnTheBaseValueWithoutAMarketReference()
+    {
+        // 在庫圧力‰は手で置いた値(1250)が式とずれていないことも断定する(境界の意味が消えないように)。
+        int stockPressurePermille = BuyerBudget.StockPressurePermille(expectedStock: 5, targetStock: 10);
+        Assert.Equal(1250, stockPressurePermille);
+
+        var line = BuildLine(
+            hasMarketTerm: false, marketTerm: 0, stockPressurePermille: stockPressurePermille,
+            cashCap: 1000, hasProfitCap: false, profitCap: 0,
+            baseValue: 100, targetStock: 10, expectedStock: 5);
+
+        var decision120 = BuyerBudget.Decide(line, effectivePrice: 120);
+        Assert.Equal(1, decision120.Quantity);
+        Assert.Equal(NoPurchaseReason.None, decision120.Reason);
+
+        var decision125 = BuyerBudget.Decide(line, effectivePrice: 125);
+        Assert.Equal(0, decision125.Quantity);
+        Assert.Equal(NoPurchaseReason.None, decision125.Reason);
+
+        var decision126 = BuyerBudget.Decide(line, effectivePrice: 126);
+        Assert.Equal(0, decision126.Quantity);
+        Assert.Equal(NoPurchaseReason.MarketTerm, decision126.Reason);
     }
 
     /// <summary>

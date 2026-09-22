@@ -175,25 +175,45 @@ public static class BuyerBudget
         }
     }
 
-    /// <summary>予算 = min( ApplyPermille(相場項, 在庫圧力‰) , 現金上限 , 利潤上限 )(GDD02c §2.1)。</summary>
-    /// <remarks><b>在庫圧力‰ を掛けるのは相場項だけである。</b>現金上限・利潤上限に掛けると、
-    /// 「払えない金を緊急性で払う」ことになる(GDD02c §2.1)。無い項は min から落とす。</remarks>
-    public static int Budget(
-        bool hasMarketTerm, int marketTerm, int stockPressurePermille,
-        int cashCap, bool hasProfitCap, int profitCap)
+    /// <summary>予算 = min( ApplyPermille(基礎値, 在庫圧力‰) , 現金上限 , 利潤上限 )(GDD02c §2.1)。</summary>
+    /// <remarks><b>在庫圧力‰ を掛けるのは第1項(基礎値)だけである(現金上限・利潤上限には掛からない)。</b>
+    /// 現金上限・利潤上限に掛けると、「払えない金を緊急性で払う」ことになる(GDD02c §2.1)。
+    /// <b>第1項は常にある</b>(決定11。GDD02b §5.2) ── 相場項が無い日は基礎値が窓口の当日価格に
+    /// 落ちるだけで、項そのものが消えることはない。無い項(利潤上限)だけを min から落とす。</remarks>
+    public static int Budget(int baseValue, int stockPressurePermille, int cashCap, bool hasProfitCap, int profitCap)
     {
-        int result = hasMarketTerm
-            ? Math.Min(IntegerMath.ApplyPermille(marketTerm, stockPressurePermille), cashCap)
-            : cashCap;
+        int result = Math.Min(IntegerMath.ApplyPermille(baseValue, stockPressurePermille), cashCap);
 
         return hasProfitCap ? Math.Min(result, profitCap) : result;
     }
 
-    /// <summary>線形解の基礎値 = 相場項。無ければ現金上限(GDD02b §5.2)。</summary>
-    /// <remarks><b>在庫圧力を掛けない。</b>在庫圧力は線形解の形そのものに入っており、
-    /// 基礎値にも掛けると二重に効く(GDD02c §2.1)。</remarks>
-    public static int BaseValue(bool hasMarketTerm, int marketTerm, int cashCap) =>
-        hasMarketTerm ? marketTerm : cashCap;
+    /// <summary>線形解の基礎値 = 相場項。無ければ窓口の当日価格(GDD02b §5.2)。<b>常に1以上</b>。</summary>
+    /// <remarks>
+    /// <b>在庫圧力を掛けない。</b>在庫圧力は線形解の形そのものに入っており、基礎値にも掛けると
+    /// 二重に効く(GDD02c §2.1)。
+    /// <para>
+    /// <b>窓口の当日価格(<paramref name="windowPrice"/>)を解くのは呼び出し側(<see cref="BuyerDemand"/>)
+    /// である。</b>本メソッドは純関数として受け取るだけ(決定10)。
+    /// </para>
+    /// <para>
+    /// <b>残る穴(規則4)。</b>ここで防げるのは「窓口価格が0のまま渡る」ことだけで、
+    /// 「間違った窓口価格(天井や基準値)が渡る」ことは防げない(<see cref="BuyerDemand"/> 側の
+    /// 呼び出し実装が正しい値を渡すことに依存する)。
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="windowPrice"/> が0以下(<paramref name="hasMarketTerm"/> の真偽によらず無条件)。
+    /// </exception>
+    public static int BaseValue(bool hasMarketTerm, int marketTerm, int windowPrice)
+    {
+        if (windowPrice <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(windowPrice), windowPrice, "窓口の当日価格は1以上(GDD02d §2.1・§3・§5)。");
+        }
+
+        return hasMarketTerm ? marketTerm : windowPrice;
+    }
 
     /// <summary>
     /// 購入量の線形解(GDD02b §5.2)。
@@ -250,9 +270,13 @@ public static class BuyerBudget
     /// ゲートを通っても購入量が0になることはある(到達在庫が予想在庫に届いた)。そのときの
     /// 理由は <see cref="NoPurchaseReason.None"/> であり、資金不足ではない。
     /// </para>
-    /// <para><b>基礎値が0の日はゲートが必ず閉じる</b>(実効価格 ≥ 1 &gt; 0 = 予算)ので、
-    /// <see cref="PurchaseQuantity"/> の除算に到達しない。<b>この保証は「実効価格が1以上」に
-    /// 立っている</b> ── 提示価格は床(外部買値、1以上)以上なので成り立つ。</para>
+    /// <para>
+    /// <b>分岐1に「相場項があり」の条件は無い(決定11)。</b>ゲートが読むのは <see cref="DemandLine.BaseValue"/>
+    /// であって <see cref="DemandLine.MarketTerm"/> / <see cref="DemandLine.HasMarketTerm"/> ではない ──
+    /// 相場項が無い日も基礎値(窓口の当日価格)を使ってゲートが立つ。<b>基礎値0の枝は
+    /// <see cref="BaseValue"/> が例外で弾くので到達不能になった</b>(旧版はここで「実効価格が1以上」に
+    /// 支えられた保証を書いていたが、その保証はもう要らない)。
+    /// </para>
     /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="effectivePrice"/> が0以下。</exception>
     public static PurchaseDecision Decide(in DemandLine line, int effectivePrice)
@@ -263,15 +287,11 @@ public static class BuyerBudget
                 nameof(effectivePrice), effectivePrice, "実効価格は1以上(GDD02b §5.2)。");
         }
 
-        if (line.HasMarketTerm)
-        {
-            int adjustedMarketTerm =
-                IntegerMath.ApplyPermille(line.MarketTerm, line.StockPressurePermille);
+        int adjustedBaseValue = IntegerMath.ApplyPermille(line.BaseValue, line.StockPressurePermille);
 
-            if (effectivePrice > adjustedMarketTerm)
-            {
-                return new PurchaseDecision { Quantity = 0, Reason = NoPurchaseReason.MarketTerm };
-            }
+        if (effectivePrice > adjustedBaseValue)
+        {
+            return new PurchaseDecision { Quantity = 0, Reason = NoPurchaseReason.MarketTerm };
         }
 
         if (line.HasProfitCap && effectivePrice > line.ProfitCap)

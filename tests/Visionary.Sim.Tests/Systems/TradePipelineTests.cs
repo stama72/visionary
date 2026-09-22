@@ -93,6 +93,62 @@ public sealed class TradePipelineTests
     }
 
     /// <summary>
+    /// 【核心】W2-15 タスク仕様テスト表 #1(検出器)。M0・シード1/2/3/7/42・60日。観測ゼロの
+    /// 初日(<c>DayIndex == 0</c>)に、全世帯の外部 <c>Purchase</c>(<see cref="world.Ledgers"/>、
+    /// <c>CounterpartyId == HouseholdState.ExternalMarketSellerId</c>)の
+    /// <c>Quantity × UnitPrice</c> を合計した額が、都市の初期総資金の1/10未満であること
+    /// (決定10・11。相場項が無い初日は基礎値が窓口の当日価格に落ちるので、旧規則(基礎値=現金上限)
+    /// で起きていた一撃買いが縮む)。
+    /// </summary>
+    /// <remarks>
+    /// <b>実測して doc コメントへ転記すること(タスク仕様)。</b>2026-09-22 実測: seed1=816 /
+    /// seed2=816 / seed3=816 / seed7=816 / seed42=776(いずれも <c>10 × 合計 &lt; 24,000</c>
+    /// を大きく下回る)。#120 の使い捨て実測(816 / 816 / 776、決定11を入れる前、シード3・7は
+    /// 未測定)と比べ、シード1・2・42は同値、シード3・7も同じ816である。決定11は初日には効かない
+    /// ── 初日は誰も相場基準を持たない(<c>HasMarketTerm = false</c>)ので、分岐1から
+    /// 「相場項があり」を外しても判定そのものは変わらない(決定10だけが初日の値を決める)。
+    /// 一般化はゲートを緩める方向には動かないので、この実測より上には戻らないはずである。
+    /// </remarks>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(7)]
+    [InlineData(42)]
+    public void WindowImportsOnTheFirstDayStayBelowATenthOfTheCitysMoney(long seed)
+    {
+        var definition = WorldDefinition.M0;
+        var world = WorldGenerator.Generate(definition, new RandomSource(seed));
+
+        var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(seed));
+        scheduler.Advance(world, ticks: 60 * 24);
+
+        long day0Imports = 0;
+
+        foreach (var household in world.Households)
+        {
+            foreach (var entry in world.Ledgers[household.Id])
+            {
+                if (entry.CounterpartyId == HouseholdState.ExternalMarketSellerId
+                    && entry.Direction == LedgerDirection.Purchase
+                    && entry.OccurredAt.DayIndex == 0)
+                {
+                    day0Imports += (long)entry.Quantity * entry.UnitPrice;
+                }
+            }
+        }
+
+        // 空振り防止(タスク仕様)。
+        Assert.True(day0Imports >= 1, $"seed={seed}: 初日に窓口からの輸入が1件も無い(値の問題の可能性)。");
+        Assert.Equal(60, world.Now.DayIndex);
+
+        Assert.True(
+            10 * day0Imports < (long)definition.InitialLiquidFunds * definition.HouseholdCount,
+            $"seed={seed}: 初日の窓口からの輸入額({day0Imports})が都市の初期総資金の1/10以上"
+                + $"(初期総資金={(long)definition.InitialLiquidFunds * definition.HouseholdCount})。");
+    }
+
+    /// <summary>
     /// 【核心】テスト表 #17(#38)。M0・60日・シード1: Σ(流動資金の変化) ==
     /// Σ(外部 <c>Sale</c> の額) − Σ(外部 <c>Purchase</c> の額)。GDD02d §4.1 の恒等式そのもの。
     /// </summary>
@@ -865,24 +921,30 @@ public sealed class TradePipelineTests
     /// <c>Assert.Equal(0, …)</c> が11日目時点で崩れていた)。0→1→0のきれいな遷移を持つ最初の
     /// 組を60日走査して選び直した。この実測値も、窓口が絡む変更が入れば再び動きうる。
     /// </remarks>
+    /// <remarks>
+    /// <b>W2-15 追随(2026-09-22)。</b>相場項が無い日の基礎値が窓口の当日価格になった(決定10・11)
+    /// ことで経済の形がまた変わり、自然発生する日・世帯が動いた(doc コメントの確立した手順
+    /// どおり60日を走査。実測: 世帯Id4、7日目に0→1→0のきれいな遷移を持つ最初の組が現れる。
+    /// 世帯Id6、8日目ではもう自然発生しない)。
+    /// </remarks>
     [Fact]
     public void UnaffordableNecessityCountsOnlyTheFundsShortfall()
     {
         var definition = WorldDefinition.M0;
 
-        // 資金不足のケース(シード1・操作なし。世帯Id6、8日目に自然発生する。上のremarks参照)。
+        // 資金不足のケース(シード1・操作なし。世帯Id4、7日目に自然発生する。上のremarks参照)。
         {
             var world = WorldGenerator.Generate(definition, new RandomSource(1));
             var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(1));
 
-            scheduler.Advance(world, ticks: 7 * 24); // 7日目まで。
-            Assert.Equal(0, world.Households[6].UnaffordableNecessityCount);
+            scheduler.Advance(world, ticks: 6 * 24); // 6日目まで。
+            Assert.Equal(0, world.Households[4].UnaffordableNecessityCount);
 
-            scheduler.Advance(world, ticks: 24); // 8日目。資金不足が1件自然発生する。
-            Assert.Equal(1, world.Households[6].UnaffordableNecessityCount);
+            scheduler.Advance(world, ticks: 24); // 7日目。資金不足が1件自然発生する。
+            Assert.Equal(1, world.Households[4].UnaffordableNecessityCount);
 
-            scheduler.Advance(world, ticks: 24); // 9日目。毎日上書きする(GDD02b §3.3)ので0に戻る。
-            Assert.Equal(0, world.Households[6].UnaffordableNecessityCount);
+            scheduler.Advance(world, ticks: 24); // 8日目。毎日上書きする(GDD02b §3.3)ので0に戻る。
+            Assert.Equal(0, world.Households[4].UnaffordableNecessityCount);
         }
 
         // 在庫切れのケース。木工2戸の薪(工房在庫)と入力の木材(工房在庫)を0にして生産による

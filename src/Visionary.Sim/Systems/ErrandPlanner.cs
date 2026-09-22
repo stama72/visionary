@@ -165,7 +165,12 @@ public sealed class ErrandPlanner
         };
     }
 
-    /// <summary>余剰(5.5)。見積もり価格が「無い」なら0。</summary>
+    /// <summary>
+    /// 余剰(5.5)。見積もり価格が「無い」なら0。
+    /// <b>相場項が無い日は支払い意思額(<c>willingness</c>)が窓口価格の1.5倍(在庫圧力‰の上限)
+    /// までになり、探索の動機は旧版の見込みより小さい</b>(決定11。式そのものは変えない。
+    /// GDD06 §3.1「探索の動機は残るが旧版が見込んだほど大きくない」の実体)。
+    /// </summary>
     private long SurplusFor(in DemandLine line, bool hasPrice, int price)
     {
         if (!hasPrice)
