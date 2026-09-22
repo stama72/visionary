@@ -80,7 +80,9 @@ public static class SelfConsumption
 }
 ```
 
-- **`TargetStockDays` が必需と嗜好を足すのは、世帯在庫が1本の在庫だからである。** [`BuyerDemand`](../../src/Visionary.Sim/Systems/BuyerDemand.cs) は同じ品目が両方に該当すれば行を2本作り、どちらも同じ世帯在庫を予想在庫として読む。**M0 には両方が正の品目が無い**(パン・薪は必需のみ、ビールは嗜好のみ)ので、**この加算が発火するのは合成の `WorldDefinition` を使うテストだけである。** 規則としては置く — [`SellableStock.ReserveQuantity`](../../src/Visionary.Sim/Systems/SellableStock.cs) の入力の枝と同じ扱いである
+- **`TargetStockDays` が必需と嗜好を足すのは、[GDD02b §1.1](../03-gdd/02b-consumption-and-household.md)「用途で分岐しない」を分岐なしに書くためである。** 用途は排他なので([GDD02b §2](../03-gdd/02b-consumption-and-household.md) の表)、**和は常に「該当する側の日数」と一致し、両項が正になる入力は存在しない。** `WorldDefinition` のコンストラクタが「品目を必需と嗜好の両方には置けない」を `ArgumentException` で弾くので、**合成の `WorldDefinition` でも作れない**(フェーズ2 実測、2026-09-22)。**したがって両項が正の場合を突くテストは書けない。** 書かないのが正しい — 排他が緩んだ日にだけ意味を持つ枝であり、いま守れる振る舞いを持たない
+
+  > **【フェーズ2 による仕様の訂正・2026-09-22】** 凍結時の本箇条書きは「`BuyerDemand` は同じ品目が両方に該当すれば行を2本作り、どちらも同じ世帯在庫を予想在庫として読む」「この加算が発火するのは合成の `WorldDefinition` を使うテストだけである」と書いていた。**どちらも偽である。** 2行が立つ状態は `WorldDefinition` が名指しで禁じている病理であり(guard のコメント: 「先に走査したほうが買った量を後の行が見ないので、**目標在庫の2倍まで買う**」)、合成の定義でも構成できない。先例として引いた [`SellableStock.ReserveQuantity`](../../src/Visionary.Sim/Systems/SellableStock.cs) の入力の枝は**到達可能**(下のテスト #4 の合成レシピが実際に突く)なので、先例として成立していない。**GDD02b §1.1 の式そのものは健全であり、訂正はタスク仕様の根拠文に閉じる**(GDD は触らない)
 - **`TransferQuantity` の中身は次の4つを呼ぶだけである。新しい式を書かない:**
 
   | 項 | 呼ぶもの |
@@ -179,7 +181,7 @@ M0・パン屋(親方+徒弟)・**春**。1日消費量[パン] = 1 + 1 = **2**�
 
 | # | テスト | 検証内容 | この実装ミスで落ちる | 核心(当てる変異 / 期待) |
 | - | ------ | -------- | -------------------- | ------------------------- |
-| 1 | `TargetStockDaysAddsNecessityAndPreference` | 合成 `WorldDefinition` で、必需3日・嗜好2日の品目の目標日数が **5** になる。パン=3、ビール=1、小麦粉=0、工具=0 | 片方しか読まない(`NecessityTargetStockDays` だけ返す) | — |
+| 1 | `TargetStockDaysAddsNecessityAndPreference` | **【フェーズ2 が縮小・2026-09-22】** M0 で パン=3、ビール=1、小麦粉=0、工具=0。**凍結時に書いていた「必需3日・嗜好2日の品目の目標日数が 5」は構成できないので落とす**(上の §1 の訂正。`WorldDefinition` が両方正を `ArgumentException` で弾く) | 片方しか読まない — **必需しか読まない実装はビール=1 で落ち、嗜好しか読まない実装はパン=3 で落ちる。** 縮小後も凍結時に名指しした故障は捕まる | — |
 | 2 | `TransferFillsTheTargetStockMeasuredAfterTodaysConsumption` | **【核心】** M0・春・パン屋。`ConsumptionSystem` を1日走らせた後の世帯在庫[パン] が **目標在庫 6 ちょうど**、工房在庫が移動量ぶん減っている | 水準が「消費前に目標在庫」になっている(`+ 今日の消費量` が無い)。移動を消費の**後**に置いた | **M-1**: `TransferQuantity` から `+ 今日の消費量` の項を落とす / **赤**。**M-4**: `RunOneHousehold` で `TakeOwnOutputHome` の呼び出しを消費ループの後へ移す / **赤** |
 | 3 | `TransferDoesNotAccumulateAcrossDays` | 同じ世帯を**5日**走らせ、各日の消費後の世帯在庫[パン]が毎日 6 で、単調増加しない | 世帯在庫を引く項が無く、毎日 `目標在庫 + 消費量` ぶん積み増す | **M-3**: `max(0, 目標在庫 + 今日の消費量 − 世帯在庫)` から `− 世帯在庫` を落とす / **赤** |
 | 4 | `TransferNeverExceedsTheSellableStock` | **【核心】** 合成レシピ(出力品目が自分の入力でもある)で、留保量1回分が工房在庫に残る。あわせて M0 で工房在庫が目標に届かない日は**あるだけ**移る | 工房在庫を直読みして留保を素通りする。`min` を取り違えて要求量をそのまま移す | **M-2**: `SellableStock.Of(definition, household, itemId)` を `household.WorkshopInventory[itemId]` へ置換 / **赤** |
