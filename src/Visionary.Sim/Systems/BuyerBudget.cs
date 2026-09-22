@@ -203,6 +203,13 @@ public static class BuyerBudget
     /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException">
     /// <paramref name="windowPrice"/> が0以下(<paramref name="hasMarketTerm"/> の真偽によらず無条件)。
+    /// <paramref name="hasMarketTerm"/> が真で <paramref name="marketTerm"/> が0以下のときも、
+    /// 戻り値0が<see cref="PurchaseQuantity"/>の除算まで届く前にここで弾く
+    /// (W2-15訂正3赤B。「常に1以上」はdocの主張であって<paramref name="windowPrice"/>だけの
+    /// 検査では守れない ── 実運用では<see cref="BuyerDemand"/>が渡す<c>marketTerm</c>は
+    /// <c>ApplyPermille(相場基準, 許容乖離‰)</c>で、許容乖離‰は<see cref="WorldDefinition"/>が
+    /// 0を弾くため0にならないが、この関数自身は<see cref="WorldDefinition"/>を知らない純関数
+    /// なので、契約は戻り値そのものに掛けて守る)。
     /// </exception>
     public static int BaseValue(bool hasMarketTerm, int marketTerm, int windowPrice)
     {
@@ -212,7 +219,15 @@ public static class BuyerBudget
                 nameof(windowPrice), windowPrice, "窓口の当日価格は1以上(GDD02d §2.1・§3・§5)。");
         }
 
-        return hasMarketTerm ? marketTerm : windowPrice;
+        int result = hasMarketTerm ? marketTerm : windowPrice;
+
+        if (result <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(marketTerm), marketTerm, "基礎値は常に1以上(GDD02b §5.2)。");
+        }
+
+        return result;
     }
 
     /// <summary>

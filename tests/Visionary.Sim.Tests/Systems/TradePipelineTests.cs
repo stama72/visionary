@@ -1005,6 +1005,14 @@ public sealed class TradePipelineTests
                 entry => entry.Direction == LedgerDirection.Purchase && entry.ItemId == Item.Beer);
             Assert.False(boughtBeer);
             Assert.Equal(0, world.Households[8].UnaffordableNecessityCount);
+
+            // R-1(訂正3の別表)。裁定表の選び直しの条件(b)「その日に必需を1件以上約定している」
+            // は、これまでdocコメントの実測として書くだけで断定していなかった ── 世帯Id8が
+            // 「店を1つも知らない」状態へ落ちても上の2つのAssertは通ってしまう。断定として足す
+            // (実測: 上記remarksのとおりパン2個・穀物14個が0日目に約定している)。
+            Assert.Contains(
+                world.Ledgers[8],
+                entry => entry.Direction == LedgerDirection.Purchase && entry.OccurredAt.DayIndex == 0);
         }
     }
 

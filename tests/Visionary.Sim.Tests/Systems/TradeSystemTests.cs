@@ -647,8 +647,9 @@ public sealed class TradeSystemTests
     /// 穀物の需要量そのものが小さくなったため)、5aが1件も外出を選ばなくなり、6(輸出)だけが
     /// 単独で成立してしまう(実測: ケースAでVisitedDistrictIds=[]・輸出のみ成立)。<b>採る梃子は
     /// 窓口価格ではなく、買い手に窓口の高値の価格記憶を仕込んで窓口を候補から実質的に外すこと</b>
-    /// (<see cref="BudgetGateUsesTheEffectivePriceOnly"/>のパン999、
-    /// <see cref="ErrandPlannerAndSettlementAgreeOnQuantity"/>の工具999999と同じ足場)。
+    /// (<see cref="ErrandPlannerAndSettlementAgreeOnQuantity"/>の工具999999と同じ足場。
+    /// <see cref="BudgetGateUsesTheEffectivePriceOnly"/>はW2-15訂正3でこの足場を外している
+    /// ── そちらは飽和回避に目標在庫日数を使う別の梃子を採った)。
     /// 買い手の区画0から中心までの距離2はR=1の外なので、<c>EstimateWindowPrice</c>は
     /// 有効な記憶(999)を読み、窓口の見積もりが売り手の見積もり(床1)より高くなって窓口が
     /// 実質的に外れる ── 5aが売り手の区画へ実際に外出するようになる(実測:
@@ -1076,50 +1077,60 @@ public sealed class TradeSystemTests
     /// district2の床10・窓口の天井の導出式そのものは動かしていない。
     /// </remarks>
     /// <remarks>
-    /// <b>配置の変更(2026-09-22、W2-15)。</b>決定10・11で相場項が無い日の基礎値が窓口の当日価格
-    /// (旧版は現金上限)へ変わったことで、上記remarksの偽の観測(パン999)が<b>相場基準としても
-    /// 拾われる</b>ようになった。旧版はhome/distantとも基礎値が現金上限(1000)で、両者とも
-    /// 上側clamp(2T)に張り付いていたので一致していたが、決定10後はhomeが基礎値=床10(相場基準
-    /// 無し)でT、distantが基礎値=相場項(999由来)で2Tになり、対称性が崩れていた(実測: 期待1・
-    /// 実際2)。<b>裁定表の指示どおり、偽の観測をhomeにも同じく入れて対称にした</b>
-    /// (<c>homeWorld</c> でも24tick進めてから同じ<c>PriceObservation</c>を仕込む)。
+    /// <b>配置の変更(2026-09-22、W2-15 訂正1)。</b>決定10・11で相場項が無い日の基礎値が窓口の
+    /// 当日価格(旧版は現金上限)へ変わったことで、上記remarksの偽の観測(パン999)が<b>相場基準
+    /// としても拾われる</b>ようになった。旧版はhome/distantとも基礎値が現金上限(1000)で、両者
+    /// とも上側clamp(2T)に張り付いていたので一致していたが、決定10後はhomeが基礎値=床10(相場
+    /// 基準無し)でT、distantが基礎値=相場項(999由来)で2Tになり、対称性が崩れていた(実測:
+    /// 期待1・実際2)。<b>訂正1はこの偽の観測をhomeにも同じく入れて対称にする梃子を採ったが、
+    /// レビュー1巡目(訂正3)で、それが判別力を消していたことが分かった</b>
+    /// ── 対称化した結果、両世界とも基礎値が相場項由来(<c>ApplyPermille(999, 1200) = 1199</c>)
+    /// になり、到達在庫が上側clamp(<c>T=1</c> なら2)に飽和して、核心の断定
+    /// <c>Assert.Equal(home, distant)</c> が「2 == 2」の恒等式になっていた(単価に外出の費用が
+    /// 混ざる変異=M-5を当てても赤にならない)。
     /// <para>
-    /// <b>確かめたこと。</b>この変更後もhomeは窓口(<c>HouseholdState.ExternalMarketSellerId</c>)
-    /// からではなく、区画内のMiller(<c>CounterpartyId=1</c>)から床10でパンを買っている(実測:
-    /// 数量2・単価10)。<b>足場(偽の観測)が本来果たしていた役割 ──
-    /// 窓口を店の候補から実質的に外すこと ── はhome側でも保たれている。</b>
+    /// <b>訂正3が採った梃子: 偽の観測を両世界から外し、<c>necessityTargetStockDays[Bread]</c> を
+    /// 1 → 2 にする。</b>T=2 で到達在庫が非飽和(<c>clamp(6 − CeilDiv(4×10,10), 0, 4) = 2 = T</c>)
+    /// になり、外出の余剰(<c>FloorDiv(2×(15−10),2) = 5</c>)も外出の費用(往復2時間×2 = 4)を
+    /// 上回って外出が立つ。
+    /// </para>
+    /// <para>
+    /// <b>(i) の実測(2026-09-22)。</b>偽の観測を外しても、窓口の見積もり(パンは都市生産品なので
+    /// 3段目の床=<c>ExternalBuyPrice</c>)とMillerの見積もり(同じ床)はタイになりうるが、窓口は
+    /// 都市生産品では実際の提示価格(<c>ExternalSellPrice</c> = 床の2倍=天井)を使う
+    /// (<see cref="StoreChoice"/>)ため、実際の店選びでは常にMillerが厳密に安く勝つ ──
+    /// <c>world.Ledgers[0]</c> を実測したところ home・distant とも購入元は<c>CounterpartyId=1</c>
+    /// (Miller)の1行だけで(数量2・単価10・決済後resources funds=980)、窓口
+    /// (<c>HouseholdState.ExternalMarketSellerId</c>)を相手にした行(購入・輸出のいずれも)は
+    /// 1件も現れない。<b>足場を外しても窓口は店の候補として実際に選ばれていない</b>(赤1と同じ
+    /// タイの機構は、都市生産品では窓口側の天井のぶん構造的に発火しない)。
+    /// </para>
+    /// <para>
+    /// <b>(ii) の実測。</b>数量はhome=distant=2で一致し、上側clamp(2T=4)には達していない
+    /// (非飽和のT=2そのもの)。<b>(iii)</b> は<c>mutator</c>がM-5として測る(後段、本タスクの
+    /// implementerは当てない。ADR-0013)。
     /// </para>
     /// </remarks>
     [Fact]
     public void BudgetGateUsesTheEffectivePriceOnly()
     {
+        // T=2(必需目標在庫日数2)。訂正3の梃子 ── 偽の観測を外向きに使わず、到達在庫を
+        // 上側clampの外(非飽和)に保つことで判別力を保つ(上記remarks参照)。
+        var necessityTargetStockDays = new int[Item.Count];
+        necessityTargetStockDays[Item.Bread] = 2;
+
         var definition = BuildShoppingDefinition(
-            breadFloor: 10, necessityTargetStockDays: TargetStockDaysFor(Item.Bread));
+            breadFloor: 10, necessityTargetStockDays: necessityTargetStockDays);
 
         // 距離0(自区画に売り手)。
         var homeWorld = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
         AddHousehold(homeWorld, id: 0, districtId: 4, Occupation.Woodworker, liquidFunds: 1000);
         AddHousehold(homeWorld, id: 1, districtId: 4, Occupation.Miller);
         homeWorld.Households[1].WorkshopInventory[Item.Bread] = 100;
-        // 買い手自身の入力(木材)・耐久(工具)の需要を中立化する(下記remarks参照。本テストの
+        // 買い手自身の入力(木材)・耐久(工具)の需要を中立化する(上記remarks参照。本テストの
         // 関心はパンだけである)。
         homeWorld.Households[0].WorkshopInventory[Item.Timber] = 100_000;
         homeWorld.Households[0].WorkshopInventory[Item.Tools] = 5;
-
-        // W2-15追随(2026-09-22、裁定表の指示どおり)。distant側だけに置いていた窓口の偽の高値観測
-        // (パン999)をhomeにも同じく入れる ── 決定10・11でこの観測が相場基準としても拾われる
-        // ようになり(下記remarks参照)、home(基礎値=床10)とdistant(基礎値=相場項999由来)の
-        // 対称性が崩れていた。対称にして両者の基礎値を揃え直す。
-        EconomySystemTestFixtures.AdvanceClockOnly(homeWorld, ticks: 24);
-        homeWorld.Knowledge[0].Add(new PriceObservation
-        {
-            ItemId = Item.Bread,
-            LocationId = 0,
-            Price = 999,
-            SellerId = HouseholdState.ExternalMarketSellerId,
-            ObservedAt = Tick.Zero,
-            Source = ObservationSource.Direct,
-        });
 
         EconomySystemTestFixtures.RunDays(homeWorld, new TradeSystem(definition), days: 1);
 
@@ -1134,17 +1145,6 @@ public sealed class TradeSystemTests
         distantWorld.Households[0].WorkshopInventory[Item.Timber] = 100_000;
         distantWorld.Households[0].WorkshopInventory[Item.Tools] = 5;
 
-        EconomySystemTestFixtures.AdvanceClockOnly(distantWorld, ticks: 24);
-        distantWorld.Knowledge[0].Add(new PriceObservation
-        {
-            ItemId = Item.Bread,
-            LocationId = 0,
-            Price = 999,
-            SellerId = HouseholdState.ExternalMarketSellerId,
-            ObservedAt = Tick.Zero,
-            Source = ObservationSource.Direct,
-        });
-
         EconomySystemTestFixtures.RunDays(distantWorld, new TradeSystem(definition), days: 1);
 
         var distantBuyer = distantWorld.Households[0];
@@ -1152,8 +1152,9 @@ public sealed class TradeSystemTests
         // 外出が実際に起きたこと(訪問区画にしか売り手がいない以上、外出しなければ約定しえない)。
         Assert.True(distantBuyer.HouseholdInventory[Item.Bread] > 0);
 
-        // 数量が一致する(外出の費用は数量の解にも予算にも混ざらない。GDD02b §7)。
+        // 数量が一致し、かつ上側clamp(2T=4)に飽和していないこと(訂正3の判別力の確認)。
         Assert.Equal(homeBuyer.HouseholdInventory[Item.Bread], distantBuyer.HouseholdInventory[Item.Bread]);
+        Assert.NotEqual(4, distantBuyer.HouseholdInventory[Item.Bread]);
 
         // 決済額も一致する(実効価格のみを使う。Errand.Costは価値の比較にだけ使われ、
         // LiquidFundsからは一切引かれない)。

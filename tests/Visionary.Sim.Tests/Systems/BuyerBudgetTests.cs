@@ -352,15 +352,22 @@ public sealed class BuyerBudgetTests
     /// テスト表 #4。窓口価格が0と-1でArgumentOutOfRangeException。<c>hasMarketTerm</c> が
     /// true でも false でも投げる(無条件の検査であることの証拠)。
     /// </summary>
+    /// <remarks>
+    /// <b>W2-15 訂正3 赤B(2026-09-22)。</b><c>hasMarketTerm: true, marketTerm: 0</c> の行を足す。
+    /// 旧ガードは<c>windowPrice</c>だけを検査しており、この組は例外を投げずに基礎値0を返していた
+    /// (docの「常に1以上」がガードより広かった)。ガードを戻り値(<c>hasMarketTerm</c>の枝を
+    /// 通った後の値)へ掛け直し、この組でも投げることを確認する。
+    /// </remarks>
     [Theory]
-    [InlineData(true, 0)]
-    [InlineData(true, -1)]
-    [InlineData(false, 0)]
-    [InlineData(false, -1)]
-    public void BaseValueRejectsANonPositiveWindowPrice(bool hasMarketTerm, int windowPrice)
+    [InlineData(true, 100, 0)]
+    [InlineData(true, 100, -1)]
+    [InlineData(false, 100, 0)]
+    [InlineData(false, 100, -1)]
+    [InlineData(true, 0, 50)]
+    public void BaseValueRejectsANonPositiveWindowPrice(bool hasMarketTerm, int marketTerm, int windowPrice)
     {
         Assert.Throws<ArgumentOutOfRangeException>(() =>
-            BuyerBudget.BaseValue(hasMarketTerm, marketTerm: 100, windowPrice));
+            BuyerBudget.BaseValue(hasMarketTerm, marketTerm, windowPrice));
     }
 
     /// <summary>
