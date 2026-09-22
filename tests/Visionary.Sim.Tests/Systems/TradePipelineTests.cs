@@ -1554,9 +1554,21 @@ public sealed class TradePipelineTests
         public List<int> AllHouseholdsEmptyDays { get; } = new();
 
         /// <summary>
-        /// #174 テスト表 #7。自分の出力品目(目標日数が正のものに限る)の世帯在庫が0の日に
-        /// 工房在庫が正だった(世帯Id, 品目Id, 日)。
+        /// #174 テスト表 #7。自家供給できる世帯(目標日数が正の出力品目を持つ世帯)の
+        /// (世帯, 出力品目, 日)の組ごとに、世帯在庫・工房在庫の値を持つ観測。<b>条件の成否に
+        /// かかわらず必ず記録する</b>(M0では自家供給6戸 × 出力品目1 × 30日 = 180件)。
         /// </summary>
+        /// <remarks>
+        /// <b>なぜ記録と絞り込みを分けたか(2巡目レビュー指摘の修正)。</b>旧版は「抱え込みの条件に
+        /// 当たったときだけ<c>HoardedWhileEmptyEntries</c>へ<c>Add</c>する」形だった。この形では
+        /// 「連言(世帯在庫0 かつ 工房在庫正)が0件」という1本の断定しか持てず、<b>経済が健全だから
+        /// 0件なのか、走査そのものが壊れていて0件なのかを区別できない</b>。#7の条件は
+        /// <see cref="SelfConsumption.TransferQuantity"/>の式の帰結として成立する(上の
+        /// <see cref="OwnOutputIsNeverHoardedWhileTheHouseholdGoesWithout"/>のremarks参照)ので、
+        /// 「走査が実際に回ったこと」は連言の断定とは別の留め具で留めるほかない。<b>そこで走査は
+        /// 評価した観測を全件記録し、<see cref="HoardedWhileEmptyEntries"/>はこの観測列の上の
+        /// 絞り込みとして導出する</b>(走査ループの中で条件付きに<c>Add</c>するのをやめた)。
+        /// </remarks>
         /// <remarks>
         /// <b>目標日数0の品目を弾く理由(訂正、レビュー2巡目)。</b>旧版は「含めても恒等的に空である」
         /// と書いていたが偽である ── 製粉は<c>HouseholdInventory[Flour]</c>が常に0(消費表が0・
@@ -1566,7 +1578,28 @@ public sealed class TradePipelineTests
         /// 『世帯在庫0 × 工房在庫正』は病理(抱え込み)ではなく、ただの生産物の在庫である」こと
         /// (テスト表 #9)。
         /// </remarks>
-        public List<(int HouseholdId, int ItemId, int Day)> HoardedWhileEmptyEntries { get; } = new();
+        public List<(int HouseholdId, int ItemId, int Day, int HouseholdStock, int WorkshopStock)>
+            SelfSuppliableObservations
+        { get; } = new();
+
+        /// <summary>
+        /// <see cref="SelfSuppliableObservations"/>の件数。自家供給できる6戸 × 出力品目1 ×
+        /// 30日で180件になるはずである(固定値で assert する。空振り防止であって核心ではない
+        /// ── 走査が回らない・走査範囲が縮む・観測の記録そのものが消える、といった変異を
+        /// この件数が捕まえる)。
+        /// </summary>
+        public int ScannedSelfSuppliableEntryCount => SelfSuppliableObservations.Count;
+
+        /// <summary>
+        /// #174 テスト表 #7(核心)。<see cref="SelfSuppliableObservations"/>のうち
+        /// <see cref="TradePipelineTests.IsHoardedWhileEmpty"/>が真の(世帯Id, 品目Id, 日)。
+        /// 観測列の上の絞り込みとして導出する(上のremarks参照。条件付き<c>Add</c>はしない)。
+        /// </summary>
+        public List<(int HouseholdId, int ItemId, int Day)> HoardedWhileEmptyEntries =>
+            SelfSuppliableObservations
+                .Where(o => TradePipelineTests.IsHoardedWhileEmpty(o.HouseholdStock, o.WorkshopStock))
+                .Select(o => (o.HouseholdId, o.ItemId, o.Day))
+                .ToList();
 
         /// <summary>
         /// 自家供給できる世帯数(M0はパン屋2・木材加工2・醸造2の6戸。空振り防止に使う)。
@@ -1639,6 +1672,7 @@ public sealed class TradePipelineTests
                 + $"条件3: 違反{AllHouseholdsEmptyDays.Count}日 "
                 + $"(day {DaysList(AllHouseholdsEmptyDays)}) / "
                 + $"延べ生産回数={TotalProductionRuns} / 延べ都市内約定={TotalInternalSettlements} / "
+                + $"#174観測件数={ScannedSelfSuppliableEntryCount} / "
                 + $"#174抱え込み件数={HoardedWhileEmptyEntries.Count}";
         }
     }
@@ -1702,6 +1736,31 @@ public sealed class TradePipelineTests
     /// このずれは6.4を足す前は4本とも緑で通っていた(レビュー3巡目の指摘)。データを1行も
     /// 参照せずに落ちている。
     /// </remarks>
+    /// <summary>
+    /// #174 テスト表 #7の判定式。ある観測(世帯在庫・工房在庫の値)について、抱え込み
+    /// (世帯が自分の出力品目を切らしているのに工房在庫は残っている)かどうかを返す。
+    /// <see cref="CitySurvivalScan.HoardedWhileEmptyEntries"/>が観測列を絞り込むのに使う
+    /// (走査ループの中に条件式をインラインで書かない。2巡目レビュー指摘の修正)。
+    /// </summary>
+    private static bool IsHoardedWhileEmpty(int householdStock, int workshopStock) =>
+        householdStock == 0 && workshopStock > 0;
+
+    /// <summary>
+    /// <see cref="IsHoardedWhileEmpty"/>の単体テスト。合成の観測値を直接与えるので、走行を伴わずに
+    /// 判定式の取り違え(<c>== 0</c>→<c>&lt; 0</c>、<c>&gt; 0</c>→<c>&lt; 0</c>、左右の在庫の
+    /// 入れ替え)を検出する(#174 レビュー2巡目の裁定)。
+    /// </summary>
+    [Theory]
+    [InlineData(0, 3, true)] // 世帯在庫0・工房在庫正 → 抱え込み。
+    [InlineData(0, 0, false)] // 世帯在庫0・工房在庫0 → 抱え込みではない(在庫自体が無い)。
+    [InlineData(5, 3, false)] // 世帯在庫正・工房在庫正 → 抱え込みではない(世帯が困っていない)。
+    [InlineData(5, 0, false)] // 世帯在庫正・工房在庫0 → 抱え込みではない。
+    public void IsHoardedWhileEmptyMatchesTheHoardingDefinition(
+        int householdStock, int workshopStock, bool expected)
+    {
+        Assert.Equal(expected, IsHoardedWhileEmpty(householdStock, workshopStock));
+    }
+
     private static CitySurvivalScan ScanThirtyDays(long seed)
     {
         var definition = WorldDefinition.M0;
@@ -1807,8 +1866,9 @@ public sealed class TradePipelineTests
                 scan.AllHouseholdsEmptyDays.Add(day);
             }
 
-            // #174 テスト表 #7。自分の出力品目(自家供給できる品目に限る)について、世帯在庫が0
-            // なのに工房在庫が正である世帯を記録する。
+            // #174 テスト表 #7。自分の出力品目(自家供給できる品目に限る)について、世帯在庫・
+            // 工房在庫の値を条件の成否にかかわらず必ず記録する(絞り込みはCitySurvivalScan.
+            // HoardedWhileEmptyEntriesが観測列の上で行う。2巡目レビュー指摘の修正)。
             foreach (var household in world.Households)
             {
                 var recipe = definition.Recipes[(int)household.Occupation];
@@ -1820,11 +1880,12 @@ public sealed class TradePipelineTests
                         continue;
                     }
 
-                    if (household.HouseholdInventory[output.ItemId] == 0
-                        && household.WorkshopInventory[output.ItemId] > 0)
-                    {
-                        scan.HoardedWhileEmptyEntries.Add((household.Id, output.ItemId, day));
-                    }
+                    scan.SelfSuppliableObservations.Add((
+                        household.Id,
+                        output.ItemId,
+                        day,
+                        household.HouseholdInventory[output.ItemId],
+                        household.WorkshopInventory[output.ItemId]));
                 }
             }
         }
@@ -1876,6 +1937,19 @@ public sealed class TradePipelineTests
     /// 先に確かめる。</b>小麦粉(製粉)・工具(鍛冶)は目標日数0のため自家供給から外れる
     /// (テスト表 #9)。
     /// </remarks>
+    /// <remarks>
+    /// <b>観測件数180の内訳。</b>自家供給6戸(パン屋2・木材加工2・醸造2)× 出力品目1(各職業の
+    /// レシピは出力1件)× 30日 = 180件。
+    /// </remarks>
+    /// <remarks>
+    /// <b>左項(世帯在庫が0だった観測)の到達可能性は assert しない理由と、その実測
+    /// (2026-09-22、フェーズ1の裁定)。</b>「seed=42で左項が0件」は走査の欠陥ではない ──
+    /// そのシードでは自家供給6戸すべてが30日間、一度も世帯在庫0まで下がらない(検出対象の前提
+    /// そのものが成立していない)。実測した30日間の世帯在庫の最小値: household3 item7=1 /
+    /// household4 item6=2 / household5 item7=1 / household6 item5=20 / household7 item5=16 /
+    /// household8 item6=6。<b>これは経済が健全であることの現れであり、走査を疑う根拠にはならない
+    /// ため、左項・右項の到達件数はassert対象にせず、下の核心の失敗メッセージにだけ載せる。</b>
+    /// </remarks>
     [Theory]
     [InlineData(1)]
     [InlineData(2)]
@@ -1890,13 +1964,24 @@ public sealed class TradePipelineTests
         Assert.Equal(30, scan.FinalDayIndex);
         Assert.Equal(6, scan.SelfSuppliableHouseholdCount);
 
+        // 空振り防止(固定値)。自家供給6戸 × 出力品目1 × 30日 = 180件。走査が回らない・
+        // 走査範囲が縮む・観測の記録そのものが消える、といった変異をこの件数が捕まえる
+        // (上のCitySurvivalScan.SelfSuppliableObservationsのremarks参照)。
+        Assert.Equal(180, scan.ScannedSelfSuppliableEntryCount);
+
+        int householdStockZeroCount = scan.SelfSuppliableObservations.Count(o => o.HouseholdStock == 0);
+        int workshopStockPositiveCount =
+            scan.SelfSuppliableObservations.Count(o => o.WorkshopStock > 0);
+
         Assert.True(
             scan.HoardedWhileEmptyEntries.Count == 0,
             $"seed={seed}: 自分の出力品目の世帯在庫が0の日に工房在庫が正だった世帯・品目・日: "
                 + string.Join(
                     "; ",
                     scan.HoardedWhileEmptyEntries.Select(
-                        e => $"householdId={e.HouseholdId} itemId={e.ItemId} day={e.Day}")));
+                        e => $"householdId={e.HouseholdId} itemId={e.ItemId} day={e.Day}"))
+                + $"(診断: 世帯在庫が0だった観測={householdStockZeroCount}件 / "
+                + $"工房在庫が正だった観測={workshopStockPositiveCount}件。留め具ではなく診断のみ)。");
     }
 
     /// <summary>
