@@ -355,6 +355,8 @@ if (effectivePrice > adjustedBaseValue)
 - **計画段(`ErrandPlanner`)に天井は現れない。** `EstimateWindowPrice` は距離 > R かつ記憶が無い日、都市生産品について `ExternalBuyPrice`(= **床10**)を返す。売り手側の `TryEstimateOfferPrice` の3段目も同じ床10。距離も往復時間も同じなので、**両者は完全に同点で、訂正2 の赤1 と同じタイの機構がここでも発火している**
 - 窓口を外しているのは `ErrandPlanner.Plan` の**区画Id昇順の走査と厳密な `>` 更新**である(区画2 が区画4 より先に評価される)。天井が効くのは訪問後の `StoreChoice` の段で、distant 世界では窓口はそもそも訪問区画に入っていない
 
+**この訂正の文面自体が home について広すぎた**(2026-09-22、フェーズ2 が実装の報告とレビュー3巡目で確認)。**上の2点が当てはまるのは distant 世界だけである。** home(買い手が区画4 = 中心、距離 0 ≤ R)では `EstimateWindowPrice` の**1段目**が走り、`ExternalMarket.TryOfferPrice` = `ExternalSellPrice` = **天井20** を計画段でそのまま返す。**home では同点にならず、窓口は単純に高くて負ける。** 実装は本訂正に従わず、home / distant を場合分けして正しく書いた(`9f9076e`)。**コード側の doc が正である。**
+
 **「構造的に発火しない」は「もう見なくてよい」と読ませる記述である。** 実際には売り手を区画8 へ置くだけでタイが逆転する(= 訂正2 の赤1 の caseB とまったく同じ配置)。**同じ変更の中で `NextDaysProductionDropsByTheErrandLaborLoss` と `ExportErrandIsSkippedWhenTheDayIsFull` は同じ機構を「区画Id昇順・厳密 `>`」と正しく書いており、3か所が2通りの説明を持っている。** 訂正2 が「床を上げる梃子」を誤ったのは、まさにこの段の取り違えであった — **3度目を踏ませない。**
 
 **採る直し**: (i) の doc を「区画Id昇順・厳密な `>` 更新で区画2 が先に勝つ。窓口と売り手の見積もりは床で同点であり、天井が効くのは訪問後の `StoreChoice` の段である」へ直す。
