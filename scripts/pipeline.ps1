@@ -21,6 +21,10 @@
     **起動時に 5 時間枠の残りを読み、足りなければ起動しない**(終了コード 4。#132)。
     途中で枠が切れたパイプラインはその場で死に、使った分が消える(#36 で $16、#37 で $30)。
 
+    **`-From impl` のときは、本体が origin/master を含むかも見る**(終了コード 5。#146)。
+    設計をラップトップ、実装パイプラインをデスクトップで回すため、pull を忘れると
+    フェーズ2 が一世代前のタスク仕様を実装する — 出来上がりを読んでも気付けない形になる。
+
 .EXAMPLE
     pwsh scripts/pipeline.ps1 -Issue 35
     pwsh scripts/pipeline.ps1 -Issue 35 -From wrap   # フェーズ3 だけやり直す
@@ -494,6 +498,67 @@ function Test-BudgetGate {
     return $true
 }
 
+function Test-FreshnessGate {
+    <#
+        **本体が origin/master を含んでいるかを見る。** 含んでいれば `$true`、遅れて
+        いれば `$false`。
+
+        設計セッションをラップトップ、実装パイプラインをデスクトップで回す([#146](https://github.com/stama72/visionary/issues/146) 決定1)と、
+        **タスク仕様を push する側と、それを読む側が別のマシンになる。** pull を忘れると
+        フェーズ2 は `docs/tasks/` の一世代前の版を読むか、まだ無いファイルを探す。
+        **前者は「一世代前の仕様の正確な実装」になるので、出来上がりを読んでも気付けない。**
+
+        決定1 が開いたもう一方の穴(コミットし忘れた作業が片方のマシンに取り残される)は
+        機械では塞げないが、**こちらは塞げるので塞ぐ。**
+
+        **`impl` から始めるときだけ見る。** タスク仕様を読むのはフェーズ2 の入口だけで
+        ある。`-From wrap` は停止則の後の再開路で、ここを塞ぐと「走っている間に master が
+        動いた」だけで再開が止まる。枠の閾値が `wrap` だけ別の値を持つのと同じ理由である。
+
+        **fetch できなければ拒否する。逃げ口は置かない。** フェーズ本体は `claude -p` で
+        あり、**ネットワークが無ければどのみち走らない。** 「オフラインでも回したい」が
+        存在しない以上、ここに口を開けても偽陰性が増えるだけである。
+
+        比較対象に `origin/master` ではなく `FETCH_HEAD` を使うのは、リモート追跡ブランチの
+        設定に依存しないためである。
+    #>
+
+    Write-Host ""
+    Write-Host "=== 本体が origin/master を含むかの確認 ===" -ForegroundColor Cyan
+
+    try {
+        & git -C $RepoRoot fetch --quiet origin master 2>&1 | Out-Null
+        $fetched = ($LASTEXITCODE -eq 0)
+    } catch { $fetched = $false }
+
+    if (-not $fetched) {
+        Write-Host "!!! origin から fetch できませんでした。起動しません(fail-closed)。" -ForegroundColor Red
+        Write-Host "    フェーズ本体は claude -p なので、ネットワークが無ければどのみち走りません。"
+        Send-DesktopNotification -Title "Visionary #$Issue — 起動しませんでした" `
+            -Text "origin から fetch できませんでした(fail-closed)。" -Level 'Warning'
+        return $false
+    }
+
+    try {
+        & git -C $RepoRoot merge-base --is-ancestor FETCH_HEAD HEAD 2>&1 | Out-Null
+        $contains = ($LASTEXITCODE -eq 0)
+    } catch { $contains = $false }
+
+    if (-not $contains) {
+        $behind = (@(& git -C $RepoRoot rev-list --count "HEAD..FETCH_HEAD") | Select-Object -First 1)
+        $text = "本体が origin/master より $behind コミット遅れています。git pull してから打ってください。"
+        Write-Host ""
+        Write-Host "!!! $text" -ForegroundColor Yellow
+        Write-Host "    そのまま打つと、フェーズ2 が一世代前のタスク仕様を実装します(#146 決定4)。"
+        Send-DesktopNotification -Title "Visionary #$Issue — 本体が古いので起動しませんでした" `
+            -Text $text -Level 'Warning'
+        return $false
+    }
+
+    Write-Host "    origin/master を含んでいます。" -ForegroundColor Green
+    return $true
+}
+
 function Invoke-Phase {
     param([string]$Command)
 
@@ -616,6 +681,10 @@ if (-not $lockPath) {
 $env:VISIONARY_PIPELINE_ISSUE = [string]$Issue
 
 try {
+    # **古い本体で打たない**(#146 決定4)。枠のプローブより先に置くのは、fetch がタダで
+    # あり、拒否すると分かっているのに $0.11 を払う理由が無いためである。
+    if ($From -eq 'impl' -and -not (Test-FreshnessGate)) { exit 5 }
+
     # **枠が足りなければ起動しない**(#132)。ロックを取った後に置くのは、二重起動の拒否
     # (終了コード 3)が先に出るべきだからである — 走行中と分かっているのにプローブへ
     # $0.11 を払う理由が無い。拒否しても `finally` がロックを外す。
