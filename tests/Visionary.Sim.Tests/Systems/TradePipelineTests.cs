@@ -1999,6 +1999,12 @@ public sealed class TradePipelineTests
     /// </item>
     /// <item><b>R-4</b>(#7 の走査を先頭1戸だけに絞る)は<b>赤(全5シード)</b>。落ちたのは
     /// <b>観測件数180</b>(Actual 30 または 0、シードにより異なる)。核心には到達しない。</item>
+    /// <item><b>R-5</b>(記録時の<c>day</c>を<c>day - 1</c>に変える。Dayのラベルのずれ)は
+    /// <b>未実測</b>。この突き合わせ自体が空振りしうることへの手当て(開発者レビュー、
+    /// 2026-09-23)。<c>Where(o =&gt; o.Day == 30)</c>が0件になると下のforeachのassertが
+    /// 1本も走らず、R-1/R-2を唯一落としている留め具が緑のまま死ぬ。観測件数180は
+    /// <c>SelfSuppliableObservations.Count</c>であり<c>Day</c>の値を留めないので通過する。
+    /// したがって最終日の観測件数(6)を固定値で先に留める。</item>
     /// </list>
     /// <b>R-1〜R-4 はいずれも留め具か空振り防止で落ち、核心には一度も到達していない。これは
     /// 仕様どおりの階層である</b>(記録の正しさを守る留め具が、核心より先に壊れる)。<b>逆に
@@ -2028,7 +2034,16 @@ public sealed class TradePipelineTests
         // 記録した値そのものを走行後の実際の在庫と突き合わせる(上のremarks参照。件数だけでは
         // 「同じ配列を2回読む」取り違えを検出できない)。最終日(day 30)の観測(自家供給6戸ぶん)
         // に限り、世帯・品目は記録された組から引く(ここでハードコードしない)。
-        foreach (var observation in scan.SelfSuppliableObservations.Where(o => o.Day == 30))
+        //
+        // 最終日(day 30)の観測が自家供給6戸ぶん存在することを先に留める(6戸 × 出力品目1)。
+        // これが無いと、dayのラベルがずれる変異で下のループが0周になり、R-1/R-2 を唯一
+        // 落としている突き合わせがassertを1本も走らせないまま緑で通る ── 直前の観測件数180は
+        // SelfSuppliableObservations.Countであり、Dayの値については何も言わないので通過する。
+        var finalDayObservations = scan.SelfSuppliableObservations.Where(o => o.Day == 30).ToList();
+
+        Assert.Equal(6, finalDayObservations.Count);
+
+        foreach (var observation in finalDayObservations)
         {
             var household = scan.World.Households[observation.HouseholdId];
             int actualHouseholdStock = household.HouseholdInventory[observation.ItemId];
