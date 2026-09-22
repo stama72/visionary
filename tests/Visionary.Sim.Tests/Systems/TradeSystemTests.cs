@@ -1026,6 +1026,21 @@ public sealed class TradeSystemTests
     /// </list>
     /// district2の床10・窓口の天井の導出式そのものは動かしていない。
     /// </remarks>
+    /// <remarks>
+    /// <b>配置の変更(2026-09-22、W2-15)。</b>決定10・11で相場項が無い日の基礎値が窓口の当日価格
+    /// (旧版は現金上限)へ変わったことで、上記remarksの偽の観測(パン999)が<b>相場基準としても
+    /// 拾われる</b>ようになった。旧版はhome/distantとも基礎値が現金上限(1000)で、両者とも
+    /// 上側clamp(2T)に張り付いていたので一致していたが、決定10後はhomeが基礎値=床10(相場基準
+    /// 無し)でT、distantが基礎値=相場項(999由来)で2Tになり、対称性が崩れていた(実測: 期待1・
+    /// 実際2)。<b>裁定表の指示どおり、偽の観測をhomeにも同じく入れて対称にした</b>
+    /// (<c>homeWorld</c> でも24tick進めてから同じ<c>PriceObservation</c>を仕込む)。
+    /// <para>
+    /// <b>確かめたこと。</b>この変更後もhomeは窓口(<c>HouseholdState.ExternalMarketSellerId</c>)
+    /// からではなく、区画内のMiller(<c>CounterpartyId=1</c>)から床10でパンを買っている(実測:
+    /// 数量2・単価10)。<b>足場(偽の観測)が本来果たしていた役割 ──
+    /// 窓口を店の候補から実質的に外すこと ── はhome側でも保たれている。</b>
+    /// </para>
+    /// </remarks>
     [Fact]
     public void BudgetGateUsesTheEffectivePriceOnly()
     {
@@ -1041,6 +1056,21 @@ public sealed class TradeSystemTests
         // 関心はパンだけである)。
         homeWorld.Households[0].WorkshopInventory[Item.Timber] = 100_000;
         homeWorld.Households[0].WorkshopInventory[Item.Tools] = 5;
+
+        // W2-15追随(2026-09-22、裁定表の指示どおり)。distant側だけに置いていた窓口の偽の高値観測
+        // (パン999)をhomeにも同じく入れる ── 決定10・11でこの観測が相場基準としても拾われる
+        // ようになり(下記remarks参照)、home(基礎値=床10)とdistant(基礎値=相場項999由来)の
+        // 対称性が崩れていた。対称にして両者の基礎値を揃え直す。
+        EconomySystemTestFixtures.AdvanceClockOnly(homeWorld, ticks: 24);
+        homeWorld.Knowledge[0].Add(new PriceObservation
+        {
+            ItemId = Item.Bread,
+            LocationId = 0,
+            Price = 999,
+            SellerId = HouseholdState.ExternalMarketSellerId,
+            ObservedAt = Tick.Zero,
+            Source = ObservationSource.Direct,
+        });
 
         EconomySystemTestFixtures.RunDays(homeWorld, new TradeSystem(definition), days: 1);
 
@@ -1579,7 +1609,15 @@ public sealed class TradeSystemTests
             laborPermille: 300);
 
         var externalBuyPrice = new int[Item.Count];
-        externalBuyPrice[Item.Grain] = 1; // 床(安い。travelerを誘引する)。
+        // W2-15追随(2026-09-22)。決定10で基礎値が現金上限から窓口の当日価格(=この床)へ落ちた結果、
+        // 床1では支払い意思額が最大2までしか伸びず、外出そのものが起きなくなっていた(実測:
+        // ErrandLaborLossPermille==0)。裁定表の梃子どおり床を30へ上げて支払い意思額を回復する。
+        // 確かめたこと: 窓口(district4)もdistrict2と同じ距離2(travelHoursPerDistrict1で往復4時間、
+        // ともに床の見積もりを使うため見積もり価格も同額)で「同点」になるが、ErrandPlanner.Planは
+        // 区画Id昇順に走査し`>`(厳密な優越)でだけ更新するので、同点は先に評価される区画2が勝つ
+        // (ADR-0002の列挙順規約どおり)。実測でtravelerの購入相手が窓口ではなくSellerId(district2)
+        // であることを確認した(counterparty=SellerId)。
+        externalBuyPrice[Item.Grain] = 30;
         externalBuyPrice[Item.Flour] = 1; // recipeの出力(都市生産品)。値そのものは使わない。
 
         var definition = EconomySystemTestFixtures.BuildDefinition(

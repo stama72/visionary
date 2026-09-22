@@ -797,11 +797,22 @@ public sealed class TradePipelineTests
     /// 参考として残す:</b>同じ変異で同じ <c>Assert.False(boughtBeer, ...)</c> が実際値trueで
     /// 失敗していた(赤を確認)。<b>今回(<c>87d4837</c>)の実測がこれを置き換える。</b>
     /// </remarks>
+    /// <remarks>
+    /// <b>帯の置き直し(2026-09-22、W2-15)。</b>決定10で必需(薪)の基礎値が現金上限から
+    /// 窓口の当日価格(=床)へ落ち、必需の支出が大幅に下がった結果、旧い帯(絞った資金100)でも
+    /// 嗜好(ビール)の約定まで成立するようになった(実測: <c>boughtBeer</c> が実際値true)。
+    /// <b>帯の原意(必需1日分は払えるが必需+嗜好1日分は払えない流動資金)は変わらないので、
+    /// 帯を置き直した。</b>M0・シード1・世帯Id0・3日で流動資金を段階的に振った実測:
+    /// 1〜70は薪の約定が成立しビールの約定が0件のまま、72以降はビールの約定も成立する
+    /// (境界は70と72の間)。安全側に寄せて <c>ScarceLiquidFunds</c> = 50 を採る。
+    /// <c>AmpleLiquidFunds</c>(100,000)・観察日数(3日)は動かしていない(どちらも境界の外なので
+    /// そのまま成り立つ)。
+    /// </remarks>
     [Fact]
     public void NecessityIsSettledBeforePreference()
     {
         const int TargetHouseholdId = 0;
-        const int ScarceLiquidFunds = 100; // 必需は買えるが嗜好へは届かない額(値の検算対象、#28)
+        const int ScarceLiquidFunds = 50; // 必需は買えるが嗜好へは届かない額(値の検算対象、#28。W2-15で置き直した)
         const int AmpleLiquidFunds = 100_000; // 嗜好も届く額(対照。値の検算対象、#28。remarks参照)
 
         var definition = WorldDefinition.M0;
