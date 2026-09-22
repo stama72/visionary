@@ -808,6 +808,21 @@ public sealed class TradePipelineTests
     /// <c>AmpleLiquidFunds</c>(100,000)・観察日数(3日)は動かしていない(どちらも境界の外なので
     /// そのまま成り立つ)。
     /// </remarks>
+    /// <remarks>
+    /// <b>W2-15 訂正4赤C(2026-09-22)。</b>本テストは「必需が嗜好より先に決済される(走査順)」を
+    /// <b>検出しない。</b>帯<c>ScarceLiquidFunds</c>=50はビールの床72を下回るため、嗜好は走査順
+    /// ではなく絶対額(資金不足)で塞がれている ── 70以下は薪の約定が成立しビールが0件、72以降は
+    /// ビールも成立する世界であり、「必需は払えるが嗜好は走査順のせいで買えない」帯はこの世界に
+    /// 存在しない。<c>mutator</c>による実測(M-6、2026-09-22): <c>TradeSystem</c>の需要行の走査を
+    /// <c>demand.Lines.Reverse()</c>に反転しても本テストは<b>緑のまま</b>(赤になるのは
+    /// <see cref="TradeSystemTests.NecessityIsSettledBeforePreference"/> /
+    /// <see cref="TradeSystemTests.NecessityShortfallIsCountedOnBothPaths"/> /
+    /// <see cref="TradeSystemTests.NonNecessityFundsShortfallIsNotCounted"/>の3件)。走査順の規則
+    /// そのものは<see cref="TradeSystemTests.NecessityIsSettledBeforePreference"/>が機械で守って
+    /// いる(同じ変異で赤)。帯の置き直しでは復元できない(M0の価格か世界の構成を変える必要があり
+    /// 本タスクの外、issue化)。名前は変えない(本タスクが<c>NoPurchaseReason.MarketTerm</c>で
+    /// 採った「名前は残しdocの1行が読み手を止める」形にあわせる)。
+    /// </remarks>
     [Fact]
     public void NecessityIsSettledBeforePreference()
     {
@@ -827,12 +842,14 @@ public sealed class TradePipelineTests
 
             var household = world.Households[TargetHouseholdId];
 
-            // 必需(薪)の約定が成立した ── TradeSettlement.Executeが用途で行き先を振り分けるので、
-            // 世帯在庫が増えていることが必需の約定の証拠になる(GDD02b §3.2)。初期の世帯在庫は
-            // その日のうちにConsumptionSystemが使い切るので、値が残っていれば買い直した証拠になる。
+            // 必需(パン)の約定が成立した ── TradeSettlement.Executeが用途で行き先を振り分けるので、
+            // 世帯在庫が増えていることが必需の約定の証拠になる(GDD02b §3.2)。初期の世帯在庫
+            // (パン6、WorldDefinition.cs)は消費2/日(2人世帯)で3日ちょうど0になるので、値が
+            // 残っていれば買い直した証拠になる(W2-15訂正4赤C。薪は初期28・3日で12しか消費しない
+            // ため購入0件でも真になり空振りしていた ── 薪からパンへ差し替えた)。
             Assert.True(
-                household.HouseholdInventory[Item.Firewood] > 0,
-                "必需(薪)の約定が成立しなかった(値の問題の可能性)。");
+                household.HouseholdInventory[Item.Bread] > 0,
+                "必需(パン)の約定が成立しなかった(値の問題の可能性)。");
 
             bool boughtBeer = world.Ledgers[TargetHouseholdId].Any(
                 entry => entry.Direction == LedgerDirection.Purchase && entry.ItemId == Item.Beer);

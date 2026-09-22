@@ -1006,12 +1006,25 @@ public sealed class TradeSystemTests
     /// 定数(流動資金15など)は動かさない。<b>判別力は変異M-5で測り直す</b>。
     /// </remarks>
     /// <remarks>
-    /// <b>W2-15 追随(2026-09-22)。</b>相場項が無い日の基礎値が窓口の当日価格になったこと
-    /// (決定10・11)で、生産の入力(木材)の窓口価格が下がった(<c>ExternalSellPrice(Timber,
-    /// 春) = 1</c>。旧版は基礎値が現金上限級だったため代金2まで払っていた)。
+    /// <b>W2-15 追随(2026-09-22、訂正4赤F)。</b>初版の本remarksは機構を「木材(生産の入力)の
+    /// 代金が2→1に下がった」としていたが誤りである。<b>この世界で木材は1個も買われない</b>
+    /// (旧版でも新版でも)── 買い手はWoodworkerで<c>laborPermille=1</c> → <c>ProductionCapacity
+    /// =1300</c> → <c>DailyInputQuantity(Woodworker, Timber)=1300</c>、生産の入力の現金上限
+    /// <c>CashCap(15, 1300) = FloorDiv(15, 1300) = 0</c> なので、<c>Decide</c>は新旧とも
+    /// <c>NoPurchaseReason.CashCap</c>を返し購入量0のままである。
+    /// <para>
+    /// <b>実際に動いたのは耐久(工具)の行である</b>(このテストの世界ではToolsを出力するレシピが
+    /// 無いため1次産品扱いになり、基礎値は<c>ExternalSellPrice(Tools, 春)</c>を使う)。
+    /// <list type="bullet">
+    /// <item>旧: 基礎値=現金上限15 → 到達在庫=<c>clamp(90000 − CeilDiv(60000×1,15), 0, 60000)
+    /// = 60000</c> → <c>CeilDiv(60000, 30000) = 2個</c> → 代金2 → <c>15−10−2 = 3</c></item>
+    /// <item>新: 基礎値=<c>ExternalSellPrice(Tools, 春) = 1</c> → 到達在庫=<c>clamp(90000 −
+    /// 60000, 0, 60000) = 30000</c> → 1個 → 代金1 → <c>15−10−1 = 4</c></item>
+    /// </list>
+    /// </para>
     /// <c>UnaffordableNecessityCount</c>・各品目の数量(パン1・穀物0)は変わらず、
-    /// <c>LiquidFunds</c> だけが期待3→4へ動く(15−10−1)。原意(必需が先に決済されること)は
-    /// 保たれるので期待値だけを更新する。
+    /// <c>LiquidFunds</c> だけが期待3→4へ動く(15−10−1、代金は工具の1個ぶん)。原意
+    /// (必需が先に決済されること)は保たれるので期待値だけを更新する。
     /// </remarks>
     [Fact]
     public void NecessityIsSettledBeforePreference()
@@ -1037,7 +1050,7 @@ public sealed class TradeSystemTests
         Assert.Equal(0, buyer.UnaffordableNecessityCount);
         Assert.Equal(1, buyer.HouseholdInventory[Item.Bread]); // 必需は約定する
         Assert.Equal(0, buyer.HouseholdInventory[Item.Grain]); // 嗜好はFundsCapで0個
-        // 15 − 10(パンの代金) − 窓口での木材(生産の入力)の代金(W2-15追随。上のremarks参照)。
+        // 15 − 10(パンの代金) − 耐久(工具)の代金1(W2-15追随・訂正4赤F。上のremarks参照)。
         Assert.Equal(4, buyer.LiquidFunds);
     }
 
@@ -1095,15 +1108,27 @@ public sealed class TradeSystemTests
     /// 上回って外出が立つ。
     /// </para>
     /// <para>
-    /// <b>(i) の実測(2026-09-22)。</b>偽の観測を外しても、窓口の見積もり(パンは都市生産品なので
-    /// 3段目の床=<c>ExternalBuyPrice</c>)とMillerの見積もり(同じ床)はタイになりうるが、窓口は
-    /// 都市生産品では実際の提示価格(<c>ExternalSellPrice</c> = 床の2倍=天井)を使う
-    /// (<see cref="StoreChoice"/>)ため、実際の店選びでは常にMillerが厳密に安く勝つ ──
-    /// <c>world.Ledgers[0]</c> を実測したところ home・distant とも購入元は<c>CounterpartyId=1</c>
-    /// (Miller)の1行だけで(数量2・単価10・決済後resources funds=980)、窓口
-    /// (<c>HouseholdState.ExternalMarketSellerId</c>)を相手にした行(購入・輸出のいずれも)は
-    /// 1件も現れない。<b>足場を外しても窓口は店の候補として実際に選ばれていない</b>(赤1と同じ
-    /// タイの機構は、都市生産品では窓口側の天井のぶん構造的に発火しない)。
+    /// <b>(i) の実測(2026-09-22)。</b><c>world.Ledgers[0]</c> を実測したところ home・distant
+    /// とも購入元は<c>CounterpartyId=1</c>(Miller)の1行だけで(数量2・単価10・決済後resources
+    /// funds=980)、窓口(<c>HouseholdState.ExternalMarketSellerId</c>)を相手にした行(購入・輸出
+    /// のいずれも)は1件も現れない。<b>足場を外しても窓口は店の候補として実際に選ばれていない</b>
+    /// が、その理由はhome/distantで異なる(W2-15訂正4赤E。訂正3が書いた「窓口側の天井のぶん
+    /// 構造的に発火しない」は<b>distant側については誤り</b> ── 実測の結論は正しいが機構の説明が
+    /// 違っていた)。
+    /// <list type="bullet">
+    /// <item><b>home</b>(買い手の区画=窓口の中心=区画4、距離0 ≤ R): <see cref="ErrandPlanner"/>
+    /// が<c>EstimateWindowPrice</c>で読むのは「1.今日の知覚」(<c>ExternalSellPrice</c> = 床の
+    /// 2倍=天井20)で、Millerの床10より単純に高い(タイではない)。<see cref="StoreChoice"/>の
+    /// 実際の店選びでも同じ価格差でMillerが厳密に安く勝つ ── ここは元の説明どおりである。</item>
+    /// <item><b>distant</b>(買い手の区画0から中心まで距離2 &gt; R、記憶なし): <c>EstimateWindowPrice</c>
+    /// が読むのは「3.未知価格の床」で、都市生産品でも<c>ExternalBuyPrice</c>(= 床10)を返す。
+    /// Millerの見積もり(同じ床10)とタイになる ── 訂正2の赤1とまったく同じタイの機構である。
+    /// 外しているのは<see cref="ErrandPlanner"/>の区画ループの区画Id昇順の走査と厳密な
+    /// <c>&gt;</c>更新であって天井ではない(区画2が区画4より先に評価され、同点の区画4は
+    /// 上書きしない。<see cref="NextDaysProductionDropsByTheErrandLaborLoss"/> /
+    /// <see cref="ExportErrandIsSkippedWhenTheDayIsFull"/>と同じ機構)。窓口は<b>訪問区画に
+    /// すら入らない</b>ため、天井が効く<see cref="StoreChoice"/>の段まで到達しない。</item>
+    /// </list>
     /// </para>
     /// <para>
     /// <b>(ii) の実測。</b>数量はhome=distant=2で一致し、上側clamp(2T=4)には達していない

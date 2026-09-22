@@ -288,9 +288,13 @@ public static class BuyerBudget
     /// <para>
     /// <b>分岐1に「相場項があり」の条件は無い(決定11)。</b>ゲートが読むのは <see cref="DemandLine.BaseValue"/>
     /// であって <see cref="DemandLine.MarketTerm"/> / <see cref="DemandLine.HasMarketTerm"/> ではない ──
-    /// 相場項が無い日も基礎値(窓口の当日価格)を使ってゲートが立つ。<b>基礎値0の枝は
-    /// <see cref="BaseValue"/> が例外で弾くので到達不能になった</b>(旧版はここで「実効価格が1以上」に
-    /// 支えられた保証を書いていたが、その保証はもう要らない)。
+    /// 相場項が無い日も基礎値(窓口の当日価格)を使ってゲートが立つ。<b>本メソッドは
+    /// <see cref="BaseValue"/> を呼ばない</b> ── 読むのは手組みでも渡せる <c>line.BaseValue</c> であり、
+    /// 生産経路(<see cref="BuyerDemand.BuildLine"/>)が <see cref="BaseValue"/> を通すので0は入らないが、
+    /// それはこのメソッド自身が持つ不変条件ではない。<b>いまも
+    /// <see cref="PurchaseQuantity"/> の除算を守っているのは旧版が書いていた不変条件そのものである</b>
+    /// ── 実効価格 ≥ 1(上の検査)と、分岐1が厳密な <c>&gt;</c> であることにより、<c>BaseValue = 0</c>
+    /// の行が来ても分岐1が必ず立ち、除算まで届かない。
     /// </para>
     /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="effectivePrice"/> が0以下。</exception>
