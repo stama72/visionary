@@ -322,6 +322,8 @@ pwsh scripts/pipeline.ps1 -Status
 
 停止則に当たった後の再開や、パイプラインを使わない場合は、**開発者が `/clear` してから** `/impl <issue番号>` `/wrap <issue番号>` を開く。フェーズ3 だけやり直すなら `pwsh scripts/pipeline.ps1 -Issue 35 -From wrap`。
 
+**手で回すときも `--bg` のセッションの中から打つ**([#146](https://github.com/stama72/visionary/issues/146) 決定11)。上の「フェーズ1 は背景セッションで開く」と同じ規律である。**ここを外に置くと、いちばん踏みやすい経路に同じ穴が開いたまま残る** — 停止則に当たった後の再開は、出先で起きる場面だからである。
+
 **`/clear` は機械で守れない。** 忘れても何も壊れないが、節約も起きない。パイプラインを通す限りこれは起きない — 境界がプロセス境界になるためである。
 
 **モデルも自分で選ぶ。上の表の Sonnet を握っているのはパイプラインの `--model` だけである** — 手で開けば `/impl` も `/wrap` も既定(opus)で走る。`wrap.md` に `model:` を置いても対話では効かないので、[ADR-0014](../adr/0014-interactive-sessions-follow-the-default-model.md) で外した。**フェーズ3 を sonnet で回したいなら、開くときに自分で選ぶ。**
