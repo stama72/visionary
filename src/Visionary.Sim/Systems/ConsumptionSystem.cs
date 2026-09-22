@@ -12,8 +12,9 @@ namespace Visionary.Sim.Systems;
 /// <b>乱数を一切引かない。</b><see cref="ProductionSystem"/> と同じ理由(TDD01 §3.1)。
 /// </para>
 /// <para>
-/// <b>触るのは世帯在庫だけである。</b>工房在庫の薪(itemId 5、生産入力でもある)には触れない
-/// (TDD01 §3.2)。
+/// <b>減らすのは世帯在庫だけである</b>(消費)。<b>工房在庫を減らすのは自家消費の移動だけで、
+/// 対象は自分のレシピの出力品目に限る</b>(GDD02b §1.1)。<b>生産の入力として抱えている
+/// 工房在庫には触れない</b>。
 /// </para>
 /// <para>
 /// <b>#40(NeedGeneration)への申し送り。</b>ここが書く <see cref="HouseholdState.UnmetConsumption"/>
@@ -54,6 +55,8 @@ public sealed class ConsumptionSystem : ISimSystem
 
     private void RunOneHousehold(World world, HouseholdState household, Season season)
     {
+        TakeOwnOutputHome(world, household, season); // GDD02b §1.1。消費の前
+
         for (int itemId = 0; itemId < _definition.ItemCount; itemId++)
         {
             // 消費量の計算は1か所にしか置かない(#36 タスク仕様)。目標在庫(#36)の先読みも
@@ -66,6 +69,39 @@ public sealed class ConsumptionSystem : ISimSystem
             // 不足が無い日も0で上書きする。不足した日だけ書くと、前日の不足が
             // #40 の Need として残り続ける(タスク仕様)。
             household.UnmetConsumption[itemId] = requiredQuantity - consumedQuantity;
+        }
+    }
+
+    /// <summary>自家消費(GDD02b §1.1)。移すのは自分のレシピの出力品目だけである。</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>走査するのは <c>recipe.Outputs</c> であって全品目ではない。</b>全品目を走ると、パン屋が
+    /// 生産の入力として抱えている工房在庫の薪を食べてしまう ── 薪は必需の消費財でもあり
+    /// (GDD02 §2.2)、<see cref="SellableStock"/> の留保(入力1回分 = 1個)は1個しか守らない。
+    /// 自家消費は「自分が作ったものを食べる」であって「工房にあるものを食べる」ではない
+    /// (GDD02b §1.1「対象品目 = 自分のレシピの出力品目」)。
+    /// </para>
+    /// <para>
+    /// <b><c>recipe.Outputs</c> は配列であり、列挙順は定義順で確定している</b>(ADR-0002)。
+    /// 並べ替えない。同じ品目が2回現れる定義なら2回目は更新後の在庫を見るが、M0 に該当は無く、
+    /// 順序が結果を変えるだけで非決定にはならない。
+    /// </para>
+    /// <para>
+    /// <b>世帯の走査順(Id昇順)は既存のループがそのまま持つ。</b>自家消費は世帯内で閉じている
+    /// (共有資源に触れない)ので、順序が結果を変えない。
+    /// </para>
+    /// </remarks>
+    private void TakeOwnOutputHome(World world, HouseholdState household, Season season)
+    {
+        var recipe = _definition.Recipes[(int)household.Occupation];
+
+        foreach (var output in recipe.Outputs)
+        {
+            int quantity = SelfConsumption.TransferQuantity(
+                _definition, world, household, output.ItemId, season);
+
+            household.WorkshopInventory[output.ItemId] -= quantity;
+            household.HouseholdInventory[output.ItemId] += quantity;
         }
     }
 }
