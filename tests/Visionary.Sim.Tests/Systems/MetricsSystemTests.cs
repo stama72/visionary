@@ -139,6 +139,13 @@ public sealed class MetricsSystemTests
     /// <b>この穴は塞いでいない</b> ── 順10 が最終日以外に日次カウンタを消す変異を、本テストは
     /// 検出しない(3巡目 I-a)。
     /// </para>
+    /// <para>
+    /// <b><c>mutator</c> による実測(2026-09-24、07da3de、ベースライン571件全緑)。</b>上記の
+    /// <c>household.LiquidFunds = 0;</c> を <c>MetricsSystem.Step</c> の世帯ループ先頭に実際に
+    /// 挿入したところ、期待どおり赤になった(3件: 本テスト /
+    /// <see cref="MoneyTotalMovesOnlyByExportsAndImports"/> /
+    /// <see cref="PartnerSwitchReflectsChangedSellers"/>)。
+    /// </para>
     /// </remarks>
     [Fact]
     public void MetricsDoesNotChangeTheStateHash()
@@ -193,6 +200,17 @@ public sealed class MetricsSystemTests
     }
 
     /// <summary>#3(核心)。30日、日次の money_total の差が毎日 export_value − import_value に一致する。</summary>
+    /// <remarks>
+    /// <b><c>mutator</c> による実測(2026-09-24、07da3de、ベースライン571件全緑)。</b>
+    /// <c>MetricsSystem.Step</c> の世帯ループ先頭への <c>household.LiquidFunds = 0;</c> の追加は
+    /// 期待どおり赤(3件、本テストを含む。詳細は
+    /// <see cref="MetricsDoesNotChangeTheStateHash"/> の remarks)。<c>isWindowCounterparty</c> の
+    /// <c>==</c> を <c>!=</c> へ反転する変異も期待どおり赤(4件: 本テスト /
+    /// <see cref="TradesAndCountColumnsAreNotSwapped"/> /
+    /// <see cref="HhiReflectsInternalSettlementConcentration"/> /
+    /// <see cref="WindowPurchasesAreASubsetOfSettlements"/>)── 窓口判定が反転すると
+    /// export/import の内外が入れ替わり、money_total の日次差分が一致しなくなる。
+    /// </remarks>
     [Fact]
     public void MoneyTotalMovesOnlyByExportsAndImports()
     {
@@ -221,6 +239,16 @@ public sealed class MetricsSystemTests
     /// #4(核心)。初日、必需(パン)が現金を持っていったあとの生産の入力(木材)の購入が
     /// 資金上限の切り詰め(段5b経路(2))で0になり、input_blocked_households が1以上になる。
     /// </summary>
+    /// <remarks>
+    /// <b><c>mutator</c> による実測(2026-09-24、07da3de、ベースライン571件全緑)。</b>
+    /// <c>TryPurchaseLine</c> の経路(2)(<c>fundsCap == 0</c>)の <c>InputBlockedByFunds</c> 代入を
+    /// 削っても、<b>本テストは緑のまま通った</b>。本テストの世帯は流動資金
+    /// <c>BreadFloor</c>(&gt;0)を持つため、実際にこの世帯日を赤くしているのは経路(2)ではなく
+    /// 段4の <c>CashCap == 0</c> 経路であり、本テストは経路(2)を検出できていない
+    /// (タスク仕様が本テストを経路(2)の核心に指定していたのは仕様の誤りで、2巡目 I-a の訂正どおり
+    /// 実測でも裏付けられた)。経路(2)を実際に検出するのは
+    /// <see cref="InputBlockedCountsWhenFundsCapTruncates"/> である。
+    /// </remarks>
     [Fact]
     public void InputBlockedCountsTheFirstDay()
     {
@@ -249,6 +277,11 @@ public sealed class MetricsSystemTests
     /// #5(核心)。流動資金0の世帯は、生産の入力の店が1件も選ばれない日でも
     /// input_blocked_households が1になる(段4の CashCap==0 だけで拾える)。
     /// </summary>
+    /// <remarks>
+    /// <b><c>mutator</c> による実測(2026-09-24、07da3de、ベースライン571件全緑)。</b>段4
+    /// (<c>CashCap == 0</c>)の <c>InputBlockedByFunds</c> 代入を削ると、期待どおり赤になった
+    /// (2件: 本テスト / <see cref="InputBlockedDoesNotLatchAcrossDays"/>)。
+    /// </remarks>
     [Fact]
     public void InputBlockedCountsTheDayWithNoStore()
     {
@@ -302,6 +335,12 @@ public sealed class MetricsSystemTests
     /// が資金が尽きている」状態になる ── <c>TradeSettlement.FundsCap(0, 1) == 0</c> で
     /// 経路(2)が立つ。事前に手計算した値(段4のCashCap=1)を <c>BuyerDemand.Build</c> を直接
     /// 呼んで確認済み(2026-09-24、この変更のための実測)。
+    /// </para>
+    /// <para>
+    /// <b><c>mutator</c> による実測(2026-09-24、07da3de、ベースライン571件全緑)。</b>
+    /// <c>TryPurchaseLine</c> の経路(2)(<c>fundsCap == 0</c>)の <c>InputBlockedByFunds</c> 代入を
+    /// 削ると、期待どおり赤(1件、本テストのみ)になった。<see cref="InputBlockedCountsTheFirstDay"/>
+    /// は同じ変異で緑のまま通った(想定どおり ── 詳細はそちらの remarks)。
     /// </para>
     /// </remarks>
     [Fact]
@@ -497,6 +536,12 @@ public sealed class MetricsSystemTests
     }
 
     /// <summary>#12。全日・全品目で window_settled_count <= settled_count。窓口からの輸入しか無い日は一致する。</summary>
+    /// <remarks>
+    /// <b><c>mutator</c> による実測(2026-09-24、07da3de、ベースライン571件全緑)。</b>
+    /// <c>MetricsSystem</c> の <c>isWindowCounterparty</c> の <c>==</c> を <c>!=</c> へ反転すると、
+    /// 期待どおり赤になった(4件、本テストを含む。詳細は
+    /// <see cref="MoneyTotalMovesOnlyByExportsAndImports"/> の remarks)。
+    /// </remarks>
     [Fact]
     public void WindowPurchasesAreASubsetOfSettlements()
     {
@@ -521,6 +566,16 @@ public sealed class MetricsSystemTests
     }
 
     /// <summary>#13(核心)。区画Aの買い手が区画Bの売り手から買った日、districts.csv の行の district_id がA。</summary>
+    /// <remarks>
+    /// <b><c>mutator</c> による実測(2026-09-24、07da3de、ベースライン571件全緑)。</b>
+    /// <c>districts.csv</c> の集計キーを買い手の <c>DistrictId</c> から売り手のそれへ差し替えると、
+    /// 期待どおり赤になった(13件)。<b>ただしその多くは値のズレではなく
+    /// <see cref="IndexOutOfRangeException"/> で落ちた</b> ── 窓口(輸入元)の
+    /// <c>CounterpartyId</c> は <see cref="HouseholdState.ExternalMarketSellerId"/>
+    /// (<c>int.MaxValue</c>)であり、<c>world.Households</c> の添字として使えないためである。
+    /// 買い手の区画で集計する実装上の理由(窓口には区画もHouseholdもない)が、値の食い違いを
+    /// 待たずに実行時例外として先に露出した形になる。
+    /// </remarks>
     [Fact]
     public void DistrictRowsUseTheBuyerDistrict()
     {
@@ -543,6 +598,11 @@ public sealed class MetricsSystemTests
     /// <summary>
     /// #14(核心)。パン屋(出力2個/回)が6回実行した日、run_cost × 6 が引かれる(× 12ではない)。
     /// </summary>
+    /// <remarks>
+    /// <b><c>mutator</c> による実測(2026-09-24、07da3de、ベースライン571件全緑)。</b>
+    /// <c>profit</c> の式に <c>recipe.Outputs[0].Quantity</c> を掛けると、期待どおり赤(1件、
+    /// 本テストのみ)になった。
+    /// </remarks>
     [Fact]
     public void ProfitUsesRunsNotOutputUnits()
     {
@@ -652,12 +712,20 @@ public sealed class MetricsSystemTests
     /// その母数に入らない。
     /// </summary>
     /// <remarks>
+    /// <para>
     /// HHI の母数は <c>Sale</c> 行から積む(<c>MetricsSystem.Step</c>)。初稿は窓口の行を
     /// <c>Purchase</c> で置いていたため、分子にも分母にも到達せず、「窓口を母数に入れた」
     /// (窓口除外の <c>else</c> を外す)変異が緑のまま通っていた。ここでは <c>Sale</c> かつ
     /// 相手=予約Id(= 輸出)の行を都市内の売り手(household1)に1本足す ── 除外を外すと
     /// household1 の内部シェアが跳ね上がり、下記の期待値(都市内合計100だけを母数にした
     /// 520000)と食い違う。<b>この食い違いが除外の証拠になる。</b>
+    /// </para>
+    /// <para>
+    /// <b><c>mutator</c> による実測(2026-09-24、07da3de、ベースライン571件全緑)。</b>
+    /// <c>MetricsSystem</c> の <c>isWindowCounterparty</c> の <c>==</c> を <c>!=</c> へ反転すると、
+    /// 期待どおり赤になった(4件、本テストを含む。詳細は
+    /// <see cref="MoneyTotalMovesOnlyByExportsAndImports"/> の remarks)。
+    /// </para>
     /// </remarks>
     [Fact]
     public void HhiReflectsInternalSettlementConcentration()
@@ -709,6 +777,12 @@ public sealed class MetricsSystemTests
     /// internal_settlement_value=110。settled_min=5(輸入)、settled_max=90(内部)で
     /// settled_min≠settled_max。household1の輸出(単価7・数量4)で
     /// export_quantity(4)≠import_quantity(3)。
+    /// </para>
+    /// <para>
+    /// <b><c>mutator</c> による実測(2026-09-24、07da3de、ベースライン571件全緑)。</b>
+    /// <c>MetricsSystem</c> の <c>isWindowCounterparty</c> の <c>==</c> を <c>!=</c> へ反転すると、
+    /// 期待どおり赤になった(4件、本テストを含む。詳細は
+    /// <see cref="MoneyTotalMovesOnlyByExportsAndImports"/> の remarks)。
     /// </para>
     /// </remarks>
     [Fact]
@@ -762,10 +836,19 @@ public sealed class MetricsSystemTests
     /// 2日目に流動資金を増やして段4のCashCap==0を外す。
     /// </summary>
     /// <remarks>
+    /// <para>
     /// <c>TradeSystem.Step</c> 先頭の <c>world.Metrics.BeginDay()</c> を削ると、
     /// <c>InputBlockedByFunds</c> は <c>= 1</c> としてしか書かれないため初日の値が2日目も残り、
     /// 本テストの2日目の assert(0を期待)が赤になる。この列を読む #4・#5・#24・#16 はすべて
     /// 1日しか走らせないため latch を検出できない(2巡目 I-b)。
+    /// </para>
+    /// <para>
+    /// <b><c>mutator</c> による実測(2026-09-24、07da3de、ベースライン571件全緑)。</b>
+    /// 上記の <c>BeginDay()</c> 削除は期待どおり赤(2件: 本テスト /
+    /// <see cref="PartnerSwitchReflectsChangedSellers"/>)。段4(<c>CashCap == 0</c>)の
+    /// <c>InputBlockedByFunds</c> 代入を削る変異も期待どおり赤(2件: 本テスト /
+    /// <see cref="InputBlockedCountsTheDayWithNoStore"/>)。
+    /// </para>
     /// </remarks>
     [Fact]
     public void InputBlockedDoesNotLatchAcrossDays()
@@ -870,6 +953,7 @@ public sealed class MetricsSystemTests
     /// partner_switch_permille が定義された値(全部変わった→1000、同じ相手→0)になる。
     /// </summary>
     /// <remarks>
+    /// <para>
     /// <b>相手を切り替える経路は生産の入力(穀物)である。</b>この定義は必需・嗜好の目標在庫日数を
     /// 0にしてある(<see cref="BuildGrainInputDefinition"/> は必需・嗜好を渡さないので既定の
     /// 全品目0になる)ため、唯一の需要行は生産の入力(穀物)だけである。<c>ProductionSystem</c>を
@@ -880,6 +964,16 @@ public sealed class MetricsSystemTests
     /// の代入か <c>BeginDay()</c> の Current→Previous の移し替えのどちらを削っても、
     /// switchDenominator が0のまま(<c>PartnerSwitchPermille == -1</c>)になり、下の
     /// <c>Assert.Equal(1000, …)</c> / <c>Assert.Equal(0, …)</c> のいずれも赤になる。
+    /// </para>
+    /// <para>
+    /// <b><c>mutator</c> による実測(2026-09-24、07da3de、ベースライン571件全緑)。</b>
+    /// 上記3つの変異はいずれも期待どおり赤になった ──
+    /// <c>MetricsSystem.Step</c> の世帯ループ先頭への <c>household.LiquidFunds = 0;</c> の追加
+    /// (3件、本テストを含む)、<c>TryPurchaseLine</c> の約定成立直後の
+    /// <c>CurrentCounterpartyId</c> 代入の削除(1件、本テストのみ)、
+    /// <c>TradeSystem.Step</c> 先頭の <c>world.Metrics.BeginDay();</c> の削除
+    /// (2件: 本テスト / <see cref="InputBlockedDoesNotLatchAcrossDays"/>)。
+    /// </para>
     /// </remarks>
     [Fact]
     public void PartnerSwitchReflectsChangedSellers()
