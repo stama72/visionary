@@ -2481,13 +2481,18 @@ public sealed class TradeSystemTests
     }
 
     /// <summary>
-    /// 【核心】W2-19 タスク仕様テスト表 #20。1日目に売り手不在で買えず
-    /// <c>UnfilledPurchase</c> が立ち、2日目に売り手が現れて買えると 0 に戻る。
+    /// W2-19 タスク仕様テスト表 #20。1日目に売り手不在で買えず <c>UnfilledPurchase</c> が立ち、
+    /// 2日目に売り手が現れて買えると 0 に戻る。
     /// </summary>
     /// <remarks>
-    /// <b>核心。変異: <c>RunOneHouseholdsShopping</c> 冒頭の <c>UnfilledPurchase</c> のクリアを
-    /// 消す(<c>Array.Clear</c> を外す)/ 期待 赤。</b>クリアが無いと2日目に買えても前日の値が
-    /// 足し込まれたまま残る。
+    /// <b>「核心」印は無い(レビュー2巡目 象限I-a の訂正)。</b>本テストが守っているのは
+    /// <c>RunOneHouseholdsShopping</c> 走査後の「その日1個でも買えた品目を0へ戻す」側であって、
+    /// 冒頭の <c>Array.Clear(household.UnfilledPurchase)</c> ではない ── 2日目はその品目を
+    /// 実際に買えているので、冒頭のクリアを消しても走査後の0戻しが最後に0を書き、本テストは
+    /// 変異で赤にならない(手元の実測で確認済み)。<b>冒頭の <c>Array.Clear</c> を守るのは
+    /// <see cref="UnfilledPurchaseDoesNotPersistWhenNoLineAddsToIt"/>(別表#30。「核心」印は
+    /// そちらにある)である</b> ── あちらは「買えず、かつ足し込みも起きない品目」の経路を通し、
+    /// 本テストが踏まない <c>Array.Clear</c> 単体の経路を踏む。
     /// </remarks>
     [Fact]
     public void UnfilledPurchaseIsClearedEveryDay()
@@ -2519,11 +2524,12 @@ public sealed class TradeSystemTests
     /// → 0 に戻る。
     /// </summary>
     /// <remarks>
-    /// <b>#20 の「核心」印はこのテストへ移る。</b>1巡目の修正で入った「走査後に、その日1個でも
-    /// 買えた品目を0に戻す」経路が、#20 の2日目(その品目を買えた日)を丸ごと引き受けてしまう ──
-    /// 冒頭の <c>Array.Clear</c> を消しても最後に0が書かれるので、#20 は変異で赤にならない。
-    /// <c>Array.Clear</c> が今も必要なのは「買えず、かつ足し込みも起きない品目」の経路であり、
-    /// それを踏むのが本テストである(タスク仕様「別表」#30)。
+    /// <b><see cref="UnfilledPurchaseIsClearedEveryDay"/>(#20)の「核心」印はこのテストへ移る。</b>
+    /// 1巡目の修正で入った「走査後に、その日1個でも買えた品目を0に戻す」経路が、#20 の2日目
+    /// (その品目を買えた日)を丸ごと引き受けてしまう ── 冒頭の <c>Array.Clear</c> を消しても
+    /// 最後に0が書かれるので、#20 は変異で赤にならない。<c>Array.Clear</c> が今も必要なのは
+    /// 「買えず、かつ足し込みも起きない品目」の経路であり、それを踏むのが本テストである
+    /// (タスク仕様「別表」#30)。
     /// <para>
     /// <b>核心。変異: <c>RunOneHouseholdsShopping</c> 冒頭の <c>Array.Clear(household.UnfilledPurchase)</c>
     /// を消す / 期待 赤。</b>
