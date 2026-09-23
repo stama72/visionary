@@ -161,7 +161,8 @@ public static class StateHasher
 
         // 配列の添字順 = 世帯Id 昇順(ADR-0002)。区画Id を含めるのは、不変だが初期配置の一部で
         // あり、シードから決まる世界の同一性に属するため(§3.8)。破産中フラグを含めるのは、
-        // GDD02b §3.3 の②(値付けで原価下限を 500‰ へ下げる)と④のゲートを駆動するため。
+        // GDD02c §1.4 の②(価格係数‰ を 500 に固定する。床は破らない)と GDD02b §4.1 の④の
+        // ゲートを駆動するため。
         WriteSectionHeader(hasher, buffer, Section.Households, world.Households.Length);
         foreach (var household in world.Households)
         {

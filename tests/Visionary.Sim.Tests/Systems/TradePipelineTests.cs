@@ -25,6 +25,8 @@ public sealed class TradePipelineTests
     {
         new ProductionSystem(definition),
         new ConsumptionSystem(definition),
+        new HouseholdSystem(definition), // 順3(#39)。順5(Trade)より後に置いてはならない
+                                          // (②が同一tick内で循環する。GDD02b §3.3 / TDD01 §3.3)。
         new TradeSystem(definition),
     };
 
@@ -1340,55 +1342,91 @@ public sealed class TradePipelineTests
         return count;
     }
 
-    /// <summary>失敗メッセージ用。鍛冶ごとの工房在庫[工具]を世帯Id昇順で並べる(ADR-0002)。</summary>
-    private static string ToolInventorySnapshot(World world)
+    /// <summary>
+    /// 失敗メッセージ用。職業Id昇順(ADR-0002)に「職業=担い手数」を並べる
+    /// (<see cref="EveryOccupationKeepsAtLeastOneCarrierOverSixtyDays"/> が違反日の職業分布を
+    /// 記録するのに使う)。
+    /// </summary>
+    private static string OccupationDistributionSnapshot(WorldDefinition definition, World world)
     {
         var snapshot = new System.Text.StringBuilder();
 
-        foreach (var household in world.Households)
+        for (int occupationId = 0; occupationId < definition.OccupationCount; occupationId++)
         {
-            if (household.Occupation == Occupation.Smith)
+            var occupation = (Occupation)occupationId;
+
+            if (occupationId > 0)
             {
-                snapshot.Append($" household{household.Id}={household.WorkshopInventory[Item.Tools]}");
+                snapshot.Append(' ');
             }
+
+            snapshot.Append($"{occupation}={OccupationReassignment.CarrierCount(world, occupation)}");
         }
 
         return snapshot.ToString();
     }
 
     /// <summary>
-    /// 【核心】W2-14 タスク仕様テスト表 #10(検出器)。M0・シード1/2/3/7/42・60日。各日の終わりに
-    /// <c>world.Market</c> のうち工具の売り注文を数える ── どの日も1件以上(#148 訂正9)。
+    /// 【核心】#39裁定D-C(2026-09-23)。M0・シード1/2/3/7/42・60日。旧
+    /// <c>ToolOffersNeverDisappearOverSixtyDays</c>(W2-14 タスク仕様テスト表 #10)の置き直し。
+    /// 各日の終わりに、5職業すべてについて <see cref="OccupationReassignment.CarrierCount"/> が
+    /// 1以上(= GDD02b §4.2「最後の1世帯は付け替えない」が供給の消滅を構造的に防ぐことを、
+    /// 品目ではなく職業を主語にして機械で守る)。
     /// </summary>
     /// <remarks>
-    /// <b>判定対象が <c>world.Market</c> である以上、走行後に1回走査する形は採れない。</b>
-    /// <see cref="TradeSystem"/> 段2 が毎日 <c>world.Market.Clear()</c> を呼ぶので、売り注文は
-    /// その日のうちにしか存在しない(<see cref="MoneyChangesOnlyByTheExternalLedger"/> 等の
-    /// <c>world.Ledgers</c>(追記のみで剪定されない)を走行後に1回走査する検出器とは構造が違う
-    /// 理由がこれである)。
+    /// <b>旧テストの日次断定(工具の売り注文が毎日1件以上)は、④の下では成り立たず、成り立たせても
+    /// ならない。</b>④で鍛冶に入ったばかりの世帯は入力(鉄鉱石・木炭)を持たないので生産できず、
+    /// 工具在庫は留保の1個だけで販売在庫0になる ── GDD02b §4.1 が「②が発火した翌日にはほぼ必ず
+    /// 販売在庫が尽きる」と書いた状態そのものである。日次下限を維持する手は冷却期間か④の抑制
+    /// しかなく、どちらもGDD02b §4.1が却下済みの調整軸である(#39裁定D-C)。
     /// </remarks>
     /// <remarks>
-    /// <b>下限は1件/日。緩めない(#148 訂正9)。</b>健全な走行では工具の売り注文は毎日立つ。
-    /// 0件の日は鍛冶の工房在庫が1個まで痩せた兆候であり、それ自体が検出したい事象である。
-    /// 訂正9は「0件の日を許容する」という初版の向きを反転させたものなので、閾値を緩める方向の
-    /// 変更は仕様の後退である。
+    /// <b>置き直した理由(実測、2026-09-23、<c>a38b5b2</c>)。</b>シード7では day 33 の時点で、
+    /// day 0 の鍛冶2戸(household2・household9)がどちらも鍛冶を降りており、唯一の鍛冶は
+    /// household8 である(工具在庫1 = <see cref="SellableStock"/> の留保ぶんだけ)。経路は
+    /// GDD02b §4.2の規則どおりで、担い手0は一度も起きていない
+    /// (household2が④で降りる[2→1] → household8が④で入る[1→2] → household9が④で降りる[2→1]。
+    /// 「最後の1世帯は付け替えない」がhousehold8を守る)。<b>「担い手0を防ぐ」は守られており、
+    /// 「担い手2を保つ」は初めから誰も保証していない</b>(GDD02b §4.2「ただし防いでいるのは
+    /// 担い手0だけであり、2→1への減少は防がない」)。旧テストは「職業が不変だった世界で
+    /// 『担い手2が続くこと』」を暗黙の母集団にしていた。
     /// </remarks>
-    /// <remarks><b>最初の違反で止めない。</b>60日を走り切り、最小件数とその日を記録して最後に
-    /// 1回だけ assert する(<see cref="SettledPricesAtTheCentreStayWithinTheBandOverSixtyDays"/>
-    /// が「最初の違反で止まると超過の上限が測れない」で採った規律と同じ)。</remarks>
     /// <remarks>
-    /// <b>変異M-1の実測</b>(<c>mutator</c>、2026-09-21、HEAD <c>0da66a4</c>)。<c>SellableStock.
-    /// ReserveQuantity</c> が常に0を返す(留保を消す)変異を当てると、本テストはシード7のみ赤で、
-    /// シード1・2・3・42 は緑のままだった。<b>これは検出器の壊れではなく、期待の向きが逆になる
-    /// ためである。</b> 留保がある世界では工房在庫1→販売在庫0で段1が売り注文を立てないので
-    /// 「0件の日」は在庫が1個まで痩せた兆候になるが、M-1 で留保そのものを消すと工房在庫1でも
-    /// 売り注文は立つため、0件になるのは在庫が0の日だけになる ── 変異は本テストの下限を
-    /// 満たしやすくする方向に働く。留保の核心は
-    /// <see cref="SmithNeverRunsOutOfToolsOverSixtyDays"/>(全5シード赤)が担保する。**本テストの
-    /// 断定は、どの変異(M-1〜M-6)でも担保されていない**(将来この下限を緩めても mutator の
-    /// 測定結果は変わらない)。この穴は issue へ落とした(W2-14 タスク仕様「M-1がテスト10を
-    /// 動かさない理由」)。それでも本テストは「鍛冶の生産が完全に止まったこと」の検出器として
-    /// 意味を持つので外さない。
+    /// <b>これは緩めた置き直しではない。</b>GDD02b §4.2の「最後の1世帯は付け替えないが供給の消滅を
+    /// 構造的に防ぐ」を、テストが初めて機械で守ることになる。品目ではなく職業を主語にするので、
+    /// 工具に限らず5品目すべての供給消滅を1本で拾う。
+    /// </remarks>
+    /// <remarks>
+    /// <b>旧remarksのうち残すもの(#39裁定D-Cの指示)。</b>変異M-1(<c>mutator</c>、2026-09-21、
+    /// HEAD <c>0da66a4</c>)の実測: <c>SellableStock.ReserveQuantity</c> が常に0を返す(留保を消す)
+    /// 変異を当てると、旧テストはシード7のみ赤で、シード1・2・3・42は緑のままだった ── 留保がある
+    /// 世界では工房在庫1→販売在庫0で段1が売り注文を立てないので「0件の日」は在庫が1個まで痩せた
+    /// 兆候になるが、M-1で留保そのものを消すと工房在庫1でも売り注文は立つため、0件になるのは
+    /// 在庫が0の日だけになる(期待の向きが逆になる)。<b>旧テストの断定は、どの変異(M-1〜M-6)でも
+    /// 担保されていなかった</b>(留保の核心は<see cref="SmithNeverRunsOutOfToolsOverSixtyDays"/>
+    /// [全5シード赤]が持つ)。これが日次下限を落としてよい根拠そのものである。
+    /// </remarks>
+    /// <remarks>
+    /// <b>④が実際に発火することの断定(#39レビュー3巡目 #21、2026-09-23)。</b>裁定D-A・D-B・D-Cが
+    /// 固定値と日次下限を落とした根拠は「④が職業分布を動かす」の1点だが、置き直した3本
+    /// (D-A・D-B・D-C)はどれも④が1度も発火しない世界でも緑になる(D-Aは6/180/6で下限を満たし、
+    /// D-Cは全職業2のままで担い手 ≥ 1 を満たす)。④が到達不能になった日、残るのは理由の消えた
+    /// 緩い検出器である。そこで本テストへ「60日のうち少なくとも1日、職業分布がday 0と異なる」
+    /// ことを断定として足す。<b>実測(2026-09-23、最初に職業分布がday 0と異なった日)</b>:
+    /// seed=1: day10 / seed=2: day17 / seed=3: day9 / seed=7: day11 / seed=42: day10。
+    /// 全5シードで60日以内に分布が動いたため、5シードすべてに断定を足す。
+    /// </remarks>
+    /// <remarks>
+    /// <b>核心C-2の追加測定(<c>mutator</c>、2026-09-23、<c>8bdd6ee</c>)。</b>
+    /// <see cref="OccupationReassignment.TrySelectTarget"/> 冒頭の <c>CarrierCount(...) &lt;= 1</c>
+    /// 早期return(「最後の1世帯は付け替えない」の保護)を丸ごと落とす変異(核心C-2。
+    /// <see cref="HouseholdSystemTests.LastCarrierOfAnOccupationIsNeverReassigned"/> が受け入れ対象)
+    /// を当てると、本テストは seed=7・seed=42 で赤になった。担い手0を検出した位置:
+    /// seed=42: day=23 Miller(以降day 25・27・29・31もMiller)、day=41 Woodworker、day=45 Woodworker。
+    /// seed=7: day=36 Smith(以降day 39・42・45・48・51・54・57・60もSmith)。
+    /// <b>C-2の受け入れ条件は引き続き
+    /// <see cref="HouseholdSystemTests.LastCarrierOfAnOccupationIsNeverReassigned"/> が落ちることである
+    /// ── 本テストの60日走行の赤は測定値であって、特定の契約が壊れた証拠として読まない。</b>
     /// </remarks>
     [Theory]
     [InlineData(1)]
@@ -1396,56 +1434,95 @@ public sealed class TradePipelineTests
     [InlineData(3)]
     [InlineData(7)]
     [InlineData(42)]
-    public void ToolOffersNeverDisappearOverSixtyDays(long seed)
+    public void EveryOccupationKeepsAtLeastOneCarrierOverSixtyDays(long seed)
     {
         var definition = WorldDefinition.M0;
         var world = WorldGenerator.Generate(definition, new RandomSource(seed));
         var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(seed));
 
-        int smithHouseholdCount = world.Households.Count(household => household.Occupation == Occupation.Smith);
+        // 空振り防止。day 0 に5職業すべてが2戸(WorldGeneratorの初期配置の確認。
+        // #39裁定D-C「Assert.Equal(2, smithHouseholdCount)(day 0)は『day 0 に5職業すべてが2戸』へ
+        // 広げる」)。
+        for (int occupationId = 0; occupationId < definition.OccupationCount; occupationId++)
+        {
+            var occupation = (Occupation)occupationId;
+            int carrierCount = OccupationReassignment.CarrierCount(world, occupation);
 
-        bool hasMinDay = false;
-        int minCount = 0;
-        long minDay = 0;
-        string minDayToolInventorySnapshot = string.Empty;
+            Assert.True(
+                carrierCount == 2,
+                $"seed={seed} day=0 occupation={occupation}: 担い手が{carrierCount}戸"
+                    + "(WorldGeneratorの初期配置は5職業とも2戸のはず)。");
+        }
+
+        // #39レビュー3巡目 #21。day 0 の職業分布(④が1度も発火しなければ、以後この値のまま)。
+        string day0Distribution = OccupationDistributionSnapshot(definition, world);
+        bool distributionEverDiverged = false;
+
+        var violationDays = new List<int>();
+        var violationOccupations = new List<Occupation>();
+        var violationDistributionSnapshots = new List<string>();
         long totalToolOfferCount = 0;
+        int zeroToolOfferDayCount = 0;
 
         for (int day = 1; day <= 60; day++)
         {
             scheduler.Advance(world, ticks: 24);
 
+            // #39レビュー3巡目 #21。60日のうち少なくとも1日、職業分布がday 0と異なることを見る
+            // (④が実際に発火したことの断定。理由は上のremarks参照)。
+            if (!distributionEverDiverged
+                && OccupationDistributionSnapshot(definition, world) != day0Distribution)
+            {
+                distributionEverDiverged = true;
+            }
+
+            // 診断値(断定しない。#39裁定D-C)。60日間の工具の売り注文の延べ件数と0件だった日。
             int toolOfferCount = CountMarketOffers(world, Item.Tools);
             totalToolOfferCount += toolOfferCount;
-
-            if (!hasMinDay || toolOfferCount < minCount)
+            if (toolOfferCount == 0)
             {
-                hasMinDay = true;
-                minCount = toolOfferCount;
-                minDay = day;
-                // 違反日その日の工房在庫を控える。走行後に1回走査すると最終日の在庫になり、
-                // 違反日の在庫と読み違える(レビュー指摘)。
-                minDayToolInventorySnapshot = ToolInventorySnapshot(world);
+                zeroToolOfferDayCount++;
+            }
+
+            // 核心。5職業すべてについて担い手が1以上(最初の違反で止めない。60日を走り切り、
+            // 違反した日・職業・その日の職業分布を記録して最後に1回だけassertする)。
+            for (int occupationId = 0; occupationId < definition.OccupationCount; occupationId++)
+            {
+                var occupation = (Occupation)occupationId;
+                int carrierCount = OccupationReassignment.CarrierCount(world, occupation);
+
+                if (carrierCount < 1)
+                {
+                    violationDays.Add(day);
+                    violationOccupations.Add(occupation);
+                    violationDistributionSnapshots.Add(OccupationDistributionSnapshot(definition, world));
+                }
             }
         }
 
-        // 空振り防止(#148 の閉じる条件・タスク仕様テスト表 #12)のうち (i)(ii) は核心と独立
-        // なので先に置く。(i) 鍛冶が2戸存在する、(ii) 60日ぶん進んだ。
-        Assert.Equal(2, smithHouseholdCount);
         Assert.Equal(60, world.Now.DayIndex);
 
-        Assert.True(
-            minCount >= 1,
-            $"seed={seed} day={minDay}: 工具の売り注文が{minCount}件(0件の日があった。留保が"
-                + "効いていない/鍛冶の在庫が1個まで痩せた/生産が止まった可能性)。"
-                + minDayToolInventorySnapshot);
+        var violationDetails = new System.Text.StringBuilder();
+        for (int i = 0; i < violationDays.Count; i++)
+        {
+            violationDetails.Append(
+                $" day={violationDays[i]} occupation={violationOccupations[i]} "
+                    + $"分布=[{violationDistributionSnapshots[i]}];");
+        }
 
-        // 空振り防止 (iii) 延べ件数60以上は、核心(日ごとの下限1以上)より後に置く。核心が真
-        // (60日すべて1件以上)なら延べ件数は論理的に必ず60以上になるため、これを核心より前に
-        // 置くと核心の失敗をこちらが横取りしてしまう(レビュー指摘)。
         Assert.True(
-            totalToolOfferCount >= 60,
-            $"seed={seed}: 60日間の工具の売り注文の延べ件数({totalToolOfferCount})が60未満"
-                + "(母集団が空振りの可能性)。");
+            violationDays.Count == 0,
+            $"seed={seed}: ある職業の担い手が0になった日があった(GDD02b §4.2「最後の1世帯は"
+                + $"付け替えない」が破れた可能性)。{violationDetails}"
+                + $"(診断: 60日間の工具の売り注文の延べ件数={totalToolOfferCount} / "
+                + $"0件だった日={zeroToolOfferDayCount}日。留め具ではなく診断のみ)。");
+
+        // #39レビュー3巡目 #21。④が実際に発火することの断定(上のremarks参照)。
+        Assert.True(
+            distributionEverDiverged,
+            $"seed={seed}: 60日を通じて職業分布がday 0から動かなかった"
+                + $"(day 0の分布=[{day0Distribution}]。④が1度も発火していない可能性があり、"
+                + "裁定D-A・D-B・D-Cが固定値と日次下限を落とした根拠が立っていない)。");
     }
 
     /// <summary>
@@ -1475,6 +1552,17 @@ public sealed class TradePipelineTests
     /// household7=4。seed=3: household1=6, household7=6。seed=7: household2=4, household9=4。
     /// seed=42: household0=4, household2=6。#148 の紙の予測(留保1 + 閾在庫3 = 4)は seed=3 の
     /// 2戸と seed=42 の1戸で6になり食い違う(値・原因の推測はどちらも実測していないので書かない)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>#39裁定D-A(iii)(2026-09-23)。</b>空振り防止 (iii)「60日間の工具の売り注文の延べ件数
+    /// ≥ 60」を断定から落とした。核心の母集団は<b>day 0 の鍛冶2戸</b>だが、(iii) が数えるのは
+    /// <b>都市全体の工具の売り注文</b>であり、④(<see cref="OccupationReassignment"/>による職業
+    /// 付け替え、#39)が入ると売り注文を出しているのは別の世帯になりうる(同じテストの中で
+    /// 核心が主張する集合と空振り防止が数える集合がずれる)。核心が空振りでないことは
+    /// (i)(鍛冶2戸存在)・(ii)(60日走行)・上の変異M-1の実測(全5シード赤)が既に担保しており、
+    /// (iii) はそれらに対する冗長な代理指標だった。(iii) は断定から外すが、失敗メッセージの
+    /// 診断値としては残す。<b>実測(2026-09-23、④を通した後)</b>: seed=1: 76 / seed=2: 93 /
+    /// seed=3: 72 / seed=7: 51 / seed=42: 74(④が発火したseed=7だけ旧下限60を下回る)。
     /// </remarks>
     [Theory]
     [InlineData(1)]
@@ -1517,8 +1605,9 @@ public sealed class TradePipelineTests
             totalToolOfferCount += CountMarketOffers(world, Item.Tools);
         }
 
-        // 空振り防止(タスク仕様テスト表 #12。ToolOffersNeverDisappearOverSixtyDaysと同じ3条件)
-        // のうち (i)(ii) は核心と独立なので先に置く。
+        // 空振り防止(タスク仕様テスト表 #12。#39裁定D-Cで
+        // EveryOccupationKeepsAtLeastOneCarrierOverSixtyDaysへ置き直された旧
+        // ToolOffersNeverDisappearOverSixtyDaysと同じ(i)(ii))は核心と独立なので先に置く。
         Assert.Equal(2, smithHouseholdIds.Length);
         Assert.Equal(60, world.Now.DayIndex);
 
@@ -1531,14 +1620,12 @@ public sealed class TradePipelineTests
                     + "留保が段5b・段6を素通りした可能性)。");
         }
 
-        // 空振り防止 (iii) 延べ件数60以上は、核心(工具在庫の下限)より後に置く。工房在庫が
-        // 残ることと工具の売り注文が立つことは別の事象なので、核心が真でも(iii)が偽になり得る
-        // (冗長ではない)。ここより前に置くと変異M-1(留保を消す)で先に落ち、核心が評価されない
-        // (レビュー指摘)。
-        Assert.True(
-            totalToolOfferCount >= 60,
-            $"seed={seed}: 60日間の工具の売り注文の延べ件数({totalToolOfferCount})が60未満"
-                + "(母集団が空振りの可能性)。");
+        // #39裁定D-A(iii)。空振り防止 (iii)(延べ件数60以上)は断定から外した ──
+        // 核心の母集団はday 0の鍛冶2戸だが(iii)が数えるのは都市全体の工具の売り注文であり、
+        // ④が入ると売り注文を出すのは別の世帯になりうる(鍛冶2戸が担保していた母集団と
+        // ずれる。詳細はメソッドのremarks参照)。診断値としてのみ出力する。
+        _output.WriteLine(
+            $"seed={seed}: 60日間の工具の売り注文の延べ件数={totalToolOfferCount}(診断のみ。断定しない)。");
     }
 
     /// <summary>#173 の3条件を day 1〜30 について評価した結果。</summary>
@@ -1566,7 +1653,9 @@ public sealed class TradePipelineTests
         /// <summary>
         /// #174 テスト表 #7。自家供給できる世帯(目標日数が正の出力品目を持つ世帯)の
         /// (世帯, 出力品目, 日)の組ごとに、世帯在庫・工房在庫の値を持つ観測。<b>条件の成否に
-        /// かかわらず必ず記録する</b>(M0では自家供給6戸 × 出力品目1 × 30日 = 180件)。
+        /// かかわらず必ず記録する</b>。day 0 は自家供給6戸 × 出力品目1 × 30日で180件になるが、
+        /// #39裁定D-Aのとおり④の職業付け替えが職業分布を動かすため、実際の総件数は180に固定
+        /// されない(下の<see cref="ScannedSelfSuppliableEntryCount"/>参照)。
         /// </summary>
         /// <remarks>
         /// <b>なぜ記録と絞り込みを分けたか(2巡目レビュー指摘の修正)。</b>旧版は「抱え込みの条件に
@@ -1593,10 +1682,17 @@ public sealed class TradePipelineTests
         { get; } = new();
 
         /// <summary>
-        /// <see cref="SelfSuppliableObservations"/>の件数。自家供給できる6戸 × 出力品目1 ×
-        /// 30日で180件になるはずである(固定値で assert する。空振り防止であって核心ではない
-        /// ── 走査が回らない・走査範囲が縮む・観測の記録そのものが消える、といった変異を
-        /// この件数が捕まえる)。
+        /// <see cref="SelfSuppliableObservations"/>の件数。<b>#39裁定D-A(2026-09-23)で
+        /// <c>Assert.Equal(180, ...)</c>の固定値assertは下限断定(日次観測件数 ≥ 3 / 延べ観測件数
+        /// ≥ 90)へ置き替えた</b> ── ④の職業付け替えが職業分布を動かすため、6戸が6戸のまま
+        /// 続くことを前提にできない(理由は
+        /// <see cref="TradePipelineTests.OwnOutputIsNeverHoardedWhileTheHouseholdGoesWithout"/>の
+        /// remarks参照)。<b>判別力は180 → 90へ落ちた。</b>自家供給3戸ぶんまで走査が縮む変異
+        /// (1日あたりの記録を3件までに切り詰める)は、日次下限3・延べ下限90・day 0の
+        /// <see cref="SelfSuppliableHouseholdCount"/>・最終日の実在庫との突き合わせループの
+        /// いずれも通り抜ける(実測、2026-09-23。この変異を一時的に当てて全5シード緑のまま
+        /// 通過することを確認し、戻した)。この件数が捕まえるのは「走査が丸ごと止まる」
+        /// 「観測の記録そのものが消える」といった全滅型の変異に限られる。
         /// </summary>
         public int ScannedSelfSuppliableEntryCount => SelfSuppliableObservations.Count;
 
@@ -1717,8 +1813,9 @@ public sealed class TradePipelineTests
     /// 最初の違反で止めない(W2-16 タスク仕様「1. 走査」手順3。既存の60日検出器と同じ規律)。
     /// </summary>
     /// <remarks>
-    /// <b>シードが効く経路は <see cref="WorldGenerator"/> だけである。</b><c>FullPipeline</c>の3系統
-    /// (<c>ProductionSystem</c>・<c>ConsumptionSystem</c>・<c>TradeSystem</c>)はいずれも
+    /// <b>シードが効く経路は <see cref="WorldGenerator"/> だけである。</b><c>FullPipeline</c>の4系統
+    /// (<c>ProductionSystem</c>・<c>ConsumptionSystem</c>・<c>HouseholdSystem</c>・<c>TradeSystem</c>)
+    /// はいずれも
     /// <c>SimContext.OpenRandom</c>を呼ばないので、<c>SimScheduler</c>に渡すシードは結果に影響しない。
     /// 「5シードで見た」は<see cref="WorldGenerator.Generate"/>(世界生成)の5通りを見たという意味である
     /// (W2-16 タスク仕様 6.3 #1、レビュー2巡目 指摘2)。
@@ -1786,8 +1883,9 @@ public sealed class TradePipelineTests
 
         var scan = new CitySurvivalScan(world);
 
-        // #174 テスト表 #7。自家供給できる世帯数(占有はM0の生成では変わらないので走行前に1回だけ
-        // 数える。ProductionSystem/ConsumptionSystem/TradeSystemはOccupationを書き換えない)。
+        // #174 テスト表 #7。自家供給できる世帯数(day 0 = WorldGeneratorの初期配置の値。走行前に
+        // 1回だけ数える。HouseholdSystem(#39)が順3で職業を書き換えうるので、この値は day 0 の
+        // ものであり「30日間ずっとこの数」という意味ではない。#39裁定D-A参照)。
         foreach (var household in world.Households)
         {
             var recipe = definition.Recipes[(int)household.Occupation];
@@ -1955,8 +2053,18 @@ public sealed class TradePipelineTests
     /// (テスト表 #9)。
     /// </remarks>
     /// <remarks>
-    /// <b>観測件数180の内訳。</b>自家供給6戸(パン屋2・木材加工2・醸造2)× 出力品目1(各職業の
-    /// レシピは出力1件)× 30日 = 180件。
+    /// <b>観測件数の下限(#39裁定D-A、2026-09-23)。</b>day 0 時点は自家供給6戸(パン屋2・木材加工2・
+    /// 醸造2)× 出力品目1(各職業のレシピは出力1件)だが、④の職業付け替え(#39)が職業分布を
+    /// 動かすので、6戸が6戸のまま30日続くことは前提にできない。日ごとの下限3は
+    /// <see cref="Visionary.Sim.Systems.OccupationReassignment.TrySelectTarget"/>の
+    /// 「担い手が自世帯だけなら維持する」規則(GDD02b §4.2)が自家供給3職業(パン屋・木材加工・
+    /// 醸造)のどれも担い手0にしないことの翻訳であり、延べ観測件数の下限90はその30日ぶん
+    /// (= 3 × 30)である。<b>実測(2026-09-23、シード1/2/3/7/42、④を通した後の延べ観測件数)</b>:
+    /// seed=1: 168 / seed=2: 175 / seed=3: 169 / seed=7: 189 / seed=42: 188。<b>上にも下にも動く</b>
+    /// ── 鍛冶や水車小屋番が④で自家供給できる職業へ入れば増える。<b>「母集団が縮んだ」わけではない</b>
+    /// (180からの差はseed=7・42では増加である)。<b>実測(2026-09-23)、置き直した後の日次最小観測件数
+    /// (下限3との距離)</b>: 全5シードとも最小値は5件(下限3を2件上回る。seed=1: day10 / seed=2:
+    /// day20 / seed=3: day9 / seed=7: day26 / seed=42: day16)。
     /// </remarks>
     /// <remarks>
     /// <b>左項(世帯在庫が0だった観測)の到達可能性は assert しない理由と、その実測
@@ -1986,31 +2094,43 @@ public sealed class TradePipelineTests
     /// 最終日突き合わせ)自体の変異の実測(実測日 2026-09-22、<c>mutator</c> が使い捨てworktreeで
     /// 1件ずつ当て、毎回 <c>dotnet test Visionary.sln -c Release</c>(477件)を走らせて測定。
     /// 対象コミット <c>13144cf</c>)。期待と食い違った件数は0件。</b>
+    /// <b>訂正(#39裁定D-A、2026-09-23。docs/process/03-corrections.md)。</b>以下のR-1〜R-5'は
+    /// 測定当時(<c>13144cf</c> / <c>0d46c1d</c> / <c>717709c</c>)のコードに対する記録であり、
+    /// 当時の<see cref="ScannedSelfSuppliableEntryCount"/>は<c>Assert.Equal(180, ...)</c>の
+    /// 固定値、最終日の観測件数は<c>Assert.Equal(6, finalDayObservations.Count)</c>の固定値
+    /// だった(どちらも#39裁定D-Aで下限断定[日次観測 ≥ 3 / 延べ観測 ≥ 90 / 最終日観測 ≥ 3]へ
+    /// 置き替え済み)。<b>結論(赤/緑・Actual値)は当時の測定結果そのものなので書き換えない</b>。
+    /// 以下では、当時「観測件数180」「最終日の観測件数(6)」と呼んでいた留め具の現行の名前を
+    /// 併記する。
     /// <list type="bullet">
     /// <item><b>R-1</b>(観測の右項<c>household.WorkshopInventory[...]</c>を左項と同じ
     /// <c>household.HouseholdInventory[...]</c>に取り違える。両項が同じ配列を読む)は
     /// <b>赤(全5シード)</b>。落ちたのは<b>最終日の工房在庫の突き合わせ</b>(核心ではない)。
-    /// 観測件数180 は通過した。</item>
+    /// 当時の観測件数180の固定値assert(現行の延べ観測件数下限90 assertに相当)は通過した。</item>
     /// <item><b>R-2</b>(観測の左項<c>household.HouseholdInventory[...]</c>を右項と同じ
     /// <c>household.WorkshopInventory[...]</c>に取り違える。同上)は<b>赤(全5シード)</b>。
     /// 落ちたのは<b>最終日の世帯在庫の突き合わせ</b>(核心ではない)。</item>
     /// <item><b>R-3</b>(<c>scan.SelfSuppliableObservations.Add(...)</c>の行を削除)は
-    /// <b>赤(全5シード)</b>。落ちたのは<b>観測件数180</b>(Actual 0)。核心には到達しない。
+    /// <b>赤(全5シード)</b>。落ちたのは<b>当時の観測件数180の固定値assert</b>
+    /// (現行の延べ観測件数下限90 assertに相当。Actual 0)。核心には到達しない。
     /// </item>
     /// <item><b>R-4</b>(#7 の走査を先頭1戸だけに絞る)は<b>赤(全5シード)</b>。落ちたのは
-    /// <b>観測件数180</b>(Actual 30 または 0、シードにより異なる)。核心には到達しない。</item>
+    /// <b>当時の観測件数180の固定値assert</b>(現行の延べ観測件数下限90 assertに相当。
+    /// Actual 30 または 0、シードにより異なる)。核心には到達しない。</item>
     /// <item><b>R-5</b>(記録時の<c>day</c>を<c>day - 1</c>に変える。Dayのラベルのずれ)。
     /// この突き合わせ自体が空振りしうることへの手当て(開発者レビュー、2026-09-23)。
     /// <c>Where(o =&gt; o.Day == 30)</c>が0件になると下のforeachのassertが1本も走らず、
-    /// R-1/R-2を唯一落としている留め具が緑のまま死ぬ。観測件数180は
+    /// R-1/R-2を唯一落としている留め具が緑のまま死ぬ。当時の観測件数180の固定値assertは
     /// <c>SelfSuppliableObservations.Count</c>であり<c>Day</c>の値を留めないので通過する。
-    /// したがって最終日の観測件数(6)を固定値で先に留める。<b>実測(実測日 2026-09-23、
+    /// したがって最終日の観測件数が3件以上であることを先に留める(測定当時は
+    /// <c>Assert.Equal(6, finalDayObservations.Count)</c>の固定値だったが、#39裁定D-Aで
+    /// <c>finalDayObservations.Count &gt;= 3</c>の下限へ置き替えた)。<b>実測(実測日 2026-09-23、
     /// <c>mutator</c> が使い捨てworktreeで測定。対象コミット<c>0d46c1d</c>)。</b>
-    /// <b>赤(全5シード)</b>。落ちたのは<c>Assert.Equal(6, finalDayObservations.Count)</c>
+    /// <b>赤(全5シード)</b>。落ちたのは当時の<c>Assert.Equal(6, finalDayObservations.Count)</c>
     /// (本変異のために置いた空振り防止そのもの)で、失敗メッセージは全シード共通で
     /// <c>Expected: 6 / Actual: 0</c>。foreachの中の2本の<c>Assert.True</c>には到達していない
-    /// (0周のため)。観測件数180(<c>SelfSuppliableObservations.Count</c>)は素通りした。
-    /// 総件数5件(Failed 5 / Passed 472 / Total 477)。他テストへの巻き込みなし。
+    /// (0周のため)。当時の観測件数180の固定値assert(<c>SelfSuppliableObservations.Count</c>)は
+    /// 素通りした。総件数5件(Failed 5 / Passed 472 / Total 477)。他テストへの巻き込みなし。
     /// <b>R-5'(同じ変異を、空振り防止を置く前のコミット<c>717709c</c>に当てた反実仮想)。</b>
     /// <b>緑。</b>5インスタンスがすべて通り、477件全体も全緑だった。これが「空振り防止が
     /// 無い版では、Dayのラベルを1つずらす変異を当ててもループが0周のまま何も検証せずに
@@ -2036,22 +2156,54 @@ public sealed class TradePipelineTests
         Assert.Equal(30, scan.FinalDayIndex);
         Assert.Equal(6, scan.SelfSuppliableHouseholdCount);
 
-        // 空振り防止(固定値)。自家供給6戸 × 出力品目1 × 30日 = 180件。走査が回らない・
-        // 走査範囲が縮む・観測の記録そのものが消える、といった変異をこの件数が捕まえる
-        // (上のCitySurvivalScan.SelfSuppliableObservationsのremarks参照)。
-        Assert.Equal(180, scan.ScannedSelfSuppliableEntryCount);
+        // 空振り防止 #39裁定D-A (1)。day 1〜30 の各日について、観測件数が3以上であることを
+        // 確認する。下限3は「自家供給できる3職業(パン屋・木材加工・醸造)は、どれも
+        // OccupationReassignment.TrySelectTargetの「担い手が自世帯だけなら維持する」規則
+        // (GDD02b §4.2)により担い手0にならない」の翻訳であり、④の職業付け替えが動いても
+        // 構造的に成り立つ(旧版の固定値180は「6戸が6戸のまま続くこと」を前提にしており、
+        // ④が職業分布を動かすと決めたGDD02b §4.2の下では一世代前の仕様である)。
+        int minDailyObservationCount = int.MaxValue;
+        int minDailyObservationDay = 0;
+
+        for (int day = 1; day <= 30; day++)
+        {
+            int dailyObservationCount = scan.SelfSuppliableObservations.Count(o => o.Day == day);
+
+            if (dailyObservationCount < minDailyObservationCount)
+            {
+                minDailyObservationCount = dailyObservationCount;
+                minDailyObservationDay = day;
+            }
+
+            Assert.True(
+                dailyObservationCount >= 3,
+                $"seed={seed} day={day}: 観測件数が{dailyObservationCount}件"
+                    + "(自家供給3職業のいずれかの担い手が0になった可能性)。");
+        }
+
+        _output.WriteLine(
+            $"seed={seed}: 観測件数の最小値={minDailyObservationCount}件"
+                + $"(day={minDailyObservationDay})。");
+
+        // 空振り防止 #39裁定D-A (2)。延べ観測件数が90(= 下限3 × 30日)以上であることを確認する。
+        // (1)が全日で成り立てば論理的に必ず満たすが、D-Aの表がこの2本立てを指示している。
+        Assert.True(
+            scan.ScannedSelfSuppliableEntryCount >= 90,
+            $"seed={seed}: 延べ観測件数({scan.ScannedSelfSuppliableEntryCount})が90未満"
+                + "(母集団が空振りの可能性)。");
 
         // 記録した値そのものを走行後の実際の在庫と突き合わせる(上のremarks参照。件数だけでは
-        // 「同じ配列を2回読む」取り違えを検出できない)。最終日(day 30)の観測(自家供給6戸ぶん)
-        // に限り、世帯・品目は記録された組から引く(ここでハードコードしない)。
+        // 「同じ配列を2回読む」取り違えを検出できない)。最終日(day 30)の観測に限り、世帯・
+        // 品目は記録された組から引く(ここでハードコードしない)。
         //
-        // 最終日(day 30)の観測が自家供給6戸ぶん存在することを先に留める(6戸 × 出力品目1)。
-        // これが無いと、dayのラベルがずれる変異で下のループが0周になり、R-1/R-2 を唯一
-        // 落としている突き合わせがassertを1本も走らせないまま緑で通る ── 直前の観測件数180は
-        // SelfSuppliableObservations.Countであり、Dayの値については何も言わないので通過する。
+        // 最終日(day 30)の観測が3件以上存在することを先に留める(#39裁定D-A。理由は上の下限3と
+        // 同じ)。これが無いと、dayのラベルがずれる変異で下のループが0周になり、R-1/R-2 を唯一
+        // 落としている突き合わせがassertを1本も走らせないまま緑で通る。
         var finalDayObservations = scan.SelfSuppliableObservations.Where(o => o.Day == 30).ToList();
 
-        Assert.Equal(6, finalDayObservations.Count);
+        Assert.True(
+            finalDayObservations.Count >= 3,
+            $"seed={seed}: day30の観測件数が{finalDayObservations.Count}件(3未満)。");
 
         foreach (var observation in finalDayObservations)
         {
@@ -2424,5 +2576,174 @@ public sealed class TradePipelineTests
             $"seed={seed}: 条件3が day {string.Join(", ", scan.AllHouseholdsEmptyDays)} で破れた"
                 + $"(違反{scan.AllHouseholdsEmptyDays.Count}日 / 延べ生産回数="
                 + $"{scan.TotalProductionRuns} / 延べ都市内約定={scan.TotalInternalSettlements})。");
+    }
+
+    /// <summary>世帯を1戸、指定の区画・職業で作る(単独NPC世帯。<c>TradeSystemTests.AddHousehold</c>相当)。</summary>
+    private static void AddHousehold(World world, int id, int districtId, Occupation occupation, int liquidFunds)
+    {
+        world.Npcs[id].Rank = NpcRank.Master;
+        world.Households[id] = new HouseholdState(
+            id: id, districtId: districtId, headNpcId: id, memberNpcIds: new[] { id }, itemCount: Item.Count);
+        world.Households[id].Occupation = occupation;
+        world.Households[id].LiquidFunds = liquidFunds;
+    }
+
+    /// <summary>
+    /// テスト表 #13(#39)専用の定義。薪(Woodworker)とパン(Baker)の売り手を実在の職業として持たせる
+    /// 必要があるため、<see cref="EconomySystemTestFixtures.BuildDefinition"/>(カスタムレシピを
+    /// 1件しか差し込めない)ではなく <see cref="WorldDefinition.M0"/> の実レシピ表(5職業とも本物の
+    /// 入出力を持つ)を流用し、それ以外の係数だけを本テスト用に単純化した値へ差し替える。
+    /// </summary>
+    /// <remarks>
+    /// <b>本クラスの「世界は必ず<see cref="WorldGenerator.Generate"/>で作る」規約に対する意図的な
+    /// 例外である。</b>タスク仕様(W2-18)が「世界は手組みでよい」を#1〜#13すべてに対して明示的に
+    /// 許可しており、#13固有の注記は「使うパイプラインをFullPipelineにする」ことだけを追加で
+    /// 要求している。順3(<see cref="HouseholdSystem"/>)は価格も観測も読まないため、本クラスの
+    /// 既存テストが避けている「縮退した世界」の懸念(#36引き継ぎ)は本テストには当たらない。
+    /// </remarks>
+    private static WorldDefinition BuildFirewoodCrowdsOutBreadDefinition()
+    {
+        var recipes = WorldDefinition.M0.Recipes; // Miller/Baker/Brewer/Woodworker/Smithの実レシピ。
+
+        var necessityTargetStockDays = new int[Item.Count];
+        necessityTargetStockDays[Item.Firewood] = 3; // T=3日×2/日=6単位。
+        necessityTargetStockDays[Item.Bread] = 3;    // T=3日×1/日=3単位。
+
+        var dailyConsumptionPerNpcByRank = new[]
+        {
+            BuildRow((Item.Firewood, 2), (Item.Bread, 1)), // 親方。
+            new int[Item.Count],                            // 職人(この世界には居ない)。
+            new int[Item.Count],                            // 徒弟(同上)。
+        };
+
+        // 季節係数は一様1000‰にする(薪の消費量計算から季節変動を除き、数値の見通しを保つ)。
+        var firewoodConsumptionSeasonPermille = new[] { 1000, 1000, 1000, 1000 };
+
+        // 都市生産品(Flour/Firewood/Bread/Beer/Tools)の外部買値。薪10・パン50が本テストの床。
+        // 他2品目(Flour/Beer/Tools)はこのテストで触れないが1以上の検査を満たす必要がある。
+        var externalBuyPrice = new int[Item.Count];
+        externalBuyPrice[Item.Flour] = 1;
+        externalBuyPrice[Item.Firewood] = 10;
+        externalBuyPrice[Item.Bread] = 50;
+        externalBuyPrice[Item.Beer] = 1;
+        externalBuyPrice[Item.Tools] = 1;
+
+        // 1次産品(Grain/Timber/IronOre/Charcoal)の外部売値の基準値(値そのものは仕様ではない)。
+        var externalSellPriceBase = new int[Item.Count];
+        externalSellPriceBase[Item.Grain] = 10;
+        externalSellPriceBase[Item.Timber] = 9;
+        externalSellPriceBase[Item.IronOre] = 14;
+        externalSellPriceBase[Item.Charcoal] = 12;
+
+        // 季節係数は一様1000‰(合計4000)。1次産品・都市生産品のどちらの検査も満たす。
+        var externalSellPriceSeasonPermille = new int[Item.Count][];
+        for (int itemId = 0; itemId < Item.Count; itemId++)
+        {
+            externalSellPriceSeasonPermille[itemId] = new[] { 1000, 1000, 1000, 1000 };
+        }
+
+        return new WorldDefinition(
+            itemCount: Item.Count,
+            householdsPerOccupation: 2, // recipes.Length(5)×2=10戸(区画数9〜18)。
+            recipes: recipes,
+            initialLiquidFunds: 0, // 未使用(世帯はAddHouseholdで手組みするため)。
+            initialAcquisitionCost: Enumerable.Repeat(1, Item.Count).ToArray(),
+            initialHouseholdInventory: new int[Item.Count],
+            initialWorkshopInputDays: 0,
+            initialToolStock: 1,
+            initialSkillPermilleByRank: new[] { 0, 0, 0 },
+            laborPermilleByRank: new[] { 1000, 800, 300 },
+            dailyConsumptionPerNpcByRank: dailyConsumptionPerNpcByRank,
+            firewoodConsumptionSeasonPermille: firewoodConsumptionSeasonPermille,
+            minimumMarginPermille: 0,
+            observationRetentionDays: 7,
+            necessityTargetStockDays: necessityTargetStockDays,
+            preferenceTargetStockDays: new int[Item.Count],
+            toolTargetStockPermille: 1000,
+            rankCoefficientPermille: new[] { 1000, 1000, 1000 },
+            tolerancePermille: 1200,
+            opportunityCostBaseByOccupation: Enumerable.Repeat(1, recipes.Length).ToArray(),
+            travelHoursPerDistrict: 1,
+            acquisitionCostSmoothingPermille: 250,
+            externalSellPriceBase: externalSellPriceBase,
+            externalSellPriceSeasonPermille: externalSellPriceSeasonPermille,
+            externalBuyPrice: externalBuyPrice,
+            inputBufferDays: 1,
+            shipmentDays: 1,
+            toolLifeLaborDays: 30,
+            equipmentPermilleWithoutTools: 0,
+            disposableHours: 12,
+            trustDiscountPermille: 200,
+            tradeMarginPermille: 1000,
+            isExportEnabled: false); // 輸出はこのテストの関心事の外(#39タスク仕様「数値は仕様ではない」)。
+    }
+
+    private static int[] BuildRow(params (int ItemId, int Quantity)[] entries)
+    {
+        var row = new int[Item.Count];
+
+        foreach (var (itemId, quantity) in entries)
+        {
+            row[itemId] = quantity;
+        }
+
+        return row;
+    }
+
+    /// <summary>
+    /// テスト表 #13(#39)。必需2品目(薪 Id 5 → パン Id 6 の走査順)で、薪の世帯在庫が
+    /// <c>2 × 目標在庫</c> に達し、同じ日にパンが <c>fundsCap == 0</c> で0個に切られ(経路(2))、
+    /// 翌日の順3で <c>IsBankrupt == 1</c> になる。<see cref="TradeSystemTests.NecessityShortfallIsCountedOnBothPaths"/>
+    /// の経路(2)の組み立て(必需2品目が同じ流動資金を奪い合う世界)を出発点にし、薪が上側clampまで
+    /// 買えるようにする(タスク仕様「#13の組み立て」節)。
+    /// </summary>
+    /// <remarks>
+    /// <b>買い手に高めの相場観測を仕込む手を採る</b>(タスク仕様が挙げる2つの手のうち)。信用割引を
+    /// 効かせる手は採らない ── <see cref="StoreChoice.TrySelect"/> は <c>trust: 0</c> を定数で渡す
+    /// ため(GDD01「W2では信用が常に0」)、信用を配線する#44より前の現コードでは効かない。
+    /// </remarks>
+    [Fact]
+    public void BankruptFlagRisesAfterFirewoodCrowdsOutBread()
+    {
+        var definition = BuildFirewoodCrowdsOutBreadDefinition();
+        var world = new World(npcCount: 3, householdCount: 3, itemCount: Item.Count);
+
+        AddHousehold(world, id: 0, districtId: 0, Occupation.Smith, liquidFunds: 160); // 買い手。
+        AddHousehold(world, id: 1, districtId: 0, Occupation.Woodworker, liquidFunds: 0); // 薪の売り手。
+        AddHousehold(world, id: 2, districtId: 0, Occupation.Baker, liquidFunds: 0);      // パンの売り手。
+
+        world.Households[1].WorkshopInventory[Item.Firewood] = 100_000; // 売り切れさせない。
+        world.Households[2].WorkshopInventory[Item.Bread] = 100_000;
+
+        var buyer = world.Households[0];
+        var systems = FullPipeline(definition);
+        var scheduler = new SimScheduler(systems, new RandomSource(1));
+
+        // 観測を「前日」にするため、システムを何も登録せずに1日空回しする(タスク仕様の日数は
+        // 仕様ではない。ExportErrandIsSkippedWhenTheDayIsFull 等と同じ手法)。
+        EconomySystemTestFixtures.AdvanceClockOnly(world, ticks: 24);
+
+        // 買い手に薪の高い相場観測を仕込む(相場基準1000。許容乖離1200‰でB=1200、薪の売り手は
+        // 相場基準を持たないため実効価格は床10のまま。B > 2×10 なので上側clampへ届く)。
+        world.Knowledge[buyer.HeadNpcId].Add(new PriceObservation
+        {
+            ItemId = Item.Firewood,
+            LocationId = 0,
+            Price = 1000,
+            SellerId = 999,
+            ObservedAt = Tick.Zero,
+            Source = ObservationSource.Direct,
+        });
+
+        scheduler.Advance(world, ticks: 24); // 1日目。薪が上側clamp、パンが経路(2)で0個。
+
+        Assert.Equal(12, buyer.HouseholdInventory[Item.Firewood]); // 2×目標在庫(6)。
+        Assert.Equal(0, buyer.HouseholdInventory[Item.Bread]);
+        Assert.Equal(1, buyer.UnaffordableNecessityCount);
+        Assert.Equal(0, buyer.IsBankrupt); // 順3がこのtickで読むのは前日の値(まだ存在しない)。
+
+        scheduler.Advance(world, ticks: 24); // 2日目。順3が前日の資金不足を読みフラグを立てる。
+
+        Assert.Equal(1, buyer.IsBankrupt);
     }
 }
