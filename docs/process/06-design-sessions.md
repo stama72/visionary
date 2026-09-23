@@ -54,7 +54,7 @@ implementer と同じ2種に分ける([`implementer.md`](../../.claude/agents/im
 
 | 類型 | 何を決めるか |
 | ---- | ------------ |
-| **使い捨ての計測** | 測るかどうか。**HEAD から使い捨て worktree を切って当て、worktree ごと捨てる**([ADR-0013](../adr/0013-mutation-measurement-separated.md) 論点2 と同じ形。束の worktree で当てて戻す形は、戻し忘れを捕まえる機械が束のブランチに無いので採らない — #202 決定6)。`src/` と `tests/` を触らない規約の例外である([#120](https://github.com/stama72/visionary/issues/120) と [#30](https://github.com/stama72/visionary/issues/30) の前例)。**値を読む計測であって変異ではない** — テストが落ちるかを測る変異は、これまでどおり [`mutator`](../../.claude/agents/mutator.md) だけが当てる([ADR-0013](../adr/0013-mutation-measurement-separated.md)) |
+| **使い捨ての計測** | 測るかどうか。**HEAD から使い捨て worktree を切って当て、worktree ごと捨てる**(置き場所は ignore 済みのパスに限る — 束の worktree の追跡対象の下に切ると `git add -A` が埋め込みリポジトリとして拾う。[ADR-0013](../adr/0013-mutation-measurement-separated.md) 論点2 と同じ形。束の worktree で当てて戻す形は、戻し忘れを捕まえる機械が束のブランチに無いので採らない — #202 決定6)。`src/` と `tests/` を触らない規約の例外である([#120](https://github.com/stama72/visionary/issues/120) と [#30](https://github.com/stama72/visionary/issues/30) の前例)。**値を読む計測であって変異ではない** — テストが落ちるかを測る変異は、これまでどおり [`mutator`](../../.claude/agents/mutator.md) だけが当てる([ADR-0013](../adr/0013-mutation-measurement-separated.md)) |
 | **自分の書き損じの直し方** | 自分の文面が引用先・式・定義とずれたとき、どう直すか |
 | **実測で優劣がついた案の選択** | 数字で決着した比較のうち、勝った側を採る |
 

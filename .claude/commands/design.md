@@ -41,7 +41,7 @@ argument-hint: <issue番号>
 
 **例外 — 次の3類型は、選択肢があっても決めて報告にします**([06](../../docs/process/06-design-sessions.md)。根拠 = 数字か照合の結果を添えて束の終わりに列挙する):
 
-- **使い捨ての計測** — 測るかどうか。HEAD から使い捨て worktree を切って当て、worktree ごと捨てる。束の worktree では当てない(`src/` と `tests/` を触らない規約の例外)。値を読む計測であって、変異は [`mutator`](../agents/mutator.md) だけが当てる
+- **使い捨ての計測** — 測るかどうか。HEAD から使い捨て worktree を切って当て、worktree ごと捨てる。束の worktree では当てず、使い捨て worktree は ignore 済みのパスに切る(`src/` と `tests/` を触らない規約の例外)。値を読む計測であって、変異は [`mutator`](../agents/mutator.md) だけが当てる
 - **自分の書き損じの直し方** — 自分の文面が引用先・式・定義とずれたとき
 - **実測で優劣がついた案の選択**
 
