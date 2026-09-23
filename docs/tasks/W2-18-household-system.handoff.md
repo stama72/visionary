@@ -19,19 +19,46 @@
 
 ## implementer の件数(フェーズ2)
 
-- 止まって報告した件数: N 件
-- 決めて報告した件数: M 件
+- 止まって報告した件数: **3 件**(いずれも `FullPipeline` に順3 を挿したことで既存の固定検出器が赤になった件。仕様の「赤の種類」表の第3区分「検出器の前提が崩れた」)
+  - `TradePipelineTests.SmithNeverRunsOutOfToolsOverSixtyDays`(seed:7)— 60日間の工具の売り注文の延べ件数が 51 で、空振り防止の下限 60 を割った。**仕様が名指しで例に挙げた「工具の売り注文の延べ件数が母集団ごと減る」そのもの**
+  - `TradePipelineTests.ToolOffersNeverDisappearOverSixtyDays`(seed:7 day=33 / seed:42 day=20)— 工具の売り注文が 0 件の日が出た。空振り防止の閾値ではなく**検出器の本体の断定**が破れている
+  - `TradePipelineTests.OwnOutputIsNeverHoardedWhileTheHouseholdGoesWithout`(全5シード)— #174 の観測件数が 180 → 175〜。検出器のコメントが前提にしていた「`Occupation` は順1・順2・順5 では書き換わらない」が④の付け替えで崩れ、自家供給の母集団が縮んだ
+- 決めて報告した件数: **2 件**
+  - テスト #13 の `P ≤ B ÷ 2` の作り方を「買い手に高めの相場観測を仕込む」側にした。仕様は2案を「どちらでもよい」としていたが、`StoreChoice.TrySelect` / `ErrandPlanner` が `EffectivePrice.Calculate` へ `trust: 0` を定数で渡しているため(信用の配線は [#44](https://github.com/stama72/visionary/issues/44) 未着手)、**信用割引の手は現状のコードでは機能しない**。理由はテストの remarks に書いた
+  - テスト #13 の世界を `WorldDefinition.M0.Recipes` を流用した手組みで作った(`EconomySystemTestFixtures.BuildDefinition` はカスタムレシピを1つしか差し込めない)。`TradePipelineTests` の class doc コメントが謳う「世界は必ず `WorldGenerator.Generate` で作る」とは異なるが、仕様の「#13 だけは `FullPipeline(definition)` を通す」の範囲内
 
 ## 直さないと決めた指摘(フェーズ2)
 
 | 巡 | 象限 | 指摘 | 直さない理由 |
 | -- | ---- | ---- | ------------ |
 
+(レビューへ進まずに `IMPL-BLOCKED` で止まったため、なし)
+
 ## 巡ごとの件数(フェーズ2)
 
 | 巡 | 守備範囲 | 象限I | 象限II | 疑い |
 | -- | -------- | ----- | ------ | ---- |
 
+(レビュアーを起動していない。`HEAD` のテストが赤のまま回しても、指摘が実装の欠陥か検出器の前提崩れかを切り分けられない)
+
 ## `mutator` の件数(フェーズ2)
 
-- 当てた変異: N 件 / 期待と食い違った数: M 件
+- 当てた変異: **0 件** / 期待と食い違った数: —
+
+**測っていない。** 仕様は「測るのはレビューの巡が閉じた後、コミット済みの `HEAD` に対して一度でよい」と定めており、レビューへ進んでいない。加えて `HEAD` のテストが赤なので、いま当てても C-1・C-2・C-3 の「期待 赤」が変異によるものか既存の 8 件の赤によるものか区別がつかない。**C-1・C-2・C-3 の実測は未消化のまま次のフェーズ2 へ持ち越す。**
+
+## フェーズ2 が止まった理由(`IMPL-BLOCKED`)
+
+上の3件は、タスク仕様「3. パイプラインへの配線」の「赤の種類」表で**第3区分(検出器の前提が崩れた)**に当たる。同表は「**止まって報告する。前提の置き直しは設計判断であり、implementer もフェーズ2 のメインも決めない**」と定めている。第2区分(実測値・自然発生する(世帯, 日)・件数の閾値 → 値の追随でよい)ではない:
+
+- `SmithNeverRunsOutOfToolsOverSixtyDays` は仕様が第3区分の**例として名指しした**ケースそのもの
+- `ToolOffersNeverDisappearOverSixtyDays` が破れたのは空振り防止の下限ではなく**検出器が検出すると宣言した事象**(工具の売り注文が消えない)である。値を追随させることは検出器を無効化することと同じ
+- `OwnOutputIsNeverHoardedWhileTheHouseholdGoesWithout` は母集団の件数が減っただけに見えるが、減った原因は**④の付け替えで世帯の職業が動いたこと**であり、検出器が母集団を「自家供給6戸 × 出力1品目 × 30日」と固定できた前提が崩れている
+
+フェーズ1 が決めるべきこと(このまま渡す):
+
+1. ④の付け替えが発火する世界で、この3検出器の母集団をどう置き直すか(職業を固定した母集団にするか、日ごとに担い手を数え直すか)
+2. `ToolOffersNeverDisappearOverSixtyDays` の断定そのものを④の下で維持するのか。維持するなら、鍛冶が④で離脱しうる経済で「工具の売り手が消えない」を何が保証するのか([#196](https://github.com/stama72/visionary/issues/196) の④のゲート見直しと同じ土俵)
+3. 上の判断が出るまで `HEAD` は赤である。実装本体(`HouseholdSystem` / `OccupationReassignment`)と新規テスト #1〜#13 は緑で、赤はこの3検出器の8インスタンスだけである
+
+`HEAD` = `a38b5b2`。`dotnet build -c Release` 警告0 / `dotnet format --verify-no-changes --severity warn` 差分なし / `dotnet test -c Release` は **485 合格・8 失敗**。
