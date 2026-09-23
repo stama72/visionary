@@ -410,6 +410,120 @@ public sealed class HouseholdSystemTests
                 && entry.ItemId == Item.Bread);
     }
 
+    /// <summary>
+    /// テスト表 #14(レビュー1巡目)。自職業の担い手が全候補職業より真に少なくても、
+    /// <c>argmin</c> は自職業を返さない(GDD02b §4.2「候補は自職業を除く」)。
+    /// </summary>
+    /// <remarks>
+    /// <b>1巡目のレビュー指摘の実体。</b><see cref="OccupationReassignment.TrySelectTarget"/> の
+    /// 「自職業を除く」行(<c>if (candidate == household.Occupation) { continue; }</c>)を丸ごと
+    /// 消しても、既存の #1〜#13 は1つも落ちない ── 既存テストの世界はどれも「自職業の担い手数が
+    /// 候補の最小値を上回る」ように組まれており、<c>argmin</c> が自職業を返す状況を作れていなかった
+    /// (2026-09-23)。消したときの帰結: <c>argmin</c> が自職業を返し、
+    /// <c>household.Occupation = target</c> が自己代入の no-op になる。ゲートは翌日も開いたままで、
+    /// その世帯の④が<b>永久に発火しない</b>。
+    /// <para>
+    /// <b>段A(区画フィルタが効く経路)は、自職業を除く行を消しても単体では赤にならない。</b>
+    /// Stage A の区画フィルタ(<see cref="OccupationReassignment"/> 内 <c>IsOccupationPresentInDistrict</c>)
+    /// は「被験者と同じ区画に、その職業の他世帯が居るか」を <b>被験者自身を含めて</b> 数える。
+    /// 自職業を候補として評価すると、被験者自身が「被験者の区画に居る自職業の世帯」として必ず
+    /// マッチし、区画フィルタ単独で自職業を除外してしまう ── 自職業を除く行の有無に関わらず結果が
+    /// 変わらない。したがって以下の段Aブロックは、自職業を除く行を消しても常に緑のまま通る。
+    /// これは仕様として構わない ── 本テストの断定は<c>[Fact]</c>1本の中の複数ブロックであり、
+    /// どこか1つでも落ちれば本テスト全体が赤になる。<b>実際に赤にするのは段Bブロックである。</b>
+    /// 段Aブロックを残すのは、段Aでも「自職業が最少でも選ばれない」という契約(GDD02b §4.2)自体は
+    /// 保たれていることを確認するためである。
+    /// </para>
+    /// <para>
+    /// <b>段B(候補が空で区画フィルタを外す経路)はこの変異で確実に赤になる。</b>段Bは区画フィルタを
+    /// 掛けないので、自職業の除外を保証するのは「自職業を除く」行だけになる。この行を消すと、
+    /// 自職業(担い手2)が他職業(担い手3)より少ないので <c>argmin</c> が自職業を選び、
+    /// <c>Occupation</c> が変わらない ── 下の <c>Assert.NotEqual</c> / <c>Assert.Equal</c> が落ちる。
+    /// 手元でこの行を一時的に消して確認済み(2026-09-23、実装者手元。正式な実測は
+    /// <a href="../../.claude/agents/mutator.md">mutator</a> が別途行う)。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void SelfOccupationIsExcludedEvenWhenItHasTheFewestCarriers()
+    {
+        var definition = WorldDefinition.M0;
+
+        // 段A: 自職業(Woodworker)の担い手2、他4職業はいずれも担い手3。他職業はすべて被験者の
+        // 区画(0)の外に置く ── 段Aで少なくとも1件は候補が残る世界(段Bへ落ちない)。
+        {
+            var world = new World(npcCount: 14, householdCount: 14, itemCount: Item.Count);
+
+            AddHousehold(world, id: 0, districtId: 0, Occupation.Woodworker); // 被験者。
+            AddHousehold(world, id: 1, districtId: 9, Occupation.Woodworker); // 相方(自職業の担い手2)。
+
+            AddHousehold(world, id: 2, districtId: 1, Occupation.Miller);
+            AddHousehold(world, id: 3, districtId: 1, Occupation.Miller);
+            AddHousehold(world, id: 4, districtId: 1, Occupation.Miller);
+
+            AddHousehold(world, id: 5, districtId: 2, Occupation.Baker);
+            AddHousehold(world, id: 6, districtId: 2, Occupation.Baker);
+            AddHousehold(world, id: 7, districtId: 2, Occupation.Baker);
+
+            AddHousehold(world, id: 8, districtId: 3, Occupation.Brewer);
+            AddHousehold(world, id: 9, districtId: 3, Occupation.Brewer);
+            AddHousehold(world, id: 10, districtId: 3, Occupation.Brewer);
+
+            AddHousehold(world, id: 11, districtId: 4, Occupation.Smith);
+            AddHousehold(world, id: 12, districtId: 4, Occupation.Smith);
+            AddHousehold(world, id: 13, districtId: 4, Occupation.Smith);
+
+            var subject = world.Households[0];
+            subject.UnaffordableNecessityCount = 1;
+            subject.WorkshopInventory[OutputItemId(Occupation.Woodworker)] = 0;
+            subject.ProductionRuns = 0;
+
+            EconomySystemTestFixtures.RunDays(world, new HouseholdSystem(definition), days: 1);
+
+            // 自職業(担い手2)は全候補中最少だが選ばれない。担い手3で並ぶ他4職業のうち
+            // 職業Id最小のMillerが選ばれる。
+            Assert.Equal(Occupation.Miller, world.Households[0].Occupation);
+        }
+
+        // 段B: 他4職業をすべて被験者の区画(0)に置き、段Aを空にする(区画フィルタを外す経路へ)。
+        {
+            var world = new World(npcCount: 14, householdCount: 14, itemCount: Item.Count);
+
+            AddHousehold(world, id: 0, districtId: 0, Occupation.Woodworker); // 被験者。
+            AddHousehold(world, id: 1, districtId: 9, Occupation.Woodworker); // 相方(自職業の担い手2)。
+
+            AddHousehold(world, id: 2, districtId: 0, Occupation.Miller);
+            AddHousehold(world, id: 3, districtId: 0, Occupation.Miller);
+            AddHousehold(world, id: 4, districtId: 0, Occupation.Miller);
+
+            AddHousehold(world, id: 5, districtId: 0, Occupation.Baker);
+            AddHousehold(world, id: 6, districtId: 0, Occupation.Baker);
+            AddHousehold(world, id: 7, districtId: 0, Occupation.Baker);
+
+            AddHousehold(world, id: 8, districtId: 0, Occupation.Brewer);
+            AddHousehold(world, id: 9, districtId: 0, Occupation.Brewer);
+            AddHousehold(world, id: 10, districtId: 0, Occupation.Brewer);
+
+            AddHousehold(world, id: 11, districtId: 0, Occupation.Smith);
+            AddHousehold(world, id: 12, districtId: 0, Occupation.Smith);
+            AddHousehold(world, id: 13, districtId: 0, Occupation.Smith);
+
+            var subject = world.Households[0];
+            subject.UnaffordableNecessityCount = 1;
+            subject.WorkshopInventory[OutputItemId(Occupation.Woodworker)] = 0;
+            subject.ProductionRuns = 0;
+
+            EconomySystemTestFixtures.RunDays(world, new HouseholdSystem(definition), days: 1);
+
+            // 段Aは他4職業すべてが被験者の区画に居るため空 → 段Bへ。区画フィルタを外しても
+            // 自職業(担い手2、他職業より真に少ない)は除外されたままなので、担い手3で並ぶ
+            // 他4職業のうち職業Id最小のMillerが選ばれる。「自職業を除く」行を消すと、担い手最少の
+            // 自職業がargminに残り、Occupation == Woodworkerのまま(自己代入のno-op)になって
+            // 以下の2つの断定が落ちる。
+            Assert.NotEqual(Occupation.Woodworker, world.Households[0].Occupation);
+            Assert.Equal(Occupation.Miller, world.Households[0].Occupation);
+        }
+    }
+
     /// <summary>Millerがパン(必需候補)を木材から作る、テスト#12専用の定義。</summary>
     private static WorldDefinition BuildBankruptcyPipelineDefinition()
     {
