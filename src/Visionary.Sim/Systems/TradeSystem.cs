@@ -92,6 +92,10 @@ public sealed class TradeSystem : ISimSystem
     {
         ArgumentNullException.ThrowIfNull(world);
 
+        // 順10(Metrics)が読む当日ぶんの計数の初期化(W2-20 タスク仕様「呼び出し順」)。
+        // 段1 より前、順5 の先頭で呼ぶ ── 順5 が唯一の書き手である。
+        world.Metrics.BeginDay();
+
         int householdCount = world.Households.Length;
 
         // 段4がBuyerDemand.Buildへ渡す「前日の自分の出力品目の提示価格」。Worldの状態にしない
@@ -150,6 +154,18 @@ public sealed class TradeSystem : ISimSystem
             hasSellerReference[household.Id] = hasReference;
             sellerReference[household.Id] = marketReference;
 
+            // 職業は世帯の現在の値を読む(#39の付け替えで変わる)。出荷目標在庫も現在の職業から導く。
+            // sellableStock<=0のcontinueより前に出す ── 順10(Metrics)の2欄が
+            // 販売在庫0の世帯についても読むため(W2-20 タスク仕様「呼び出し側を持たないコード」表)。
+            int shipmentTargetStock =
+                _definition.ShipmentTargetStock(household.Occupation, outputItemId);
+
+            world.Metrics.SellerHasNoReference[household.Id] = hasReference ? 0 : 1;
+            world.Metrics.SellerCoefficientCapped[household.Id] = OfferPrice.WasUnsoldCapApplied(
+                sellableStock, shipmentTargetStock, household.IsBankrupt, hasSettled)
+                ? 1
+                : 0;
+
             if (sellableStock <= 0)
             {
                 // 販売在庫0の日は売り注文を出さない。出品すると店選択に在庫のない店が
@@ -158,10 +174,6 @@ public sealed class TradeSystem : ISimSystem
             }
 
             int floorPrice = _definition.ExternalBuyPrice(outputItemId);
-
-            // 職業は世帯の現在の値を読む(#39の付け替えで変わる)。出荷目標在庫も現在の職業から導く。
-            int shipmentTargetStock =
-                _definition.ShipmentTargetStock(household.Occupation, outputItemId);
 
             int price = hasReference
                 ? OfferPrice.Calculate(
@@ -192,8 +204,42 @@ public sealed class TradeSystem : ISimSystem
 
         foreach (var household in world.Households)
         {
-            demands[household.Id] = _buyerDemand.Build(
+            var demand = _buyerDemand.Build(
                 world, household, hasOwnPreviousOffer[household.Id], ownPreviousOfferPrice[household.Id]);
+
+            demands[household.Id] = demand;
+
+            // 順10(Metrics)の需要の3欄(W2-20 タスク仕様「呼び出し側を持たないコード」表)。
+            // BuyerDemand.Build の直後、demand.Lines を1回走査してまとめて求める。
+            int demandLines = 0;
+            int demandLinesWithoutKnownPrice = 0;
+            bool inputBlockedByCashCap = false;
+
+            foreach (var line in demand.Lines)
+            {
+                if (line.ExpectedStock < line.TargetStock)
+                {
+                    demandLines++;
+
+                    if (!line.HasMarketTerm)
+                    {
+                        demandLinesWithoutKnownPrice++;
+                    }
+                }
+
+                if (line.Purpose == DemandPurpose.ProductionInput && line.CashCap == 0)
+                {
+                    inputBlockedByCashCap = true;
+                }
+            }
+
+            world.Metrics.DemandLines[household.Id] = demandLines;
+            world.Metrics.DemandLinesWithoutKnownPrice[household.Id] = demandLinesWithoutKnownPrice;
+
+            if (inputBlockedByCashCap)
+            {
+                world.Metrics.InputBlockedByFunds[household.Id] = 1;
+            }
         }
 
         // 段5. 世帯Id昇順に、5a(外出の計画)→5b(購入)。段6・段7 でまとめて使うため、
@@ -333,6 +379,14 @@ public sealed class TradeSystem : ISimSystem
                 household.UnaffordableNecessityCount++;
             }
 
+            // 順10(Metrics)のInputBlockedByFunds、経路(1)(W2-20 タスク仕様「呼び出し側を
+            // 持たないコード」表)。1を代入する(加算しない。世帯日の0/1)。
+            if (line.Purpose == DemandPurpose.ProductionInput
+                && decision.Reason == NoPurchaseReason.CashCap)
+            {
+                world.Metrics.InputBlockedByFunds[household.Id] = 1;
+            }
+
             return false;
         }
 
@@ -369,6 +423,14 @@ public sealed class TradeSystem : ISimSystem
             household.UnaffordableNecessityCount++;
         }
 
+        // 順10(Metrics)のInputBlockedByFunds、経路(2)(W2-20 タスク仕様「呼び出し側を
+        // 持たないコード」表)。上の経路(1)は既にreturnしているので二重に立つことは無いが、
+        // 1を代入する形は変えない(0/1の代入。加算しない)。
+        if (line.Purpose == DemandPurpose.ProductionInput && fundsCap == 0)
+        {
+            world.Metrics.InputBlockedByFunds[household.Id] = 1;
+        }
+
         // 10. 約定を適用する。窓口は買い手側だけを動かすExecuteImportを使う。
         if (actualQuantity < 1)
         {
@@ -390,6 +452,11 @@ public sealed class TradeSystem : ISimSystem
                 store.UnitEffectivePrice, _definition.AcquisitionCostSmoothingPermille,
                 SellableStock.ReserveQuantity(_definition, seller!, line.ItemId));
         }
+
+        // 順10(Metrics)のCurrentCounterpartyId(W2-20 タスク仕様「呼び出し側を持たないコード」表)。
+        // 窓口(HouseholdState.ExternalMarketSellerId = int.MaxValue)も相手として記録する。
+        // 同じ日に同じ品目を複数の相手から買った世帯は、最後に買った相手を採る(上書き)。
+        world.Metrics.CurrentCounterpartyId[world.Metrics.IndexOf(household.Id, line.ItemId)] = store.SellerId;
 
         return true;
     }

@@ -214,4 +214,45 @@ public sealed class OfferPriceTests
         // (β適用後の合計をceilDivするのが正)を確かめる。
         Assert.Equal(21, OfferPrice.UpdatedAcquisitionCost(previousAverage: 21, unitPrice: 21, smoothingPermille: 250));
     }
+
+    /// <summary>
+    /// 【核心】W2-20 タスク仕様テスト表 #8。在庫比334‰(係数1333‰、>1000)・前日の約定無し・
+    /// 非破産 → true。同じ在庫でも、破産中 / 前日約定あり / 在庫比1000‰(係数1000‰、≤1000)は
+    /// それぞれ false。
+    /// </summary>
+    /// <remarks>
+    /// この実装ミスで落ちる: <c>hasSettledYesterday</c> の向きを反転した / 破産中の分岐を落とした /
+    /// <c>UnsoldCapPermille</c>(1000)を呼び出し側へ写して片方だけ動かした
+    /// (W2-20 タスク仕様。<c>MetricsSystem</c> 側の配線は <c>MetricsSystemTests
+    /// .UnsoldCapIsCountedOnlyWhenItBites</c> が別に押さえる)。
+    /// </remarks>
+    [Fact]
+    public void WasUnsoldCapAppliedOnlyWhenCoefficientExceedsOneThousand()
+    {
+        // 在庫比334‰ → 係数 1500 - CeilDiv(334,2) = 1500-167 = 1333(>1000)。
+        Assert.True(OfferPrice.WasUnsoldCapApplied(
+            sellableStock: 1, shipmentTargetStock: 3, isBankrupt: 0, hasSettledYesterday: false));
+
+        // 破産中は500‰固定が先に効くので頭打ちは何もしない。
+        Assert.False(OfferPrice.WasUnsoldCapApplied(
+            sellableStock: 1, shipmentTargetStock: 3, isBankrupt: 1, hasSettledYesterday: false));
+
+        // 前日の約定があれば頭打ちは適用しない(そもそも評価しない)。
+        Assert.False(OfferPrice.WasUnsoldCapApplied(
+            sellableStock: 1, shipmentTargetStock: 3, isBankrupt: 0, hasSettledYesterday: true));
+
+        // 在庫比1000‰ → 係数1000‰(≤1000)。minが実際には切っていない。
+        Assert.False(OfferPrice.WasUnsoldCapApplied(
+            sellableStock: 3, shipmentTargetStock: 3, isBankrupt: 0, hasSettledYesterday: false));
+    }
+
+    /// <summary>破産中フラグが0/1以外なら ArgumentOutOfRangeException。</summary>
+    [Theory]
+    [InlineData(2)]
+    [InlineData(-1)]
+    public void WasUnsoldCapAppliedRejectsFlagsOutsideZeroAndOne(int isBankrupt)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => OfferPrice.WasUnsoldCapApplied(
+            sellableStock: 1, shipmentTargetStock: 3, isBankrupt, hasSettledYesterday: false));
+    }
 }

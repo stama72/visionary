@@ -54,6 +54,11 @@ public sealed class StateHasherCoverageTests
         "Knowledge",
         "Ledgers",
         "EventLog",
+
+        // W2-20: 順5(Trade)の当日ぶんの計数(MetricsScratch)。ハッシュ対象外(TDD01 §3.8) ──
+        // StateHasher.Compute は意図的にこの区分を読まない。区分タグ(Section enum)は
+        // 増やさない(ハッシュしないため)。
+        "Metrics",
     };
 
     /// <summary>
