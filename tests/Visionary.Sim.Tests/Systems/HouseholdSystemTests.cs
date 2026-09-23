@@ -30,18 +30,26 @@ public sealed class HouseholdSystemTests
     private static int OutputItemId(Occupation occupation) =>
         WorldDefinition.M0.Recipes[(int)occupation].Outputs[0].ItemId;
 
-    /// <summary>テスト表 #1。前日の資金不足(件数&gt;0)を1日回すとフラグが立つ。</summary>
+    /// <summary>
+    /// テスト表 #1。前日の資金不足(件数&gt;0)を1日回すとフラグが立つ。
+    /// </summary>
+    /// <remarks>
+    /// <b>被験者を世帯 Id 1 に置く(2巡目 #18)。</b>手順1 の走査を先頭1戸(<c>world.Households[0]</c>)
+    /// だけに絞る変異は、被験者が Id 0 のときは先頭1戸=被験者なので緑のまま通っていた。世帯 Id 0 に
+    /// 無関係な健全世帯(decoy)を置き、被験者を Id 1 に動かすことでこの変異を赤にする。
+    /// </remarks>
     [Fact]
     public void BankruptFlagRisesFromYesterdaysShortfall()
     {
         var definition = WorldDefinition.M0;
-        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
-        AddHousehold(world, id: 0, districtId: 0, Occupation.Miller);
-        world.Households[0].UnaffordableNecessityCount = 1;
+        var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
+        AddHousehold(world, id: 0, districtId: 9, Occupation.Baker); // decoy(#18)。健全なまま無関係。
+        AddHousehold(world, id: 1, districtId: 0, Occupation.Miller); // 被験者。
+        world.Households[1].UnaffordableNecessityCount = 1;
 
         EconomySystemTestFixtures.RunDays(world, new HouseholdSystem(definition), days: 1);
 
-        Assert.Equal(1, world.Households[0].IsBankrupt);
+        Assert.Equal(1, world.Households[1].IsBankrupt);
     }
 
     /// <summary>
@@ -50,19 +58,24 @@ public sealed class HouseholdSystemTests
     /// <remarks>
     /// <c>if (count &gt; 0) IsBankrupt = 1;</c> と書いて降りる枝を落とす実装ミスでは、本テストが
     /// 赤になる(一度立ったフラグが永久に残り、②が恒久化する)。
+    /// <para>
+    /// <b>被験者を世帯 Id 1 に置く(2巡目 #18)。</b>#1 と同じ理由 ── 手順1 の走査を先頭1戸へ絞る
+    /// 変異が、被験者 Id 0 のときは緑のまま通っていた。
+    /// </para>
     /// </remarks>
     [Fact]
     public void BankruptFlagFallsWhenYesterdayHadNoShortfall()
     {
         var definition = WorldDefinition.M0;
-        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
-        AddHousehold(world, id: 0, districtId: 0, Occupation.Miller);
-        world.Households[0].IsBankrupt = 1;
-        world.Households[0].UnaffordableNecessityCount = 0;
+        var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
+        AddHousehold(world, id: 0, districtId: 9, Occupation.Baker); // decoy(#18)。健全なまま無関係。
+        AddHousehold(world, id: 1, districtId: 0, Occupation.Miller); // 被験者。
+        world.Households[1].IsBankrupt = 1;
+        world.Households[1].UnaffordableNecessityCount = 0;
 
         EconomySystemTestFixtures.RunDays(world, new HouseholdSystem(definition), days: 1);
 
-        Assert.Equal(0, world.Households[0].IsBankrupt);
+        Assert.Equal(0, world.Households[1].IsBankrupt);
     }
 
     /// <summary>
@@ -89,35 +102,47 @@ public sealed class HouseholdSystemTests
     /// 【核心 C-1】テスト表 #4。4通り(3条件すべて／a欠け／b欠け／c欠け)で、揃った1通りだけ
     /// <see cref="HouseholdState.Occupation"/> が変わる(GDD02b §4.1)。
     /// </summary>
+    /// <remarks>
+    /// <b>b欠けケースの被験者を Miller 以外にする(2巡目 #17)。</b><c>IsGateOpen</c> がレシピを
+    /// <c>definition.Recipes[(int)household.Occupation]</c> の代わりに <c>Recipes[0]</c> で引く変異は、
+    /// Miller の添字が 0 なので、被験者が Miller のときはどの行でも結果が変わらず緑のまま通っていた。
+    /// b欠け行だけ被験者を Woodworker(添字3)にする ── 自職業(薪)の販売在庫を正にしても、
+    /// 変異は <c>Recipes[0]</c>(Miller・小麦粉)の在庫(既定 0)を読むので b が誤って開き、
+    /// 「維持される」はずの本行が付け替わってしまう。
+    /// </remarks>
     [Theory]
-    [InlineData(true, true, true, true)]   // 3条件すべて → 付け替わる
-    [InlineData(false, true, true, false)] // a欠け(健全) → 維持
-    [InlineData(true, false, true, false)] // b欠け(販売在庫が正) → 維持
-    [InlineData(true, true, false, false)] // c欠け(当日生産あり) → 維持
+    [InlineData(true, true, true, true, Occupation.Miller)]       // 3条件すべて → 付け替わる
+    [InlineData(false, true, true, false, Occupation.Miller)]     // a欠け(健全) → 維持
+    [InlineData(true, false, true, false, Occupation.Woodworker)] // b欠け(販売在庫が正) → 維持。#17。
+    [InlineData(true, true, false, false, Occupation.Miller)]     // c欠け(当日生産あり) → 維持
     public void OccupationChangesOnlyWhenAllThreeConditionsHold(
-        bool isBankrupt, bool sellableStockIsZero, bool productionRunsIsZero, bool expectReassignment)
+        bool isBankrupt,
+        bool sellableStockIsZero,
+        bool productionRunsIsZero,
+        bool expectReassignment,
+        Occupation occupation)
     {
         var definition = WorldDefinition.M0;
         var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
 
         // 世帯Id0が被験者。世帯Id1は同職業の相方(担い手が0で1にならないようにするだけ)。
-        AddHousehold(world, id: 0, districtId: 0, Occupation.Miller);
-        AddHousehold(world, id: 1, districtId: 1, Occupation.Miller);
+        AddHousehold(world, id: 0, districtId: 0, occupation);
+        AddHousehold(world, id: 1, districtId: 1, occupation);
 
         var subject = world.Households[0];
         subject.UnaffordableNecessityCount = isBankrupt ? 1 : 0;
-        subject.WorkshopInventory[OutputItemId(Occupation.Miller)] = sellableStockIsZero ? 0 : 5;
+        subject.WorkshopInventory[OutputItemId(occupation)] = sellableStockIsZero ? 0 : 5;
         subject.ProductionRuns = productionRunsIsZero ? 0 : 1;
 
         EconomySystemTestFixtures.RunDays(world, new HouseholdSystem(definition), days: 1);
 
         if (expectReassignment)
         {
-            Assert.NotEqual(Occupation.Miller, world.Households[0].Occupation);
+            Assert.NotEqual(occupation, world.Households[0].Occupation);
         }
         else
         {
-            Assert.Equal(Occupation.Miller, world.Households[0].Occupation);
+            Assert.Equal(occupation, world.Households[0].Occupation);
         }
     }
 
@@ -190,20 +215,26 @@ public sealed class HouseholdSystemTests
     /// テスト表 #7。担い手最少の職業(Baker、担い手1)が破産世帯と同じ区画に既に居るとき、それを
     /// 選ばず次に薄い職業(Brewer、担い手1・別区画)を選ぶ(GDD02b §4.2 段A)。
     /// </summary>
+    /// <remarks>
+    /// <b>被験者の区画を 0 以外にする(2巡目 #16)。</b>区画フィルタが見る区画を
+    /// <c>household.DistrictId</c> の代わりに定数 <c>0</c> にする変異は、旧世界の被験者が全員
+    /// 区画0だったため緑のまま通っていた(<c>ObservationsTests.WindowObservationRecordsTheCentreNotTheObserversDistrict</c>
+    /// が塞いだのと同型の取り違え)。被験者・相方・候補すべてを区画0を含まない世界へ移す。
+    /// </remarks>
     [Fact]
     public void TargetAvoidsAnOccupationAlreadyPresentInTheSameDistrict()
     {
         var definition = WorldDefinition.M0;
         var world = new World(npcCount: 8, householdCount: 8, itemCount: Item.Count);
 
-        AddHousehold(world, id: 0, districtId: 0, Occupation.Miller); // 被験者。
-        AddHousehold(world, id: 1, districtId: 1, Occupation.Miller); // Miller の相方(担い手2)。
-        AddHousehold(world, id: 2, districtId: 0, Occupation.Baker);  // 被験者と同じ区画(除外対象)。
-        AddHousehold(world, id: 3, districtId: 5, Occupation.Brewer); // 別区画(次点)。
-        AddHousehold(world, id: 4, districtId: 6, Occupation.Woodworker);
-        AddHousehold(world, id: 5, districtId: 7, Occupation.Woodworker); // Woodworker 担い手2。
-        AddHousehold(world, id: 6, districtId: 8, Occupation.Smith);
-        AddHousehold(world, id: 7, districtId: 2, Occupation.Smith); // Smith 担い手2。
+        AddHousehold(world, id: 0, districtId: 30, Occupation.Miller); // 被験者。
+        AddHousehold(world, id: 1, districtId: 31, Occupation.Miller); // Miller の相方(担い手2)。
+        AddHousehold(world, id: 2, districtId: 30, Occupation.Baker);  // 被験者と同じ区画(除外対象)。
+        AddHousehold(world, id: 3, districtId: 35, Occupation.Brewer); // 別区画(次点)。
+        AddHousehold(world, id: 4, districtId: 36, Occupation.Woodworker);
+        AddHousehold(world, id: 5, districtId: 37, Occupation.Woodworker); // Woodworker 担い手2。
+        AddHousehold(world, id: 6, districtId: 38, Occupation.Smith);
+        AddHousehold(world, id: 7, districtId: 32, Occupation.Smith); // Smith 担い手2。
 
         var subject = world.Households[0];
         subject.UnaffordableNecessityCount = 1;
@@ -521,6 +552,119 @@ public sealed class HouseholdSystemTests
             // 以下の2つの断定が落ちる。
             Assert.NotEqual(Occupation.Woodworker, world.Households[0].Occupation);
             Assert.Equal(Occupation.Miller, world.Households[0].Occupation);
+        }
+    }
+
+    /// <summary>
+    /// テスト表 #15(2巡目)。付け替え先は「候補中の担い手最少」であって「候補中の職業 Id 最小」
+    /// ではない(GDD02b §4.2 段3)。
+    /// </summary>
+    /// <remarks>
+    /// <b>2つの変異がこのテストまで緑のまま通っていた。</b>
+    /// <list type="bullet">
+    /// <item><c>argmin</c> の更新条件を <c>if (!found || count &lt; bestCount)</c> から
+    /// <c>if (!found)</c> へ退化させる(= 担い手数を一切見ず、最初に見つかった候補=職業Id最小を
+    /// 採る)変異。</item>
+    /// <item>走査上限を <c>definition.OccupationCount - 1</c> にする(= 職業Id最大が候補から
+    /// 消える)変異。</item>
+    /// </list>
+    /// 既存 #7/#8/#9/#10/#14 はいずれも「期待する付け替え先が同時に候補中の職業Id最小」の世界
+    /// だったので、この2つの変異のどちらでも緑のまま通っていた ── GDD02b §4.2 の中核(担い手数で
+    /// 決める)を1本も押さえていなかった(2巡目の網羅パスの指摘)。
+    /// <para>
+    /// 本テストは、候補中の担い手最少が Smith(職業Id 4、最大)になるよう組む。Miller・Baker・Brewer
+    /// をそれぞれ担い手3、Smith を担い手1(decoy世帯1戸のみ)にする。「最初に見つかった候補を採る」
+    /// 変異では職業Id最小の Miller が選ばれ、「走査上限を1手前で止める」変異では Smith が候補から
+    /// 消えて Miller(担い手3のタイの中で最小Id)が選ばれる。どちらも期待する Smith と一致しない。
+    /// </para>
+    /// <para>
+    /// <b>被験者を世帯 Id 1 に置く(#18)。</b>世帯 Id 0 には無関係な decoy(Smith、健全)を置く ──
+    /// この decoy がそのまま Smith の唯一の担い手(担い手1)を兼ねる。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void TargetIsTheOccupationWithFewestCarriersNotTheLowestId()
+    {
+        var definition = WorldDefinition.M0;
+        var world = new World(npcCount: 12, householdCount: 12, itemCount: Item.Count);
+
+        AddHousehold(world, id: 0, districtId: 50, Occupation.Smith); // decoy(#18)。健全、Smithの唯一の担い手。
+
+        AddHousehold(world, id: 1, districtId: 0, Occupation.Woodworker); // 被験者。
+        AddHousehold(world, id: 2, districtId: 9, Occupation.Woodworker); // Woodworker の相方(担い手2)。
+
+        AddHousehold(world, id: 3, districtId: 1, Occupation.Miller);
+        AddHousehold(world, id: 4, districtId: 1, Occupation.Miller);
+        AddHousehold(world, id: 5, districtId: 1, Occupation.Miller); // Miller 担い手3。
+
+        AddHousehold(world, id: 6, districtId: 2, Occupation.Baker);
+        AddHousehold(world, id: 7, districtId: 2, Occupation.Baker);
+        AddHousehold(world, id: 8, districtId: 2, Occupation.Baker); // Baker 担い手3。
+
+        AddHousehold(world, id: 9, districtId: 3, Occupation.Brewer);
+        AddHousehold(world, id: 10, districtId: 3, Occupation.Brewer);
+        AddHousehold(world, id: 11, districtId: 3, Occupation.Brewer); // Brewer 担い手3。
+
+        var subject = world.Households[1];
+        subject.UnaffordableNecessityCount = 1;
+        subject.WorkshopInventory[OutputItemId(Occupation.Woodworker)] = 0;
+        subject.ProductionRuns = 0;
+
+        EconomySystemTestFixtures.RunDays(world, new HouseholdSystem(definition), days: 1);
+
+        // Smith(担い手1)が候補中最少。Miller/Baker/Brewer(いずれも担い手3)より少ない。
+        Assert.Equal(Occupation.Smith, world.Households[1].Occupation);
+    }
+
+    /// <summary>
+    /// テスト表 #19(2巡目)。<see cref="OccupationReassignment.TrySelectTarget"/> が false を
+    /// 返すとき、<c>target</c> には現在の職業が置かれる(GDD02b §4.2 のdocコメントの契約)。
+    /// </summary>
+    /// <remarks>
+    /// <b><see cref="OccupationReassignment.TrySelectTarget"/> を直接呼ぶ。</b><c>target = household.Occupation;</c>
+    /// を <c>target = default;</c> にする変異は、<see cref="HouseholdSystem.Step"/> 経由の呼び出しでは
+    /// 呼び出し側が false のとき <c>continue</c> して <c>target</c> を読まないため、隠れて観測でき
+    /// ない(<see cref="HouseholdSystem"/> 側の2つ目の <c>continue</c> を消す変異も同じ理由で隠れる
+    /// ── 2つの契約が互いの検出器を打ち消し合っている)。直接呼んで <c>target</c> を断定することでしか
+    /// 機械で守れない(2巡目の網羅パスの指摘)。
+    /// </remarks>
+    [Fact]
+    public void TrySelectTargetLeavesTheCurrentOccupationInTargetWhenItReturnsFalse()
+    {
+        var definition = WorldDefinition.M0;
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+        AddHousehold(world, id: 0, districtId: 0, Occupation.Smith); // 唯一の担い手 → false になる。
+
+        bool result = OccupationReassignment.TrySelectTarget(
+            definition, world, world.Households[0], out var target);
+
+        Assert.False(result);
+        Assert.Equal(Occupation.Smith, target);
+    }
+
+    /// <summary>
+    /// テスト表 #20(2巡目)。<see cref="HouseholdSystem.Stream"/> が
+    /// <see cref="RandomStream.Household"/> であり、<see cref="HouseholdSystem.Cadence"/> が
+    /// 「1日1回・0時」であることを直接断定する。
+    /// </summary>
+    /// <remarks>
+    /// <b>塞がないと決めた3つのうちの1つ(タスク仕様)。</b>順3は乱数を引かないので、
+    /// <see cref="HouseholdSystem.Stream"/> を <see cref="RandomStream.NeedGeneration"/> に変える
+    /// 変異は既存の #1〜#14 のどれも落とさない(乱数を引かないため挙動が変わらない)。本テストが
+    /// <c>Stream</c> と <c>Cadence</c> の値そのものを直接断定して塞ぐ。<c>Cadence</c> は等価比較を
+    /// 公開していないので、<see cref="Cadence.ShouldRunAt"/> で「0時のみ真」を確かめる。
+    /// </remarks>
+    [Fact]
+    public void StreamIsHouseholdAndCadenceIsDailyAtHourZero()
+    {
+        var system = new HouseholdSystem(WorldDefinition.M0);
+
+        Assert.Equal(RandomStream.Household, system.Stream);
+
+        for (int hour = 0; hour < Tick.HoursPerDay; hour++)
+        {
+            bool expectedToRun = hour == 0;
+            Assert.Equal(expectedToRun, system.Cadence.ShouldRunAt(new Tick(hour)));
         }
     }
 
