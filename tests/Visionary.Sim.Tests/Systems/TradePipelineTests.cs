@@ -1422,6 +1422,16 @@ public sealed class TradePipelineTests
     /// 担保されていなかった</b>(留保の核心は<see cref="SmithNeverRunsOutOfToolsOverSixtyDays"/>
     /// [全5シード赤]が持つ)。これが日次下限を落としてよい根拠そのものである。
     /// </remarks>
+    /// <remarks>
+    /// <b>④が実際に発火することの断定(#39レビュー3巡目 #21、2026-09-23)。</b>裁定D-A・D-B・D-Cが
+    /// 固定値と日次下限を落とした根拠は「④が職業分布を動かす」の1点だが、置き直した3本
+    /// (D-A・D-B・D-C)はどれも④が1度も発火しない世界でも緑になる(D-Aは6/180/6で下限を満たし、
+    /// D-Cは全職業2のままで担い手 ≥ 1 を満たす)。④が到達不能になった日、残るのは理由の消えた
+    /// 緩い検出器である。そこで本テストへ「60日のうち少なくとも1日、職業分布がday 0と異なる」
+    /// ことを断定として足す。<b>実測(2026-09-23、最初に職業分布がday 0と異なった日)</b>:
+    /// seed=1: day10 / seed=2: day17 / seed=3: day9 / seed=7: day11 / seed=42: day10。
+    /// 全5シードで60日以内に分布が動いたため、5シードすべてに断定を足す。
+    /// </remarks>
     [Theory]
     [InlineData(1)]
     [InlineData(2)]
@@ -1448,6 +1458,10 @@ public sealed class TradePipelineTests
                     + "(WorldGeneratorの初期配置は5職業とも2戸のはず)。");
         }
 
+        // #39レビュー3巡目 #21。day 0 の職業分布(④が1度も発火しなければ、以後この値のまま)。
+        string day0Distribution = OccupationDistributionSnapshot(definition, world);
+        bool distributionEverDiverged = false;
+
         var violationDays = new List<int>();
         var violationOccupations = new List<Occupation>();
         var violationDistributionSnapshots = new List<string>();
@@ -1457,6 +1471,14 @@ public sealed class TradePipelineTests
         for (int day = 1; day <= 60; day++)
         {
             scheduler.Advance(world, ticks: 24);
+
+            // #39レビュー3巡目 #21。60日のうち少なくとも1日、職業分布がday 0と異なることを見る
+            // (④が実際に発火したことの断定。理由は上のremarks参照)。
+            if (!distributionEverDiverged
+                && OccupationDistributionSnapshot(definition, world) != day0Distribution)
+            {
+                distributionEverDiverged = true;
+            }
 
             // 診断値(断定しない。#39裁定D-C)。60日間の工具の売り注文の延べ件数と0件だった日。
             int toolOfferCount = CountMarketOffers(world, Item.Tools);
@@ -1498,6 +1520,13 @@ public sealed class TradePipelineTests
                 + $"付け替えない」が破れた可能性)。{violationDetails}"
                 + $"(診断: 60日間の工具の売り注文の延べ件数={totalToolOfferCount} / "
                 + $"0件だった日={zeroToolOfferDayCount}日。留め具ではなく診断のみ)。");
+
+        // #39レビュー3巡目 #21。④が実際に発火することの断定(上のremarks参照)。
+        Assert.True(
+            distributionEverDiverged,
+            $"seed={seed}: 60日を通じて職業分布がday 0から動かなかった"
+                + $"(day 0の分布=[{day0Distribution}]。④が1度も発火していない可能性があり、"
+                + "裁定D-A・D-B・D-Cが固定値と日次下限を落とした根拠が立っていない)。");
     }
 
     /// <summary>
@@ -1628,7 +1657,9 @@ public sealed class TradePipelineTests
         /// <summary>
         /// #174 テスト表 #7。自家供給できる世帯(目標日数が正の出力品目を持つ世帯)の
         /// (世帯, 出力品目, 日)の組ごとに、世帯在庫・工房在庫の値を持つ観測。<b>条件の成否に
-        /// かかわらず必ず記録する</b>(M0では自家供給6戸 × 出力品目1 × 30日 = 180件)。
+        /// かかわらず必ず記録する</b>。day 0 は自家供給6戸 × 出力品目1 × 30日で180件になるが、
+        /// #39裁定D-Aのとおり④の職業付け替えが職業分布を動かすため、実際の総件数は180に固定
+        /// されない(下の<see cref="ScannedSelfSuppliableEntryCount"/>参照)。
         /// </summary>
         /// <remarks>
         /// <b>なぜ記録と絞り込みを分けたか(2巡目レビュー指摘の修正)。</b>旧版は「抱え込みの条件に
@@ -1655,10 +1686,17 @@ public sealed class TradePipelineTests
         { get; } = new();
 
         /// <summary>
-        /// <see cref="SelfSuppliableObservations"/>の件数。自家供給できる6戸 × 出力品目1 ×
-        /// 30日で180件になるはずである(固定値で assert する。空振り防止であって核心ではない
-        /// ── 走査が回らない・走査範囲が縮む・観測の記録そのものが消える、といった変異を
-        /// この件数が捕まえる)。
+        /// <see cref="SelfSuppliableObservations"/>の件数。<b>#39裁定D-A(2026-09-23)で
+        /// <c>Assert.Equal(180, ...)</c>の固定値assertは下限断定(日次観測件数 ≥ 3 / 延べ観測件数
+        /// ≥ 90)へ置き替えた</b> ── ④の職業付け替えが職業分布を動かすため、6戸が6戸のまま
+        /// 続くことを前提にできない(理由は
+        /// <see cref="TradePipelineTests.OwnOutputIsNeverHoardedWhileTheHouseholdGoesWithout"/>の
+        /// remarks参照)。<b>判別力は180 → 90へ落ちた。</b>自家供給3戸ぶんまで走査が縮む変異
+        /// (1日あたりの記録を3件までに切り詰める)は、日次下限3・延べ下限90・day 0の
+        /// <see cref="SelfSuppliableHouseholdCount"/>・最終日の実在庫との突き合わせループの
+        /// いずれも通り抜ける(実測、2026-09-23。この変異を一時的に当てて全5シード緑のまま
+        /// 通過することを確認し、戻した)。この件数が捕まえるのは「走査が丸ごと止まる」
+        /// 「観測の記録そのものが消える」といった全滅型の変異に限られる。
         /// </summary>
         public int ScannedSelfSuppliableEntryCount => SelfSuppliableObservations.Count;
 
@@ -2059,31 +2097,43 @@ public sealed class TradePipelineTests
     /// 最終日突き合わせ)自体の変異の実測(実測日 2026-09-22、<c>mutator</c> が使い捨てworktreeで
     /// 1件ずつ当て、毎回 <c>dotnet test Visionary.sln -c Release</c>(477件)を走らせて測定。
     /// 対象コミット <c>13144cf</c>)。期待と食い違った件数は0件。</b>
+    /// <b>訂正(#39裁定D-A、2026-09-23。docs/process/03-corrections.md)。</b>以下のR-1〜R-5'は
+    /// 測定当時(<c>13144cf</c> / <c>0d46c1d</c> / <c>717709c</c>)のコードに対する記録であり、
+    /// 当時の<see cref="ScannedSelfSuppliableEntryCount"/>は<c>Assert.Equal(180, ...)</c>の
+    /// 固定値、最終日の観測件数は<c>Assert.Equal(6, finalDayObservations.Count)</c>の固定値
+    /// だった(どちらも#39裁定D-Aで下限断定[日次観測 ≥ 3 / 延べ観測 ≥ 90 / 最終日観測 ≥ 3]へ
+    /// 置き替え済み)。<b>結論(赤/緑・Actual値)は当時の測定結果そのものなので書き換えない</b>。
+    /// 以下では、当時「観測件数180」「最終日の観測件数(6)」と呼んでいた留め具の現行の名前を
+    /// 併記する。
     /// <list type="bullet">
     /// <item><b>R-1</b>(観測の右項<c>household.WorkshopInventory[...]</c>を左項と同じ
     /// <c>household.HouseholdInventory[...]</c>に取り違える。両項が同じ配列を読む)は
     /// <b>赤(全5シード)</b>。落ちたのは<b>最終日の工房在庫の突き合わせ</b>(核心ではない)。
-    /// 観測件数180 は通過した。</item>
+    /// 当時の観測件数180の固定値assert(現行の延べ観測件数下限90 assertに相当)は通過した。</item>
     /// <item><b>R-2</b>(観測の左項<c>household.HouseholdInventory[...]</c>を右項と同じ
     /// <c>household.WorkshopInventory[...]</c>に取り違える。同上)は<b>赤(全5シード)</b>。
     /// 落ちたのは<b>最終日の世帯在庫の突き合わせ</b>(核心ではない)。</item>
     /// <item><b>R-3</b>(<c>scan.SelfSuppliableObservations.Add(...)</c>の行を削除)は
-    /// <b>赤(全5シード)</b>。落ちたのは<b>観測件数180</b>(Actual 0)。核心には到達しない。
+    /// <b>赤(全5シード)</b>。落ちたのは<b>当時の観測件数180の固定値assert</b>
+    /// (現行の延べ観測件数下限90 assertに相当。Actual 0)。核心には到達しない。
     /// </item>
     /// <item><b>R-4</b>(#7 の走査を先頭1戸だけに絞る)は<b>赤(全5シード)</b>。落ちたのは
-    /// <b>観測件数180</b>(Actual 30 または 0、シードにより異なる)。核心には到達しない。</item>
+    /// <b>当時の観測件数180の固定値assert</b>(現行の延べ観測件数下限90 assertに相当。
+    /// Actual 30 または 0、シードにより異なる)。核心には到達しない。</item>
     /// <item><b>R-5</b>(記録時の<c>day</c>を<c>day - 1</c>に変える。Dayのラベルのずれ)。
     /// この突き合わせ自体が空振りしうることへの手当て(開発者レビュー、2026-09-23)。
     /// <c>Where(o =&gt; o.Day == 30)</c>が0件になると下のforeachのassertが1本も走らず、
-    /// R-1/R-2を唯一落としている留め具が緑のまま死ぬ。観測件数180は
+    /// R-1/R-2を唯一落としている留め具が緑のまま死ぬ。当時の観測件数180の固定値assertは
     /// <c>SelfSuppliableObservations.Count</c>であり<c>Day</c>の値を留めないので通過する。
-    /// したがって最終日の観測件数(6)を固定値で先に留める。<b>実測(実測日 2026-09-23、
+    /// したがって最終日の観測件数が3件以上であることを先に留める(測定当時は
+    /// <c>Assert.Equal(6, finalDayObservations.Count)</c>の固定値だったが、#39裁定D-Aで
+    /// <c>finalDayObservations.Count &gt;= 3</c>の下限へ置き替えた)。<b>実測(実測日 2026-09-23、
     /// <c>mutator</c> が使い捨てworktreeで測定。対象コミット<c>0d46c1d</c>)。</b>
-    /// <b>赤(全5シード)</b>。落ちたのは<c>Assert.Equal(6, finalDayObservations.Count)</c>
+    /// <b>赤(全5シード)</b>。落ちたのは当時の<c>Assert.Equal(6, finalDayObservations.Count)</c>
     /// (本変異のために置いた空振り防止そのもの)で、失敗メッセージは全シード共通で
     /// <c>Expected: 6 / Actual: 0</c>。foreachの中の2本の<c>Assert.True</c>には到達していない
-    /// (0周のため)。観測件数180(<c>SelfSuppliableObservations.Count</c>)は素通りした。
-    /// 総件数5件(Failed 5 / Passed 472 / Total 477)。他テストへの巻き込みなし。
+    /// (0周のため)。当時の観測件数180の固定値assert(<c>SelfSuppliableObservations.Count</c>)は
+    /// 素通りした。総件数5件(Failed 5 / Passed 472 / Total 477)。他テストへの巻き込みなし。
     /// <b>R-5'(同じ変異を、空振り防止を置く前のコミット<c>717709c</c>に当てた反実仮想)。</b>
     /// <b>緑。</b>5インスタンスがすべて通り、477件全体も全緑だった。これが「空振り防止が
     /// 無い版では、Dayのラベルを1つずらす変異を当ててもループが0周のまま何も検証せずに
