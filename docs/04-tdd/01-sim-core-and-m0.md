@@ -177,7 +177,7 @@ k = Mix(k ^ (ulong)entityId)     // エンティティ非依存の用途は enti
 | 0  | OpportunityCost      | 個体別の機会費用を**前日の確定値から**算出し、その日は固定(M0 は職業 × 階層の固定値) | GDD08 §5, §6.3   |
 | 1  | Production           | 職業別の生産(レシピ1段)。在庫に加算                                            | [GDD02a](../03-gdd/02a-production.md) |
 | 2  | Consumption          | **自家消費**(自分の生産物を販売在庫の範囲で工房在庫から世帯在庫へ移す)→ 家族規模別の消費。**世帯在庫から**減算(**0 で下げ止まる**) | [GDD02b §1・§1.1](../03-gdd/02b-consumption-and-household.md) |
-| 3  | Household            | 固定支出(仕入)の支払い、流動資金の更新、**破産中フラグの更新と §6.3 ④(職業付け替え)**。**M0 に給金と税は無い**([GDD10](../03-gdd/10-employment.md) / [GDD09](../03-gdd/09-treasury-and-tax.md)) | [GDD02b §3・§6.3](../03-gdd/02b-consumption-and-household.md) |
+| 3  | Household            | **破産中フラグの更新と §4 ④(職業付け替え)**。**M0 の順3 では金が動かない** — 給金([GDD10](../03-gdd/10-employment.md))・税([GDD09](../03-gdd/09-treasury-and-tax.md))・掛け売り(③)がいずれも無く、仕入の支払いは順5 の約定がその場で行う | [GDD02b §3・§4](../03-gdd/02b-consumption-and-household.md) |
 | 4  | NeedGeneration       | シム状態(在庫不足/過剰、金銭不足…)からNeedを生成・失効                        | GDD01 §3.2        |
 | 5  | Trade                | 取引: 売り手の提示価格更新→買い手の相手選好(効果1はここ)→約定→帳簿記帳。**世帯間取引の確定後に、余剰の都市外市場への売却**([GDD02d §2](../03-gdd/02d-external-market-and-money.md))| [GDD02c](../03-gdd/02c-price-and-budget.md) / [GDD06](../03-gdd/06-trade-and-negotiation.md) / GDD01 §2.2 効果1 |
 | 6  | Promise              | 期限判定、自動破棄、NPC都合キャンセルの検出                                    | GDD01 §2.8        |
