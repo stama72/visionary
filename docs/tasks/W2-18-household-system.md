@@ -322,6 +322,25 @@ target = 選んだ職業; return true
 
 - **赤になるのは段B のブロックだけである**(実装からの報告。手元で行を消して実測: 失敗1件 = #14 のみ)。段A の区画フィルタは**破産世帯自身を含めて**同区画の担い手を数えるので、候補が自職業のとき**必ず自世帯がマッチして除外される** — 「自職業を除く」行が無くても段A では自職業が候補に残らない。段A のブロックは契約の確認として残すが、**この変異を捕まえているのは段B のブロックである**
 
+### 2巡目(網羅パス)で見つかった未被覆の判断点
+
+**境界は `OccupationReassignment` と `HouseholdSystem` の分岐・比較・定数・走査順のすべて。** 列挙の結果、**契約が壊れてもテストが緑のまま通る判断点が5つ**見つかった。以下で塞ぐ。
+
+| # | テスト | 守る契約(壊れても緑だった変異) | 検証内容 |
+| - | ------ | -------------------------------- | -------- |
+| 15 | `TargetIsTheOccupationWithFewestCarriersNotTheLowestId` | **`argmin` の更新を `if (!found)` へ退化させる**(= 担い手数を一切見ず、候補のうち職業 Id 最小を採る)。**および走査上限を `OccupationCount - 1` にする**(= 職業 Id 最大が候補から消える) | **候補中の担い手最少が、候補中の職業 Id 最小と一致しない**世界を組む。かつ期待する付け替え先を**職業 Id が最大のもの**にする。例: 被験者 `Woodworker`、`Miller` 3戸・`Baker` 3戸・`Brewer` 3戸・`Smith` 1戸 → `Smith` を選ぶ。**#7/#8/#9/#10/#14 はいずれも「期待する付け替え先が同時に候補中の最小 Id」なので、GDD02b §4.2 の中核(担い手数で決める)を1本も押さえていない** |
+| 16 | (#7 の世界を置き直す) | **区画フィルタが見る区画を `household.DistrictId` から定数 `0` へ**。付け替えが起きるテストの被験者が**全員 区画0** なので緑だった | #7 の破産世帯と、同区画に居る「担い手最少の職業 Y」の世帯を、**区画 0 以外**へ移す。`ObservationsTests.WindowObservationRecordsTheCentreNotTheObserversDistrict` が塞いだのと同型の取り違えである |
+| 17 | (#4 の b 欠けケースの世界を置き直す) | **ゲート b が引くレシピを `Recipes[(int)household.Occupation]` から `Recipes[0]` へ**。「b が閉じて維持される」を断定する唯一のケースの被験者が `Miller`(= 添字0)なので緑だった | #4 の b 欠けケースの被験者を **`Miller` 以外の職業**にする(自職業の出力品目の販売在庫が正で、かつ `Recipes[0]` の出力品目の在庫は 0 になる置き方) |
+| 18 | (#1・#2・#15 の被験者を世帯 Id 0 以外へ) | **手順1・手順2 の走査を先頭1戸に絞る**(`HouseholdSystemTests` の被験者が常に世帯 Id 0 なので緑だった。`TradePipelineTests` の D-A / D-C は下限断定なので拾わない) | #1・#2 の被験者の前に世帯を1戸以上置き、**被験者を世帯 Id 1 以降**にする(手順1 側)。#15 の被験者も世帯 Id 1 以降に置く(手順2 側) |
+| 19 | `TrySelectTargetLeavesTheCurrentOccupationInTargetWhenItReturnsFalse` | **`target = household.Occupation;` を `target = default;` へ**。呼び出し側が false のとき `continue` するため、単独では自己代入 no-op に隠れて観測できない(`HouseholdSystem` 側の2つ目の `continue` を消す変異も同じ理由で隠れる) | `OccupationReassignment.TrySelectTarget` を**直接呼び**、`false` を返すとき `target` が現在の職業であることを断定する。**この2つの契約は互いの検出器を打ち消し合っており、片方を直接呼ばないと機械で守れない** |
+
+**塞がないと決めたもの:**
+
+- **`definition.OccupationCount` を定数 `5` / `Enum.GetValues<Occupation>().Length` に置き換える変異**(仕様「添字・単位の約束」が名指ししている) — **レシピ数が 5 でない `WorldDefinition` を作るテストが存在せず**、塞ぐには定義の作り方そのものを足すことになる。**issue へ落とす**
+- **`RandomStream.Household` の断定** — 順3 は乱数を引かないので挙動が変わらない。**#20 として1行の断定だけ足す**(`Stream` と `Cadence` を直接断定する)
+- **`ArgumentNullException.ThrowIfNull` 5か所** — リポジトリ全体で `ArgumentNullException` を断定するテストが1件も無く、既存の慣行である。本タスクで変えない
+- **等価変異**(どの世界でも結果が変わらないもの) — `CarrierCount` / 手順1 の走査順の降順化、`IsGateOpen` の3条件の評価順、`IsBankrupt != 1` → `!= 0`、`SellableStock.Of(...) != 0` → `> 0`、`Outputs[0]` → `Outputs[^1]`、`IsOccupationPresentInDistrict` の早期 return 撤去と自世帯の除外、`best = default;`。**`mutator` にも当てない**
+
 | 変異 | 内容 | 期待 |
 | ---- | ---- | ---- |
 | **M-fold** | `HouseholdSystem.Step` の手順1 と手順2 を1つのループに畳む(世帯ごとに `IsBankrupt` を更新してから、その場で④を判定する) | **緑**(1本も落ちない)。上記「手順1 と手順2 を1つのループに畳まない」の訂正を実測で裏付ける。**落ちたら訂正のほうが誤りなので、転記せずに報告する** |
