@@ -83,10 +83,11 @@ public sealed class MetricsScratch
 ```csharp
 /// <summary>その日、§1.1 の「売れなかった日は値上げしない」が実際に効いたか。</summary>
 public static bool WasUnsoldCapApplied(
-    int sellableStock, int shipmentTargetStock, int isBankrupt, bool hasSettledYesterday);
+    bool hasReference, int sellableStock, int shipmentTargetStock, int isBankrupt, bool hasSettledYesterday);
 ```
 
 - **`UnsoldCapPermille` を再定義しない。** 同じクラスに置くのは、`1000` を呼び出し側へ写すと片方だけ動かせてしまうためである([GDD02c §1.1](../03-gdd/02c-price-and-budget.md) の値は調整対象)
+- **相場基準が立たない日(`hasReference == false`)は `false` を返す**(レビュー1巡目 I-b の訂正)。その日、段1 は `OfferPrice.Calculate` を**呼ばず**に床をそのまま提示価格にするので([GDD02c §1.2](../03-gdd/02c-price-and-budget.md)、`Calculate` の doc「相場基準が立たない日は呼ばない」)、**価格係数‰ はそもそも算出されておらず、§1.1 の頭打ちは評価すらされていない。** 在庫比から係数を再計算して 1 を立てると、「盲目(相場基準なし)」の売り手日が「ラチェットの停止(頭打ち)」に混入し、[TDD01 §4.2](../04-tdd/01-sim-core-and-m0.md) がこの2列に求めた切り分け([GDD02 §8-4](../03-gdd/02-economy.md) が 0 へ収束したときの原因の切り分け)が成立しない
 - **破産中(`isBankrupt != 0`)は `false` を返す。** 500‰ の固定が先に効くので頭打ちは何もしない(`Calculate` の既存の分岐と同じ順序)
 - **`hasSettledYesterday` が真なら `false`**
 - **在庫比から出した価格係数‰ が 1000 以下なら `false`**(`min` が実際には切っていない)
@@ -171,7 +172,7 @@ public interface IDailyMetricsSink
 - **約定の母数は `Purchase` の行だけである**(都市内の約定は買い手と売り手が1行ずつ記帳するので、両方数えると2倍になる)。**窓口からの輸入もここに入る** — `window_settled_*` はその内数である。**この2つの列で「窓口からの購入が約定に占める割合」が品目別に出る**([GDD02 §8](../03-gdd/02-economy.md)-6 の切り分け)
 - **中央値は約定の行単位で取る。数量で重み付けしない。** 件数が偶数なら中央2つの `CeilDiv(a + b, 2)`([GDD01 §2.3](../03-gdd/01-trust-and-conversation.md) の切り上げ)。**0 件の日は `-1`**
 - **`offer_*` は当日の `world.Market` から取る。** 順5 の段2 が書いた当日の値がそのまま残っている(次の日の段2 まで `Clear()` されない)
-- **`offer_at_floor_count` の床は「その品目の当日の外部買値」**(季節係数込み。[GDD02d §5](../03-gdd/02d-external-market-and-money.md))。**1次産品は外部買値を持たない**ので `external_buy_price = -1`、`offer_*` も売り手が居ないので 0 件になる
+- **`offer_at_floor_count` の床は「その品目の外部買値」**(**季節係数は掛からない**。[GDD02d §5](../03-gdd/02d-external-market-and-money.md)。仕様の初稿が「季節係数込み」と書いていたのは誤りで、レビュー1巡目 II-1 で訂正した。床が季節で動かない以上、天井も動かない)。**1次産品は外部買値を持たない**ので `external_buy_price = -1`、`offer_*` も売り手が居ないので 0 件になる
 - **`offer_at_floor_with_export_count` は「床に一致し、かつその日に輸出の `Sale` 行がある (売り手 × 品目)」である。** [GDD02 §8-1](../03-gdd/02-economy.md) が硬直の判定から除くのは**この集合だけ**であり、`offer_at_floor_count` との差(床に居るが輸出していない売り手日)は除かない
 
 #### `districts.csv`(日次 × 品目 × 区画。**都市生産品だけ・約定が1件以上ある行だけ**)
@@ -252,7 +253,7 @@ vsim hash --seed <n> --ticks <n>
 | 何を | どこで | 入力の作り方・約束 |
 | ---- | ------ | ------------------ |
 | `BeginDay()` | `TradeSystem.Step` の**先頭**(段1 より前) | 順5 が唯一の書き手。**順10 で呼ばない** — 読む前に消える。**順1 で呼ばない** — 順5 が登録されていないテストで前日の値が残るのは許容する(メトリクスは順5 の値だからである) |
-| `SellerHasNoReference` / `SellerCoefficientCapped` | 段1 の世帯ループ、`sellableStock <= 0` の `continue` **より前** | `hasReference` は `MarketReference.TrySeller` の戻り値をそのまま反転したもの。頭打ちは `OfferPrice.WasUnsoldCapApplied` を呼ぶ(段1 が既に持っている `sellableStock` / `shipmentTargetStock` / `household.IsBankrupt` / `hasSettled` を渡す)。**`continue` の後に置くと、販売在庫 0 の世帯の相場基準が落ちる** |
+| `SellerHasNoReference` / `SellerCoefficientCapped` | 段1 の世帯ループ、`sellableStock <= 0` の `continue` **より前** | `hasReference` は `MarketReference.TrySeller` の戻り値をそのまま反転したもの。頭打ちは `OfferPrice.WasUnsoldCapApplied` を呼ぶ(段1 が既に持っている `hasReference` / `sellableStock` / `shipmentTargetStock` / `household.IsBankrupt` / `hasSettled` を渡す)。**`hasReference` を渡す**(レビュー1巡目 I-b の訂正。上記「2.」)。**`continue` の後に置くと、販売在庫 0 の世帯の相場基準が落ちる** |
 | `DemandLines` / `DemandLinesWithoutKnownPrice` | 段4 の世帯ループ、`BuyerDemand.Build` の**直後** | `HouseholdDemand.Lines` を走査し、`line.ExpectedStock < line.TargetStock` の行だけを数える。そのうち `line.HasMarketTerm == false` を分子にする |
 | `InputBlockedByFunds`(段4 側) | 同上 | `line.Purpose == DemandPurpose.ProductionInput && line.CashCap == 0` の行が1つでもあれば 1 を代入 |
 | `InputBlockedByFunds`(段5b 側) | `TradeSystem.TryPurchaseLine` の既存の2箇所(`UnaffordableNecessityCount` を加算している行のとなり) | 経路(1) `decision.Reason == NoPurchaseReason.CashCap`、経路(2) `fundsCap == 0`。**どちらも `line.Purpose == DemandPurpose.ProductionInput` のとき 1 を代入する**(加算しない。世帯日の 0/1 である) |
@@ -293,6 +294,17 @@ vsim hash --seed <n> --ticks <n>
 > **「核心」印は7件で、[02-task-spec](../process/02-task-spec.md) の想定(2〜3件)より多い。** 本タスクは [#41](https://github.com/stama72/visionary/issues/41) を2本へ割った前半で、収集の配線が6箇所(順10 と順5 の5箇所)に分かれるためである。**7件の内訳は、ハッシュの契約1・貨幣の恒等式1・(b) の2経路2・集計キー1・次元1・性能1** で、いずれも**外しても既存のテストが緑のまま通る**形である(#13 の集計キーの取り違えは、同じ形の変異が緑のまま通った実測が `TradePipelineTests.InternalSettlementsOfCityGoodsDisappearWithinThirtyDays` の doc コメントに残っている)。
 
 > **#20 は現時点では空振りに近い。** 着手時点の master では経済が 20〜30 日で止まるので、36,000日 の大半は1日あたりの仕事がほぼ 0 である(実測: 1,600日 が 85 ミリ秒)。**「60 秒以内で通った」ことは、経済が生きた状態で通ることを意味しない。** 性能を実際に守っているのは #19 のほうであり、#20 は完了条件の写しとして置く。**この注記をテストの doc コメントにも書くこと** — 書かないと、後から読んだ人が「性能は測ってある」と読む。
+
+### 落ちるべき条件 — 別表(レビューで足した / 訂正したもの)
+
+**上の表は実装に渡した時点の指示であって最終形ではない。** レビューで見つかった欠陥に対する追加・訂正はここに持つ。
+
+| # | テスト | 検証内容 | この実装ミスで落ちる | 出所 |
+| - | ------ | -------- | -------------------- | ---- |
+| 8' | `UnsoldCapIsCountedOnlyWhenItBites`(**上の #8 を訂正**) | 上の #8 に加えて、**相場基準が立たない日は `seller_days_coefficient_capped` が立たない**。初日(全売り手が相場基準を持たない日)は 0 である | `WasUnsoldCapApplied` に `hasReference` を渡さず、在庫比だけから係数を再計算した(盲目の売り手日がラチェット停止に混入する) | 1巡目 I-b |
+| 7' | `SellerWithoutReferenceIsCountedAtTheFloor`(**上の #7 の「落ちる条件」を訂正**) | 検証内容は変えない。**落ちる条件から「段1 の計数を `sellableStock <= 0` の `continue` より後に置いた」を落とす** — `seller_days` 系の分母は `world.Market` から取っており、`Market` に載るのは `sellableStock > 0` を通った売り手だけなので、**代入を `continue` の後ろへ移しても出力のどの値も変わらない。** 段1 が全世帯について書くことを守る機械は無い(規約としては残すが、「機械が守っている」とは書かない) | `MarketReference.TrySeller` の戻り値ではなく別の判定を書いた | 1巡目 I-b |
+| 24 | `InputBlockedCountsWhenFundsCapTruncates` | **段5b の経路(2)(`fundsCap == 0`)だけ**が `input_blocked_households` を立てる世帯日を作る。段4 の `CashCap == 0` が立たない(= 需要を組んだ時点では資金があった)世帯について、段5b の切り詰めで 1 になる | 段5b 経路(2) の代入を削った。**上の #4 はこの経路を核心に指定していたが、流動資金 0 の世帯が段4 経路で先に 1 を立てるため、経路(2) を丸ごと削っても緑のまま通っていた**(1巡目 I-a) | 1巡目 I-a |
+| 21' | `RunIsByteIdenticalAcrossRuns`(**上の #21 を補強**) | 上の #21 に加えて、**(i)** 負号・小数点の表記が異なるカルチャを現在のカルチャに設定した実行の出力が、不変カルチャの実行とバイト一致する、**(ii)** 出力バイトに `\r\n` が現れない | `CultureInfo.InvariantCulture` を落とした / `NewLine = "\n"` を落とした。**同一プロセス内で2回走らせて比べるだけでは、カルチャも改行も列挙順も同じなので3モードとも素通りする**(1巡目 I-a)。`Runner` は `DeterminismConventionTests` の守備範囲外なので、ここが `Runner` の整形規約を守る唯一の機械である | 1巡目 I-a |
 
 ## 編集してよい文書
 
