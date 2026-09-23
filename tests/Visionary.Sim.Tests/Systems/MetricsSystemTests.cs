@@ -118,10 +118,27 @@ public sealed class MetricsSystemTests
         new MetricsSystem(definition, sink),
     };
 
-    /// <summary>#1(核心)。MetricsSystem を登録した走行と登録しない走行のハッシュが一致する。</summary>
+    /// <summary>#1(核心。上の#1の核心変異を別表#1'が差し替えた)。MetricsSystem を登録した
+    /// 走行と登録しない走行のハッシュが一致する。</summary>
     /// <remarks>
-    /// 変異(MetricsSystem.Step の中で <c>household.UnmetConsumption[0] = 0;</c> を1行足す)を
-    /// 当てると、この等値検査は赤になる見込み(順10 が World を書き換えるため)。
+    /// <para>
+    /// <b>当てる核心変異は <c>MetricsSystem.Step</c> の中の <c>household.LiquidFunds = 0;</c>
+    /// である</b>(2巡目 I-b / 3巡目 I-a。初稿の <c>household.UnmetConsumption[0] = 0;</c> は
+    /// M0 で恒常0のため確実に no-op だったので差し替えた)。<c>LiquidFunds</c> を選ぶのは
+    /// <b>累積量だからである</b> ── 即日分岐して以後の全日に波及するので、最終日の値に依存しない。
+    /// </para>
+    /// <para>
+    /// <b>日次カウンタ型の欄(<c>ProductionRuns</c> / <c>UnaffordableNecessityCount</c> /
+    /// <c>UnmetConsumption</c>)を当てても意味が無い。</b>翌日の上流(順1
+    /// <c>ProductionSystem</c> / 順5 / <c>ConsumptionSystem</c>)が当日ぶんを無条件に書き直す
+    /// ので、走行中の書き換えは上書きされて消え、30日走行の等値検査に残るのは最終日の値だけ
+    /// である。<c>UnmetConsumption[Item.Grain]</c> は M0 で恒常0なので確実に no-op、
+    /// <c>ProductionRuns</c> も seed 1 では day 23 以降ほぼ0になる。
+    /// </para>
+    /// <para>
+    /// <b>この穴は塞いでいない</b> ── 順10 が最終日以外に日次カウンタを消す変異を、本テストは
+    /// 検出しない(3巡目 I-a)。
+    /// </para>
     /// </remarks>
     [Fact]
     public void MetricsDoesNotChangeTheStateHash()
@@ -630,10 +647,18 @@ public sealed class MetricsSystemTests
     }
 
     /// <summary>
-    /// #26(別表)。都市内の約定を2人の売り手ぶん立てた日、hhi_permille_squared が手計算した
-    /// 二乗和に一致し、窓口を相手にした約定はその母数に入らない。#18 は分母0の -1 の枝しか
-    /// 見ておらず、式そのものを見るテストが無かった(2巡目 I-b)。
+    /// #26'(上の#26の入力を訂正。3巡目 I-a)。都市内の約定を2人の売り手ぶん立てた日、
+    /// hhi_permille_squared が手計算した二乗和に一致し、<b>窓口を相手にした約定(輸出)</b>は
+    /// その母数に入らない。
     /// </summary>
+    /// <remarks>
+    /// HHI の母数は <c>Sale</c> 行から積む(<c>MetricsSystem.Step</c>)。初稿は窓口の行を
+    /// <c>Purchase</c> で置いていたため、分子にも分母にも到達せず、「窓口を母数に入れた」
+    /// (窓口除外の <c>else</c> を外す)変異が緑のまま通っていた。ここでは <c>Sale</c> かつ
+    /// 相手=予約Id(= 輸出)の行を都市内の売り手(household1)に1本足す ── 除外を外すと
+    /// household1 の内部シェアが跳ね上がり、下記の期待値(都市内合計100だけを母数にした
+    /// 520000)と食い違う。<b>この食い違いが除外の証拠になる。</b>
+    /// </remarks>
     [Fact]
     public void HhiReflectsInternalSettlementConcentration()
     {
@@ -650,17 +675,85 @@ public sealed class MetricsSystemTests
         AddLedgerEntry(world, ownerHouseholdId: 0, LedgerDirection.Purchase, Item.Bread,
             counterpartyId: 2, unitPrice: 20, quantity: 2, occurredAt: Tick.Zero);
 
-        // 窓口からの購入(500)は母数に入らない。含めると合計が600になり、以下の期待値
-        // (都市内合計100だけを母数にした520000)と食い違う ── この一致自体が除外の証拠になる。
-        AddLedgerEntry(world, ownerHouseholdId: 0, LedgerDirection.Purchase, Item.Bread,
+        // household1の輸出(Sale、相手=予約Id)。母数に入れると household1 の内部シェアが
+        // (60+500)/(100+500)へ跳ね上がり、下の期待値(520000)と食い違う。
+        AddLedgerEntry(world, ownerHouseholdId: 1, LedgerDirection.Sale, Item.Bread,
             counterpartyId: HouseholdState.ExternalMarketSellerId, unitPrice: 100, quantity: 5,
             occurredAt: Tick.Zero);
 
         var sink = RunMetricsOnly(definition, world);
 
-        // 都市内約定合計=100。household1のshare=CeilDiv(1000×60,100)=600、
+        // 都市内約定合計=100(輸出500は除く)。household1のshare=CeilDiv(1000×60,100)=600、
         // household2のshare=CeilDiv(1000×40,100)=400。二乗和=600^2+400^2=520000。
         Assert.Equal(520000, sink.Days[0].Trades.HhiPermilleSquared);
+    }
+
+    /// <summary>
+    /// #29(別表)。どのテストからも1度も読まれていない欄に assert を足す。<c>active_seller_count</c>
+    /// / <c>active_buyer_count</c>(<c>Sale</c> / <c>Purchase</c> の向き)、
+    /// <c>internal_settlement_count</c> / <c>window_settlement_count</c> /
+    /// <c>internal_settlement_value</c>(内数と外数)、<c>settled_min</c> / <c>settled_max</c>
+    /// (最小最大)、<c>export_quantity</c> / <c>import_quantity</c>(既存の #3 は
+    /// <c>*_value</c> しか読んでいない)を、<b>それぞれ入れ替えたら違う値になる</b>入力で検査する
+    /// (3巡目 I-a)。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 売り手 = household1・household2(ともに <c>Sale</c> 行を持つ)、買い手 = household0
+    /// (唯一 <c>Purchase</c> 行を持つ)なので active_seller_count(2)≠active_buyer_count(1)。
+    /// </para>
+    /// <para>
+    /// household0 のPurchase行は、household1からの内部購入2本(単価10・数量2、単価90・数量1、
+    /// 計110)と、窓口からの輸入1本(単価5・数量3)。よって
+    /// internal_settlement_count(2)≠window_settlement_count(1)、
+    /// internal_settlement_value=110。settled_min=5(輸入)、settled_max=90(内部)で
+    /// settled_min≠settled_max。household1の輸出(単価7・数量4)で
+    /// export_quantity(4)≠import_quantity(3)。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void TradesAndCountColumnsAreNotSwapped()
+    {
+        var definition = WorldDefinition.M0;
+        var world = new World(npcCount: 3, householdCount: 3, itemCount: definition.ItemCount);
+
+        // 内部購入その1: household0 が household1 から買う(単価10・数量2 → 20)。
+        AddLedgerEntry(world, ownerHouseholdId: 0, LedgerDirection.Purchase, Item.Bread,
+            counterpartyId: 1, unitPrice: 10, quantity: 2, occurredAt: Tick.Zero);
+        AddLedgerEntry(world, ownerHouseholdId: 1, LedgerDirection.Sale, Item.Bread,
+            counterpartyId: 0, unitPrice: 10, quantity: 2, occurredAt: Tick.Zero);
+
+        // 内部購入その2: household0 が household2 から買う(単価90・数量1 → 90)。
+        AddLedgerEntry(world, ownerHouseholdId: 0, LedgerDirection.Purchase, Item.Bread,
+            counterpartyId: 2, unitPrice: 90, quantity: 1, occurredAt: Tick.Zero);
+        AddLedgerEntry(world, ownerHouseholdId: 2, LedgerDirection.Sale, Item.Bread,
+            counterpartyId: 0, unitPrice: 90, quantity: 1, occurredAt: Tick.Zero);
+
+        // 輸入: household0 が窓口から買う(単価5・数量3)。
+        AddLedgerEntry(world, ownerHouseholdId: 0, LedgerDirection.Purchase, Item.Bread,
+            counterpartyId: HouseholdState.ExternalMarketSellerId, unitPrice: 5, quantity: 3,
+            occurredAt: Tick.Zero);
+
+        // 輸出: household1 が窓口へ売る(単価7・数量4)。
+        AddLedgerEntry(world, ownerHouseholdId: 1, LedgerDirection.Sale, Item.Bread,
+            counterpartyId: HouseholdState.ExternalMarketSellerId, unitPrice: 7, quantity: 4,
+            occurredAt: Tick.Zero);
+
+        var sink = RunMetricsOnly(definition, world);
+
+        Assert.Equal(2, sink.Days[0].Trades.ActiveSellerCount);
+        Assert.Equal(1, sink.Days[0].Trades.ActiveBuyerCount);
+
+        Assert.Equal(2, sink.Days[0].Trades.InternalSettlementCount);
+        Assert.Equal(1, sink.Days[0].Trades.WindowSettlementCount);
+        Assert.Equal(110, sink.Days[0].Trades.InternalSettlementValue);
+
+        var priceRow = sink.Days[0].Prices.Single(price => price.ItemId == Item.Bread);
+        Assert.Equal(5, priceRow.SettledMin);
+        Assert.Equal(90, priceRow.SettledMax);
+
+        Assert.Equal(4, sink.Days[0].Economy.ExportQuantity);
+        Assert.Equal(3, sink.Days[0].Economy.ImportQuantity);
     }
 
     /// <summary>
