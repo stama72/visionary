@@ -1342,22 +1342,6 @@ public sealed class TradePipelineTests
         return count;
     }
 
-    /// <summary>失敗メッセージ用。鍛冶ごとの工房在庫[工具]を世帯Id昇順で並べる(ADR-0002)。</summary>
-    private static string ToolInventorySnapshot(World world)
-    {
-        var snapshot = new System.Text.StringBuilder();
-
-        foreach (var household in world.Households)
-        {
-            if (household.Occupation == Occupation.Smith)
-            {
-                snapshot.Append($" household{household.Id}={household.WorkshopInventory[Item.Tools]}");
-            }
-        }
-
-        return snapshot.ToString();
-    }
-
     /// <summary>
     /// 失敗メッセージ用。職業Id昇順(ADR-0002)に「職業=担い手数」を並べる
     /// (<see cref="EveryOccupationKeepsAtLeastOneCarrierOverSixtyDays"/> が違反日の職業分布を
@@ -1829,8 +1813,9 @@ public sealed class TradePipelineTests
     /// 最初の違反で止めない(W2-16 タスク仕様「1. 走査」手順3。既存の60日検出器と同じ規律)。
     /// </summary>
     /// <remarks>
-    /// <b>シードが効く経路は <see cref="WorldGenerator"/> だけである。</b><c>FullPipeline</c>の3系統
-    /// (<c>ProductionSystem</c>・<c>ConsumptionSystem</c>・<c>TradeSystem</c>)はいずれも
+    /// <b>シードが効く経路は <see cref="WorldGenerator"/> だけである。</b><c>FullPipeline</c>の4系統
+    /// (<c>ProductionSystem</c>・<c>ConsumptionSystem</c>・<c>HouseholdSystem</c>・<c>TradeSystem</c>)
+    /// はいずれも
     /// <c>SimContext.OpenRandom</c>を呼ばないので、<c>SimScheduler</c>に渡すシードは結果に影響しない。
     /// 「5シードで見た」は<see cref="WorldGenerator.Generate"/>(世界生成)の5通りを見たという意味である
     /// (W2-16 タスク仕様 6.3 #1、レビュー2巡目 指摘2)。
