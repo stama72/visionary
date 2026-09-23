@@ -84,7 +84,9 @@ foreach (var household in world.Households)
 - **代入であって、立てるだけではない。** `if (count > 0) IsBankrupt = 1;` と書くと**降りる枝が消え**、一度立ったフラグが永久に残る(GDD02b §3.3「降りる: 前日、そのような購入が1つも無かった」)
 - **`UnaffordableNecessityCount` を読むだけで書かない。** 0 に戻すのは順5 段5b の役目であり、順3 が書くと「前日の値」という意味が壊れる(GDD02b §3.2 末尾)
 - **順3 で金は動かない。** `LiquidFunds` を読み書きしない(GDD02b §4.1)
-- **手順1 と手順2 を1つのループに畳まない。** 畳むと世帯 Id 0 の付け替えが、まだフラグを更新していない世帯 Id 1 の**担い手世帯数**に効く(下記の走査順の約束が「フラグ更新後の world」を前提にしている)
+- **手順1 と手順2 を1つのループに畳まない。** GDD02b §4.1 が規則として要求している(「手順ごとに全世帯を Id 昇順で回す。世帯ごとに 1→2 を回すのではない」)。
+  - **ただしこれは機械で守られていない。** 手順2 が他世帯から読むのは `Occupation` と `DistrictId` だけで、`IsBankrupt` は自世帯のぶんしか読まない。手順1 が書くのは `IsBankrupt` だけである。**したがって畳んだ実装と畳まない実装は、どの世界でも同じ結果を返す**(1巡目のレビュー指摘。実測は下記の変異 M-fold)。**「#10 が畳み込みを捕まえる」は誤りだった** — 分割を守っているのは規則であってテストではない
+  - **効き始めるのは、手順2 が他世帯の `IsBankrupt` を読むようになった日である**([#196](https://github.com/stama72/visionary/issues/196) が④のゲートを別の状態へ移すなら、そこで初めて分割が結果を変える)。そのときテストは1本も無い
 
 ### 2. `src/Visionary.Sim/Systems/OccupationReassignment.cs`(新規)
 
@@ -275,7 +277,7 @@ target = 選んだ職業; return true
 | 7 | `TargetAvoidsAnOccupationAlreadyPresentInTheSameDistrict` | 担い手最少の職業 Y が破産世帯と同じ区画に既に居るとき、Y を選ばず次に薄い職業を選ぶ | 区画フィルタを掛けない(GDD02 §2.4 が成立しないと言った配置を実行時に作る) | |
 | 8 | `DistrictOverlapIsAllowedWhenNoCandidateRemains` | 自職業以外の全職業が破産世帯と同じ区画に居る合成世界で、それでも付け替わる(段B) | 段B を実装しない(候補 0 で維持になり、品目の供給停止より区画の重複を優先してしまう)/ 段B で自職業の除外まで外す(自職業が担い手最少の日に `argmin` が自職業を返し、付け替えが起きない) | |
 | 9 | `TieOnCarrierCountIsBrokenByOccupationId` | 担い手数が同じ職業が2つ以上あるとき、職業 Id の小さい方を選ぶ | 更新条件を `<=` にする / LINQ の `OrderBy` などで列挙順に委ねる(ADR-0002) | |
-| 10 | `CarrierCountIsCountedLiveSoTheSecondCarrierStays` | 同職業の2戸がともに3条件を満たす日、Id の小さい方だけが付け替わり、大きい方は維持される(その職業の担い手は 1 で残る) | **担い手世帯数をループの前にスナップショットする**(両方が離脱して薪の売り手が消える)/ 手順1 と手順2 を1つのループに畳む | **【核心 C-3】** `HouseholdSystem.Step` の手順2 で、`OccupationReassignment.CarrierCount` を呼ぶ代わりにループ前に全職業の担い手数を配列へ数えて使い回す。**期待 赤**(#10 が落ちる。#6 は落ちない — 単独の世帯では両者が同値なので、この変異を捕まえるのは #10 だけである) |
+| 10 | `CarrierCountIsCountedLiveSoTheSecondCarrierStays` | 同職業の2戸がともに3条件を満たす日、Id の小さい方だけが付け替わり、大きい方は維持される(その職業の担い手は 1 で残る) | **担い手世帯数をループの前にスナップショットする**(両方が離脱して薪の売り手が消える) | **【核心 C-3】** `HouseholdSystem.Step` の手順2 で、`OccupationReassignment.CarrierCount` を呼ぶ代わりにループ前に全職業の担い手数を配列へ数えて使い回す。**期待 赤**(#10 が落ちる。#6 は落ちない — 単独の世帯では両者が同値なので、この変異を捕まえるのは #10 だけである) |
 | 11 | `ReassignmentTouchesNothingButTheOccupation` | 付け替えの前後で `LiquidFunds` / `WorkshopInventory` / `HouseholdInventory` / `IsBankrupt` / `MemberNpcIds` / `DistrictId` が不変 | 流動資金を補填する(GDD02b §4.2)/ 工房在庫を捨てる / 付け替えでフラグを降ろす | |
 | 12 | `BankruptFlagReachesTheOfferPriceAndTheExportThreshold`(`HouseholdSystemTests`) | 手組みの世界に **`new ISimSystem[] { new HouseholdSystem(d), new TradeSystem(d) }` の順**で登録する。1日目に必需の資金不足を起こし、2日目の順3 でフラグが立ち、**同じ2日目の順5** でその売り手の提示価格が `ApplyPermille(相場基準, 500)` に落ち、販売在庫が全量窓口へ出る(閾在庫 0)。**売り手に `相場基準 > 2 × 床` を仕込むこと** — 相場が床の2倍を下回ると破産中でも提示価格は床のままで、この分岐は何も変えない(GDD02c §1.4)。売り手の販売在庫は正にしておく(④のゲートの b が閉じるので職業は動かない) | 順5 の**後**に登録する(段1 が前日のフラグを読み、提示価格が半値にならない)/ 順3 を1日1回でない `Cadence` で登録する。**フラグを直に `IsBankrupt = 1` と置く既存テストでは落ちない** — ②の分岐そのものは既存テストが押さえており、ここが押さえるのは**順3 からフラグが届く経路**だけである | |
 | 13 | `BankruptFlagRisesAfterFirewoodCrowdsOutBread`(`TradePipelineTests`。**`FullPipeline` を使う**) | 必需2品目(薪 Id 5 → パン Id 6 の走査順)で、**薪の世帯在庫が `2 × 目標在庫` に達し**、同じ日にパンが `fundsCap == 0` で 0 個に切られ(経路(2))、**翌日の順3 で `IsBankrupt == 1`** になる | `HouseholdSystem` を `FullPipeline` に挿し忘れる(フラグが永久に 0 のまま)/ フラグの入力を経路(1)だけにする / 「在庫が尽きた世帯だけが破産中である」と読んだ実装(この世帯の薪は目標の2倍ある) | |
@@ -309,6 +311,18 @@ target = 選んだ職業; return true
 **「核心」印の3件(C-1・C-2・C-3)は [`mutator`](../../.claude/agents/mutator.md) が使い捨て worktree で当てて測る。** 選ぶのは本仕様、測るのは `mutator`、転記するのは implementer である(ADR-0013)。**測るのはレビューの巡が閉じた後、コミット済みの `HEAD` に対して一度でよい。**
 
 **C-3 の受け入れ条件は「赤」ではなく「#10 が落ちること」である。** 他のテストが道連れで落ちても、それは担い手世帯数の数え方を守った証拠にならない。
+
+## レビューで足したもの(1巡目。上の表は実装へ渡した時点の指示であって最終形ではない)
+
+**上の表 #1〜#13 は凍結時のものである。** 以下はレビュー1巡目の指摘を受けてフェーズ2 が足した。
+
+| # | テスト | 検証内容 | この実装ミスで落ちる |
+| - | ------ | -------- | -------------------- |
+| 14 | `SelfOccupationIsExcludedEvenWhenItHasTheFewestCarriers` | **自職業の担い手が全候補より真に少ない**世界で3条件が揃ったとき、`argmin` が自職業を返さず、別の職業へ付け替わる。段A・段B の**両方**で当てる | `TrySelectTarget` の「自職業を除く」を落とす(`argmin` が自職業を返し、`Occupation = target` が自己代入の no-op になる。ゲートは翌日も開いたままで、その世帯の④が**永久に発火しない**)。**#1〜#13 はこの変異で1つも落ちない**(1巡目の実測) |
+
+| 変異 | 内容 | 期待 |
+| ---- | ---- | ---- |
+| **M-fold** | `HouseholdSystem.Step` の手順1 と手順2 を1つのループに畳む(世帯ごとに `IsBankrupt` を更新してから、その場で④を判定する) | **緑**(1本も落ちない)。上記「手順1 と手順2 を1つのループに畳まない」の訂正を実測で裏付ける。**落ちたら訂正のほうが誤りなので、転記せずに報告する** |
 
 ## 編集してよい文書
 
