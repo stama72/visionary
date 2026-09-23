@@ -49,6 +49,7 @@ public sealed class StateHasherCoverageTests
         "Market",
         "TrustLedger",
         "Needs",
+        "NextNeedId",
         "Promises",
         "Knowledge",
         "Ledgers",
@@ -144,7 +145,7 @@ public sealed class StateHasherCoverageTests
         {
             "Id", "DistrictId", "Occupation", "HeadNpcId", "MemberNpcIds",
             "LiquidFunds", "HouseholdInventory", "WorkshopInventory", "IsBankrupt",
-            "PurchaseUnitCostAverage", "ToolWear", "UnmetConsumption",
+            "PurchaseUnitCostAverage", "ToolWear", "UnmetConsumption", "UnfilledPurchase",
             "UnaffordableNecessityCount", "ErrandLaborLossPermille", "ProductionRuns",
         }),
         (typeof(MarketKey), new[] { "ItemId", "SellerId" }),
@@ -152,9 +153,9 @@ public sealed class StateHasherCoverageTests
         (typeof(TrustScore), new[] { "Value", "LastMet" }),
         (typeof(Need), new[]
         {
-            "TypeCode", "TargetHouseholdId", "ItemId", "Quantity", "Deadline", "Urgency", "ReasonCode",
+            "Id", "TypeCode", "TargetHouseholdId", "ItemId", "Quantity", "Deadline", "Urgency", "ReasonCode",
         }),
-        (typeof(Promise), new[] { "NeedIndex", "T0", "T1", "B", "State" }),
+        (typeof(Promise), new[] { "NeedId", "T0", "T1", "B", "State" }),
         (typeof(PriceObservation), new[]
         {
             "ItemId", "LocationId", "Price", "SellerId", "ObservedAt", "Source",

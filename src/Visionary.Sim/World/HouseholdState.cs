@@ -203,6 +203,17 @@ public sealed class HouseholdState
     public int[] UnmetConsumption { get; }
 
     /// <summary>
+    /// 当日、1個も買えず、かつ予想在庫が目標在庫を下回っていた量。添字 = itemId。単位: 個
+    /// (耐久(工具)も耐久値ではなく個数で入る。GDD06 §3.1)。
+    /// </summary>
+    /// <remarks>
+    /// 書き手は <see cref="Systems.TradeSystem"/> 段5b だけである(<see cref="UnaffordableNecessityCount"/>
+    /// と同じく毎日0クリアしてから書く)。読み手は翌日の <see cref="Systems.NeedGenerationSystem"/>
+    /// (理由 <see cref="NeedReason.DistantStock"/>)。
+    /// </remarks>
+    public int[] UnfilledPurchase { get; }
+
+    /// <summary>
     /// 当日、必需品を「資金不足で買えなかった」購入の件数(GDD02b §3.2 / §3.3)。0以上。
     /// </summary>
     /// <remarks>
@@ -294,6 +305,7 @@ public sealed class HouseholdState
         WorkshopInventory = new int[itemCount];
         PurchaseUnitCostAverage = new int[itemCount];
         UnmetConsumption = new int[itemCount];
+        UnfilledPurchase = new int[itemCount];
         IsBankrupt = 0;
         ToolWear = 0;
         UnaffordableNecessityCount = 0;

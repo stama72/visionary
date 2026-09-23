@@ -71,6 +71,7 @@ public sealed class World
         Market = new SortedDictionary<MarketKey, int>();
         TrustLedger = new SortedDictionary<TrustKey, TrustScore>();
         Needs = new List<Need>();
+        NextNeedId = 0;
         Promises = new List<Promise>();
         EventLog = new List<DomainEvent>();
     }
@@ -92,6 +93,13 @@ public sealed class World
 
     /// <summary>不足(GDD01 §3.2)。主体は世帯(<see cref="Need.TargetHouseholdId"/>)。</summary>
     public List<Need> Needs { get; }
+
+    /// <summary>
+    /// 次に払い出す Need の Id。非負。単調増加で、失効した Id を再利用しない ──
+    /// 再利用すると、失効前の Need を指していた <see cref="Promise.NeedId"/> が、
+    /// 同じ Id で立った別の Need を指してしまう(<see cref="Systems.NeedGenerationSystem"/>)。
+    /// </summary>
+    public int NextNeedId { get; internal set; }
 
     /// <summary>約束(GDD01 §2.8)。</summary>
     public List<Promise> Promises { get; }

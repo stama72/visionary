@@ -75,20 +75,29 @@ internal sealed class SyntheticLoadSystem : ISimSystem
 
             if (rng.NextBool(NeedAndPromiseProbabilityPermille))
             {
+                // NeedReasonは1〜5(0を使わない、#40)。TypeCodeは手で綴らず Need.TypeOf から引く
+                // ── 理由と種別の組をここでも手で綴ると、他所と食い違う組が静かに作れる。
+                var reason = (NeedReason)rng.NextInt(1, 6);
+
+                // World.NextNeedIdはinternal set(Visionary.Sim.Runnerは別アセンブリで書けない)。
+                // Idの値そのものに経済的な意味は無い合成負荷なので、一意な値として件数を使う。
+                int needId = world.Needs.Count;
+
                 world.Needs.Add(new Need
                 {
-                    TypeCode = rng.NextInt(0, 6), // enum化は別タスク(TDD01 §3.6 仮決め表)
+                    Id = needId,
+                    TypeCode = Need.TypeOf(reason),
                     TargetHouseholdId = rng.NextInt(0, world.Households.Length),
                     ItemId = rng.NextInt(0, itemCount),
                     Quantity = rng.NextInt(1, 11), // 単位: 個
                     Deadline = world.Now.AddDays(rng.NextInt(1, 8)),
                     Urgency = rng.NextInt(0, 101), // 単位: 0〜100 の素の整数(‰ ではない)
-                    ReasonCode = rng.NextInt(0, 4),
+                    ReasonCode = reason,
                 });
 
                 world.Promises.Add(new Promise
                 {
-                    NeedIndex = world.Needs.Count - 1, // Id 参照への置き換えは別タスク
+                    NeedId = needId, // #40: World.Needsの添字からNeed.Idへ改名。
                     T0 = world.Now,
                     T1 = world.Now.AddDays(rng.NextInt(1, 8)),
                     B = rng.NextInt(1, 1001), // 単位: 貨幣(GDD01 §2.8 の B)

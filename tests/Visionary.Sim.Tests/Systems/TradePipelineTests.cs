@@ -27,6 +27,9 @@ public sealed class TradePipelineTests
         new ConsumptionSystem(definition),
         new HouseholdSystem(definition), // 順3(#39)。順5(Trade)より後に置いてはならない
                                           // (②が同一tick内で循環する。GDD02b §3.3 / TDD01 §3.3)。
+        new NeedGenerationSystem(definition), // 順4(#40)。順3と順5の間 ── 順5の後に置くと
+                                               // UnfilledPurchaseを当日中に読み、GDD06 §3.1の
+                                               // 1日遅延が消える(タスク仕様「配線の列挙」)。
         new TradeSystem(definition),
     };
 
@@ -2745,5 +2748,81 @@ public sealed class TradePipelineTests
         scheduler.Advance(world, ticks: 24); // 2日目。順3が前日の資金不足を読みフラグを立てる。
 
         Assert.Equal(1, buyer.IsBankrupt);
+    }
+
+    /// <summary>
+    /// テスト表 #26(#40)。順4(<see cref="NeedGenerationSystem"/>)を組み込んだ完全なパイプラインを
+    /// <see cref="WorldGenerator.Generate"/> の世界で2日回す。初日の順4では遠方在庫が1件も立たず、
+    /// 2日目の順4で初日に買えなかった品目に立つ(GDD06 §3.1の1日遅延)。
+    /// </summary>
+    [Fact]
+    public void PipelineRaisesDistantStockNeedOnTheNextDay()
+    {
+        var definition = WorldDefinition.M0;
+        var world = WorldGenerator.Generate(definition, new RandomSource(1));
+
+        var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(1));
+
+        // 1日目。順4は前日(=初期状態、全世帯UnfilledPurchase=0)を読むので、遠方在庫は1件も無い。
+        scheduler.Advance(world, ticks: 24);
+        Assert.DoesNotContain(world.Needs, n => n.ReasonCode == NeedReason.DistantStock);
+
+        // 1日目の順5が書いたUnfilledPurchaseのうち正のもの(世帯Id・品目Idの組)を覚えておく。
+        // Dictionary/HashSetは使わない(ADR-0002)。
+        var expectedItems = new List<(int HouseholdId, int ItemId)>();
+        foreach (var household in world.Households)
+        {
+            for (int itemId = 0; itemId < definition.ItemCount; itemId++)
+            {
+                if (household.UnfilledPurchase[itemId] > 0)
+                {
+                    expectedItems.Add((household.Id, itemId));
+                }
+            }
+        }
+
+        // 空振り防止(値の問題の可能性)。
+        Assert.NotEmpty(expectedItems);
+
+        // 2日目。順4が1日目のUnfilledPurchaseを読み、遠方在庫を立てる。
+        scheduler.Advance(world, ticks: 24);
+
+        foreach (var (householdId, itemId) in expectedItems)
+        {
+            Assert.Contains(
+                world.Needs,
+                n => n.ReasonCode == NeedReason.DistantStock
+                    && n.TargetHouseholdId == householdId
+                    && n.ItemId == itemId);
+        }
+    }
+
+    /// <summary>
+    /// テスト表 #27(#40)。同一シード・同一設定で5日×2回、最終 <c>StateHasher.Compute</c> が一致する
+    /// (順4を含む完全なパイプラインが <c>Dictionary</c>/<c>HashSet</c> の列挙順に依存しないこと)。
+    /// </summary>
+    [Fact]
+    public void PipelineIsDeterministicWithNeedGeneration()
+    {
+        var definition = WorldDefinition.M0;
+
+        ulong RunAndHash(out int needCount)
+        {
+            var world = WorldGenerator.Generate(definition, new RandomSource(1));
+            var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(1));
+            scheduler.Advance(world, ticks: 5 * 24);
+
+            needCount = world.Needs.Count;
+            return StateHasher.Compute(world);
+        }
+
+        ulong first = RunAndHash(out int firstNeedCount);
+        ulong second = RunAndHash(out int secondNeedCount);
+
+        // 空振り防止。Needが一度も立たないまま「一致した」と主張しても判別力が無い。
+        Assert.True(firstNeedCount >= 1, "5日回してもNeedが1件も立たない(値の問題の可能性)。");
+        Assert.Equal(firstNeedCount, secondNeedCount);
+
+        Assert.Equal(first, second);
     }
 }

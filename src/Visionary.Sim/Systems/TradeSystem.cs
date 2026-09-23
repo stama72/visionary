@@ -255,89 +255,143 @@ public sealed class TradeSystem : ISimSystem
         // 毎日上書きする(ConsumptionSystemがUnmetConsumptionを毎日上書きするのと同じ)。
         household.UnaffordableNecessityCount = 0;
 
+        // UnfilledPurchase(#40)も冒頭で全品目0にする。書かない日があると、前日の不足が
+        // その後もずっとNeedを立て続ける(タスク仕様)。
+        Array.Clear(household.UnfilledPurchase);
+
+        // 品目ごとに「その日1個でも買えたか」を記録する(#40訂正。フェーズ2レビュー1巡目
+        // 象限I-b)。判定は行単位ではなく品目単位である ── GDD02b §8.1 の遠方在庫の条件は
+        // 「前日、その品目を1個も買えず」。薪・穀物のように必需と生産の入力の2行に現れる品目は、
+        // GDD02b §3.2 の走査順で資金を食い潰すので「先の行は買えて後の行は買えない」が定常的に
+        // 起きる。行単位のままだと、買えている品目にも遠方在庫が立ってしまう。
+        var boughtItem = new bool[_definition.ItemCount];
+
         // demand.Linesの並び順そのままに走査する ── GDD02b §3.2の走査順(必需→耐久→生産の入力→
         // 嗜好、同一用途は品目Id昇順)そのものである。資金は世帯内の共有資源なので、並べ替えると
         // 決済順が変わり結果が変わる(#36引き継ぎ「並べ直さないこと」)。
         foreach (var line in demand.Lines)
         {
-            // 2. 自区画と行った区画の店のうち実効価格が最小のものを選ぶ。0件ならこのlineは終わり
-            // (Needは立てない、#40)。販売在庫は約定のたびに減るのでworldを毎回読み直す ──
-            // 候補を1日1回作って使い回すと売り切れた店を選んでしまう。
-            if (!_storeChoice.TrySelect(world, household, line.ItemId, visitedDistrictIds, out var store))
+            bool purchased = TryPurchaseLine(world, household, line, visitedDistrictIds);
+
+            if (purchased)
             {
+                boughtItem[line.ItemId] = true;
                 continue;
             }
 
-            // 3・4. ゲートと線形解(GDD02b §5.2)。渡すのは実効価格であって外出の費用を含む値では
-            // ない(GDD02b §7「便益と費用の分離」── 予算は外出の費用を一切含まない)。
-            var decision = BuyerBudget.Decide(line, store.UnitEffectivePrice);
-
-            if (decision.Quantity <= 0)
+            // #40: その行についてTradeSettlement.Execute/ExecuteImportを一度も呼ばなかった
+            // (=1個も買えなかった)かつ予想在庫が目標在庫を下回っていたなら、不足量を足し込む。
+            // += である(薪が必需と生産の入力の2行に現れるため。代入だと後の行が前の行を消す)。
+            // 数量の合計(行をまたいだ+=)は品目単位の0クリアの対象ではない ── ExpectedStock/
+            // TargetStockは段4が作った買い物より前の値であり、worldから読み直さない
+            // (「その日に買った量」が混ざる)。
+            if (line.ExpectedStock < line.TargetStock)
             {
-                // 経路(1): 現金上限のゲートで0(GDD02b §3.2)。「高すぎて買わなかった」
-                // (MarketTerm / ProfitCap)は資金不足に数えない。
-                if (line.Purpose == DemandPurpose.Necessity
-                    && decision.Reason == NoPurchaseReason.CashCap)
-                {
-                    household.UnaffordableNecessityCount++;
-                }
-
-                continue;
+                household.UnfilledPurchase[line.ItemId] += BuyerBudget.QuantityInUnits(
+                    line.Purpose, line.TargetStock - line.ExpectedStock, _definition.ToolDurabilityPerUnit);
             }
+        }
 
-            int purchaseQuantity = decision.Quantity;
-
-            // 5. 個数へ直す。ErrandPlannerの余剰(5.5)と同じ関数を通す(GDD06 §4「見積もりに
-            // 使ったqと、着いてから解く購入量は、価格が見積もりどおりなら一致する」の実体)。
-            int purchaseQuantityInUnits = BuyerBudget.QuantityInUnits(
-                line.Purpose, purchaseQuantity, _definition.ToolDurabilityPerUnit);
-
-            // 6. 0以下なら、このlineは終わり(店は選んだが買う量が0)。
-            if (purchaseQuantityInUnits <= 0)
+        // 走査を終えたあと、その日1個でも買えた品目はUnfilledPurchaseを0へ戻す(#40訂正)。
+        // 部分的にでも買えた品目は数えない(GDD06 §3.1「その日に買えず」であって
+        // 「目標在庫まで買えず」ではない) ── 行単位の合計を積んだ後に、品目単位で上書きする。
+        for (int itemId = 0; itemId < _definition.ItemCount; itemId++)
+        {
+            if (boughtItem[itemId])
             {
-                continue;
+                household.UnfilledPurchase[itemId] = 0;
             }
+        }
+    }
 
-            // 8. 資金上限で買える数量を切り詰める。窓口(isWindow)は無限在庫なので売り手の在庫
-            // による切り詰めはしない ── int.MaxValue(HouseholdState.ExternalMarketSellerId)を
-            // world.Householdsの添字に通さない(#38タスク仕様)。
-            bool isWindow = store.SellerId == HouseholdState.ExternalMarketSellerId;
-            var seller = isWindow ? null : world.Households[store.SellerId];
+    /// <summary>
+    /// 1行ぶんの購入を試みる。<see cref="TradeSettlement.Execute"/> /
+    /// <see cref="TradeSettlement.ExecuteImport"/> を呼んで1個以上買えたら <c>true</c>。
+    /// </summary>
+    private bool TryPurchaseLine(
+        World world, HouseholdState household, DemandLine line, IReadOnlyList<int> visitedDistrictIds)
+    {
+        // 2. 自区画と行った区画の店のうち実効価格が最小のものを選ぶ。0件ならこのlineは終わり
+        // (Needは立てない、#40)。販売在庫は約定のたびに減るのでworldを毎回読み直す ──
+        // 候補を1日1回作って使い回すと売り切れた店を選んでしまう。
+        if (!_storeChoice.TrySelect(world, household, line.ItemId, visitedDistrictIds, out var store))
+        {
+            return false;
+        }
 
-            int fundsCap = TradeSettlement.FundsCap(household.LiquidFunds, store.UnitEffectivePrice);
-            int affordableQuantity = Math.Min(purchaseQuantityInUnits, fundsCap);
-            int actualQuantity = isWindow
-                ? affordableQuantity
-                : Math.Min(affordableQuantity, SellableStock.Of(_definition, seller!, line.ItemId));
+        // 3・4. ゲートと線形解(GDD02b §5.2)。渡すのは実効価格であって外出の費用を含む値では
+        // ない(GDD02b §7「便益と費用の分離」── 予算は外出の費用を一切含まない)。
+        var decision = BuyerBudget.Decide(line, store.UnitEffectivePrice);
 
-            // 9. 経路(2): 資金上限の切り詰めで0(GDD02b §3.2)。売り手の在庫が尽きて
-            // 0個になったのは資金不足ではない。経路(1)は上で既にcontinueしているので、
-            // 同じlineが両方の経路で二重に数えられることは無い。数え方は変えない(#38タスク仕様)。
-            if (line.Purpose == DemandPurpose.Necessity && fundsCap == 0)
+        if (decision.Quantity <= 0)
+        {
+            // 経路(1): 現金上限のゲートで0(GDD02b §3.2)。「高すぎて買わなかった」
+            // (MarketTerm / ProfitCap)は資金不足に数えない。
+            if (line.Purpose == DemandPurpose.Necessity
+                && decision.Reason == NoPurchaseReason.CashCap)
             {
                 household.UnaffordableNecessityCount++;
             }
 
-            // 10. 約定を適用する。窓口は買い手側だけを動かすExecuteImportを使う。
-            if (actualQuantity >= 1)
-            {
-                if (isWindow)
-                {
-                    TradeSettlement.ExecuteImport(
-                        world, household, line.Purpose, line.ItemId, actualQuantity,
-                        store.UnitEffectivePrice, _definition.AcquisitionCostSmoothingPermille);
-                }
-                else
-                {
-                    // 番人へ渡す留保量は SellableStock.ReserveQuantity(呼び出し側の切り詰め漏れを
-                    // 落とす最終防衛線。definition そのものは TradeSettlement へ渡さない、W2-14)。
-                    TradeSettlement.Execute(
-                        world, household, seller!, line.Purpose, line.ItemId, actualQuantity,
-                        store.UnitEffectivePrice, _definition.AcquisitionCostSmoothingPermille,
-                        SellableStock.ReserveQuantity(_definition, seller!, line.ItemId));
-                }
-            }
+            return false;
         }
+
+        int purchaseQuantity = decision.Quantity;
+
+        // 5. 個数へ直す。ErrandPlannerの余剰(5.5)と同じ関数を通す(GDD06 §4「見積もりに
+        // 使ったqと、着いてから解く購入量は、価格が見積もりどおりなら一致する」の実体)。
+        int purchaseQuantityInUnits = BuyerBudget.QuantityInUnits(
+            line.Purpose, purchaseQuantity, _definition.ToolDurabilityPerUnit);
+
+        // 6. 0以下なら、このlineは終わり(店は選んだが買う量が0)。
+        if (purchaseQuantityInUnits <= 0)
+        {
+            return false;
+        }
+
+        // 8. 資金上限で買える数量を切り詰める。窓口(isWindow)は無限在庫なので売り手の在庫
+        // による切り詰めはしない ── int.MaxValue(HouseholdState.ExternalMarketSellerId)を
+        // world.Householdsの添字に通さない(#38タスク仕様)。
+        bool isWindow = store.SellerId == HouseholdState.ExternalMarketSellerId;
+        var seller = isWindow ? null : world.Households[store.SellerId];
+
+        int fundsCap = TradeSettlement.FundsCap(household.LiquidFunds, store.UnitEffectivePrice);
+        int affordableQuantity = Math.Min(purchaseQuantityInUnits, fundsCap);
+        int actualQuantity = isWindow
+            ? affordableQuantity
+            : Math.Min(affordableQuantity, SellableStock.Of(_definition, seller!, line.ItemId));
+
+        // 9. 経路(2): 資金上限の切り詰めで0(GDD02b §3.2)。売り手の在庫が尽きて
+        // 0個になったのは資金不足ではない。経路(1)は上で既にreturnしているので、
+        // 同じlineが両方の経路で二重に数えられることは無い。数え方は変えない(#38タスク仕様)。
+        if (line.Purpose == DemandPurpose.Necessity && fundsCap == 0)
+        {
+            household.UnaffordableNecessityCount++;
+        }
+
+        // 10. 約定を適用する。窓口は買い手側だけを動かすExecuteImportを使う。
+        if (actualQuantity < 1)
+        {
+            return false;
+        }
+
+        if (isWindow)
+        {
+            TradeSettlement.ExecuteImport(
+                world, household, line.Purpose, line.ItemId, actualQuantity,
+                store.UnitEffectivePrice, _definition.AcquisitionCostSmoothingPermille);
+        }
+        else
+        {
+            // 番人へ渡す留保量は SellableStock.ReserveQuantity(呼び出し側の切り詰め漏れを
+            // 落とす最終防衛線。definition そのものは TradeSettlement へ渡さない、W2-14)。
+            TradeSettlement.Execute(
+                world, household, seller!, line.Purpose, line.ItemId, actualQuantity,
+                store.UnitEffectivePrice, _definition.AcquisitionCostSmoothingPermille,
+                SellableStock.ReserveQuantity(_definition, seller!, line.ItemId));
+        }
+
+        return true;
     }
 
     /// <summary>
