@@ -2824,4 +2824,92 @@ public sealed class TradeSystemTests
                     + $"({world.Households[0].UnfilledPurchase[itemId]})。");
         }
     }
+
+    /// <summary>
+    /// 【核心】別表 #33(#40訂正。レビュー3巡目の続き)。<see cref="UnfilledPurchaseIsZeroWhenTheItemWasBoughtOnAnotherLine"/>
+    /// (#29)と同じ主張を、対象を穀物(品目Id 0)にして確かめる。穀物が必需と生産の入力の2行に
+    /// 立ち、必需の行では買えたが生産の入力の行では買えなかった日、<c>UnfilledPurchase</c> 配列の
+    /// 全要素が0である。
+    /// </summary>
+    /// <remarks>
+    /// <b>#29 だけでは「走査後の0戻しループの初期値を <c>itemId = 1</c> にする」変異を捕まえない
+    /// (3巡目 網羅パスの実測で判明)。</b>この変異が観測可能になるのは「品目Id 0 が同じ日に
+    /// 複数の需要行を持ち、片方の行で買えた」場合に限られるが、#29 の対象(薪、品目Id 5)は
+    /// 品目Id 0 をまったく踏まない。穀物は必需と生産の入力の両方に立ちうるうえ M0 で最も
+    /// 取引の多い品目であり、この変異が当たると穀物のところだけ遠方在庫 Need が系統的に
+    /// 過大になる([#41](https://github.com/stama72/visionary/issues/41) が読む)。
+    /// <para>
+    /// <b>核心。変異: 走査後の0戻しループの初期値を <c>itemId = 1</c> にする(<c>Item.Grain</c>
+    /// だけ免れる)/ 期待 赤。</b>
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void UnfilledPurchaseIsZeroForItemZeroWhenItWasBoughtOnAnotherLine()
+    {
+        var recipe = new Recipe(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = Item.Bread, Quantity = 1 } },
+            inputs: new[] { new ItemQuantity { ItemId = Item.Grain, Quantity = 1 } },
+            laborPermille: 1000);
+
+        var necessityTargetStockDays = new int[Item.Count];
+        necessityTargetStockDays[Item.Grain] = 5;
+
+        var grainConsumption = new int[Item.Count];
+        grainConsumption[Item.Grain] = 1;
+        var dailyConsumptionPerNpcByRank = new[]
+        {
+            (int[])grainConsumption.Clone(),
+            (int[])grainConsumption.Clone(),
+            (int[])grainConsumption.Clone(),
+        };
+
+        var definition = EconomySystemTestFixtures.BuildDefinition(
+            recipe,
+            dailyConsumptionPerNpcByRank: dailyConsumptionPerNpcByRank,
+            necessityTargetStockDays: necessityTargetStockDays,
+            opportunityCostBaseByOccupation: new[] { 1, 1, 1, 1, 1 },
+            rankCoefficientPermille: new[] { 1000, 1000, 1000 },
+            inputBufferDays: 5);
+
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+        // 区画4(中心)に置く。
+        AddHousehold(world, id: 0, districtId: District.ExternalMarketDistrictId, Occupation.Miller, liquidFunds: 10);
+        // 耐久(工具)の行を中立化する(#29と同じ理由。配列全体を0で比較するため)。
+        world.Households[0].WorkshopInventory[Item.Tools] = 1;
+
+        // 穀物はこのフィクスチャでは埋めレシピ(UnusedRecipe)が必ず品目Id0を出力するため
+        // 1次産品にできない(#29の薪と違う)。窓口の輸入価格(ExternalSellPrice=床×(1+マージン)=2)と
+        // 需要側の基礎値(相場基準が無い日はExternalBuyPrice=床=1)がずれ、その差だけで購入量が
+        // 0になってしまう(実測)。相場観測を1件仕込んで基礎値を実際の窓口価格(2)に一致させる。
+        // 観測は「前日まで」しか記憶にならない(GDD06 §3.1)ので、まず1日空回しして日付を
+        // 進めてから仕込む(ExportErrandIsSkippedWhenTheDayIsFullと同じ手法)。
+        EconomySystemTestFixtures.AdvanceClockOnly(world, ticks: 24);
+        world.Knowledge[0].Add(new PriceObservation
+        {
+            ItemId = Item.Grain,
+            LocationId = 0,
+            Price = 2,
+            SellerId = 999,
+            ObservedAt = Tick.Zero,
+            Source = ObservationSource.Direct,
+        });
+
+        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+
+        // 前提: 必需の行では実際に買えた(世帯在庫が増えている)。
+        Assert.True(
+            world.Households[0].HouseholdInventory[Item.Grain] > 0,
+            "テストの前提(必需の行で買えたこと)が崩れている。");
+        // 前提: 生産の入力の行は資金切れで買えなかった(工房在庫は増えていない)。
+        Assert.Equal(0, world.Households[0].WorkshopInventory[Item.Grain]);
+
+        for (int itemId = 0; itemId < definition.ItemCount; itemId++)
+        {
+            Assert.True(
+                world.Households[0].UnfilledPurchase[itemId] == 0,
+                $"itemId={itemId}のUnfilledPurchaseが0ではない"
+                    + $"({world.Households[0].UnfilledPurchase[itemId]})。");
+        }
+    }
 }
