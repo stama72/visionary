@@ -2514,6 +2514,46 @@ public sealed class TradeSystemTests
     }
 
     /// <summary>
+    /// 【核心】別表 #30(#40訂正。レビュー2巡目 象限I-a)。1日目に買えず値が入り、2日目は
+    /// その品目について買えもしないが足し込みも起きない(<c>ExpectedStock &gt;= TargetStock</c>)
+    /// → 0 に戻る。
+    /// </summary>
+    /// <remarks>
+    /// <b>#20 の「核心」印はこのテストへ移る。</b>1巡目の修正で入った「走査後に、その日1個でも
+    /// 買えた品目を0に戻す」経路が、#20 の2日目(その品目を買えた日)を丸ごと引き受けてしまう ──
+    /// 冒頭の <c>Array.Clear</c> を消しても最後に0が書かれるので、#20 は変異で赤にならない。
+    /// <c>Array.Clear</c> が今も必要なのは「買えず、かつ足し込みも起きない品目」の経路であり、
+    /// それを踏むのが本テストである(タスク仕様「別表」#30)。
+    /// <para>
+    /// <b>核心。変異: <c>RunOneHouseholdsShopping</c> 冒頭の <c>Array.Clear(household.UnfilledPurchase)</c>
+    /// を消す / 期待 赤。</b>
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void UnfilledPurchaseDoesNotPersistWhenNoLineAddsToIt()
+    {
+        var definition = BuildShoppingDefinition(necessityTargetStockDays: TargetStockDaysFor(Item.Grain));
+        var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
+        AddHousehold(world, id: 0, districtId: 4, Occupation.Woodworker, liquidFunds: 1000);
+        AddHousehold(world, id: 1, districtId: 4, Occupation.Baker); // Grainの売り手は終始在庫0。
+
+        var system = new TradeSystem(definition);
+
+        EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目: 売り手不在で買えない
+        Assert.True(
+            world.Households[0].UnfilledPurchase[Item.Grain] > 0,
+            "テストの前提(1日目にUnfilledPurchaseが立つこと)が崩れている。");
+
+        // 2日目。売り手は依然在庫0(買えない)。世帯在庫を直接底上げしてExpectedStock >=
+        // TargetStockにする ── 足し込み(+=)の条件そのものを外し、走査後の「1個でも買えた品目の
+        // 0戻し」も通らない経路を作る(買っていないのでboughtItemも立たない)。
+        world.Households[0].HouseholdInventory[Item.Grain] = 1_000_000;
+        EconomySystemTestFixtures.RunDays(world, system, days: 1);
+
+        Assert.Equal(0, world.Households[0].UnfilledPurchase[Item.Grain]);
+    }
+
+    /// <summary>
     /// テスト表 #21。買えなかったが予想在庫が既に目標在庫以上 → <c>UnfilledPurchase</c> は0。
     /// </summary>
     [Fact]
