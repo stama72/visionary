@@ -9,7 +9,9 @@ namespace Visionary.Sim.Systems;
 /// </summary>
 /// <remarks>
 /// <b>式を2か所に置かない</b>(<see cref="Recipe.CapacityRuns"/> の doc コメントと同じ理由。
-/// 片方の丸めを直したとき他方が黙ってずれる)。
+/// 片方の丸めを直したとき他方が黙ってずれる)。<see cref="EffectiveLaborPermille"/> の内側の
+/// 切り下げは <see cref="IntegerMath.FloorPermille"/> を呼ぶだけで、自前では持たない
+/// (W2-19訂正。レビュー1巡目象限I-a ── 以前はここに複製があり、この remarks の主張自体が偽だった)。
 /// </remarks>
 public static class LaborCapacity
 {
@@ -43,8 +45,12 @@ public static class LaborCapacity
     }
 
     /// <summary>floor(労働力合計‰ × 設備係数‰ ÷ 1000)(GDD02a §1 の内側の切り下げ)。</summary>
-    /// <remarks>中間の積は <see cref="long"/>(労働力合計‰ × 設備係数‰ は <see cref="int"/> を超えうる。
-    /// <see cref="Recipe.CapacityRuns"/> と同じ理由)。</remarks>
+    /// <remarks>
+    /// <see cref="IntegerMath.FloorPermille"/> を呼ぶだけで、式そのものはここに持たない
+    /// (<see cref="Recipe.CapacityRuns"/> の内側の除算と同じ関数。W2-19訂正)。<c>int</c> への
+    /// <c>checked</c> キャストはここで行う(<see cref="IntegerMath.FloorPermille"/> は
+    /// <see cref="long"/> のまま返す)。
+    /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException">どちらかの引数が負のとき。</exception>
     public static int EffectiveLaborPermille(int laborPermille, int equipmentPermille)
     {
@@ -60,7 +66,6 @@ public static class LaborCapacity
                 nameof(equipmentPermille), equipmentPermille, "設備係数‰は非負(GDD02a §3)。");
         }
 
-        return checked((int)IntegerMath.FloorDiv(
-            (long)laborPermille * equipmentPermille, IntegerMath.PermilleScale));
+        return checked((int)IntegerMath.FloorPermille(laborPermille, equipmentPermille));
     }
 }

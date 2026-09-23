@@ -203,14 +203,6 @@ public sealed class HouseholdState
     public int[] UnmetConsumption { get; }
 
     /// <summary>
-    /// 当日、必需品を「資金不足で買えなかった」購入の件数(GDD02b §3.2 / §3.3)。0以上。
-    /// </summary>
-    /// <remarks>
-    /// <b>#39 の破産中フラグの入力である。</b>順3 Household が読む時点ではまだ前日の値であり
-    /// (順5 Trade が上書きするのはその後)、GDD02b §3.3「前日の購入結果を評価する」が
-    /// 順序の帰結として成立する。<b>フラグそのものは本タスクでは立てない。</b>
-    /// </remarks>
-    /// <summary>
     /// 当日、1個も買えず、かつ予想在庫が目標在庫を下回っていた量。添字 = itemId。単位: 個
     /// (耐久(工具)も耐久値ではなく個数で入る。GDD06 §3.1)。
     /// </summary>
@@ -221,6 +213,14 @@ public sealed class HouseholdState
     /// </remarks>
     public int[] UnfilledPurchase { get; }
 
+    /// <summary>
+    /// 当日、必需品を「資金不足で買えなかった」購入の件数(GDD02b §3.2 / §3.3)。0以上。
+    /// </summary>
+    /// <remarks>
+    /// <b>#39 の破産中フラグの入力である。</b>順3 Household が読む時点ではまだ前日の値であり
+    /// (順5 Trade が上書きするのはその後)、GDD02b §3.3「前日の購入結果を評価する」が
+    /// 順序の帰結として成立する。<b>フラグそのものは本タスクでは立てない。</b>
+    /// </remarks>
     public int UnaffordableNecessityCount
     {
         get => unaffordableNecessityCount;

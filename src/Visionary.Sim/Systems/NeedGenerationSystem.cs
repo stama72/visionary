@@ -173,8 +173,11 @@ public sealed class NeedGenerationSystem : ISimSystem
     /// 理由3: 増産できない(GDD02a §2)。<c>CapacityRuns(...) == 0</c> は「労働力合計‰ ×
     /// 設備係数‰ ÷ 1000 &lt; 所要労働‰」と同値であり、式を綴り直さず同値を使う
     /// (<see cref="Recipe.CapacityRuns"/> の2段の切り下げを写し損ねる余地が無い)。数量の側だけは
-    /// 引き算が要るので <see cref="LaborCapacity.EffectiveLaborPermille"/> を呼ぶ(<c>CapacityRuns</c>
-    /// の内側と同じ関数)。条件が「所要労働‰ &gt; 実効労働‰」と同値なので差は必ず1以上。
+    /// 引き算が要るので <see cref="LaborCapacity.EffectiveLaborPermille"/> を呼ぶ ──
+    /// <c>CapacityRuns</c> の内側の切り下げと <see cref="LaborCapacity.EffectiveLaborPermille"/> は
+    /// どちらも <see cref="Visionary.Sim.Numerics.IntegerMath.FloorPermille"/> を呼ぶだけで、
+    /// 式そのものはそちらに1か所しか無い(W2-19訂正。レビュー1巡目象限I-a)。条件が
+    /// 「所要労働‰ &gt; 実効労働‰」と同値なので差は必ず1以上。
     /// </summary>
     private void CollectCannotExpandProduction(World world, HouseholdState household, List<Need> rebuilt)
     {

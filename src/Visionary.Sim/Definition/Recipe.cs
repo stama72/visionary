@@ -76,6 +76,14 @@ public sealed class Recipe
     /// <see cref="Systems.ProductionSystem"/>(日次の実行回数)と <see cref="WorldDefinition"/>
     /// (目標在庫の物差し)の両方がこのメソッドを呼ぶ ── 式を書き分けると、片方の丸めを
     /// 直したとき他方が黙ってずれる(タスク仕様「生産能力の式は1か所にしか置かない」)。
+    /// <para>
+    /// <b>内側の切り下げ(floor(労働力合計‰ × 設備係数‰ ÷ 1000))は
+    /// <see cref="IntegerMath.FloorPermille"/> が唯一の置き場所である</b>(W2-19訂正。レビュー1巡目
+    /// 象限I-a)。<see cref="Systems.LaborCapacity.EffectiveLaborPermille(int, int)"/> も同じ
+    /// <see cref="IntegerMath.FloorPermille"/> を呼ぶ ── 以前は2か所に同じ式が手で綴られており、
+    /// この remarks の主張(「式は1か所にしか置かない」)自体が偽だった。外側の除算
+    /// (÷ 所要労働‰)は本メソッドにしか無い。
+    /// </para>
     /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException">
     /// <paramref name="laborPermille"/> または <paramref name="equipmentPermille"/> が負のとき。
@@ -94,9 +102,10 @@ public sealed class Recipe
                 nameof(equipmentPermille), equipmentPermille, "設備係数‰は非負(GDD02a §3)。");
         }
 
-        // 中間の積はlong(労働力合計‰×設備係数‰はintを超えうる)。
-        long effectiveLaborPermille = IntegerMath.FloorDiv(
-            (long)laborPermille * equipmentPermille, IntegerMath.PermilleScale);
+        // 内側の切り下げはIntegerMath.FloorPermilleへ寄せてある(戻り値long。中間の積は
+        // labor×equipがintを超えうるため)。LaborCapacity.EffectiveLaborPermilleも同じ関数を呼ぶ
+        // ── ここに書き直さない(W2-19訂正)。
+        long effectiveLaborPermille = IntegerMath.FloorPermille(laborPermille, equipmentPermille);
 
         return checked((int)IntegerMath.FloorDiv(effectiveLaborPermille, LaborPermille));
     }

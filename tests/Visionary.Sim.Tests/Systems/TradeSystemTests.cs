@@ -2636,4 +2636,64 @@ public sealed class TradeSystemTests
 
         Assert.Equal(0, world.Households[0].UnfilledPurchase[Item.Grain]);
     }
+
+    /// <summary>
+    /// 【核心】別表 #29(#40訂正。レビュー1巡目 象限I-b)。薪が必需と生産の入力の2行に立ち、
+    /// 必需の行では買えたが生産の入力の行では資金が尽きて買えなかった日、
+    /// <c>UnfilledPurchase[薪]</c> は0(遠方在庫は立たない)。
+    /// </summary>
+    /// <remarks>
+    /// <b>判定は行単位ではなく品目単位である</b>(GDD02b §8.1「前日、その品目を1個も買えず」)。
+    /// 世帯を区画4(<see cref="District.ExternalMarketDistrictId"/>)に置き、窓口を無条件で
+    /// 候補に入れる(<see cref="ExternalMarket.IsWithinReach"/> が買い手の区画=中心なら
+    /// 無条件で真を返すため、<see cref="ErrandPlanner"/> の外出判断に依存しない)。薪は
+    /// どのレシピも出力しないので1次産品(窓口価格=床=1)。<b>核心。変異: 走査後の「その日
+    /// 1個でも買えた品目を0に戻す」を消す / 期待 赤。</b>
+    /// </remarks>
+    [Fact]
+    public void UnfilledPurchaseIsZeroWhenTheItemWasBoughtOnAnotherLine()
+    {
+        var recipe = new Recipe(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = Item.Bread, Quantity = 1 } },
+            inputs: new[] { new ItemQuantity { ItemId = Item.Firewood, Quantity = 1 } },
+            laborPermille: 1000);
+
+        var necessityTargetStockDays = new int[Item.Count];
+        necessityTargetStockDays[Item.Firewood] = 5;
+
+        var firewoodConsumption = new int[Item.Count];
+        firewoodConsumption[Item.Firewood] = 1;
+        var dailyConsumptionPerNpcByRank = new[]
+        {
+            (int[])firewoodConsumption.Clone(),
+            (int[])firewoodConsumption.Clone(),
+            (int[])firewoodConsumption.Clone(),
+        };
+
+        var definition = EconomySystemTestFixtures.BuildDefinition(
+            recipe,
+            dailyConsumptionPerNpcByRank: dailyConsumptionPerNpcByRank,
+            necessityTargetStockDays: necessityTargetStockDays,
+            opportunityCostBaseByOccupation: new[] { 1, 1, 1, 1, 1 },
+            rankCoefficientPermille: new[] { 1000, 1000, 1000 },
+            inputBufferDays: 5);
+
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+        // 区画4(中心)に置く。窓口の薪(床1)を必需の行が使い切る資金(5)だけ持たせる ──
+        // GDD02b §3.2の走査順(必需→耐久→生産の入力)で、必需の行が資金を食い潰した後に
+        // 生産の入力の行を処理する。
+        AddHousehold(world, id: 0, districtId: District.ExternalMarketDistrictId, Occupation.Miller, liquidFunds: 5);
+
+        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+
+        // 前提: 必需の行では実際に買えた(世帯在庫が増えている)。
+        Assert.True(
+            world.Households[0].HouseholdInventory[Item.Firewood] > 0,
+            "テストの前提(必需の行で買えたこと)が崩れている。");
+        // 前提: 生産の入力の行は資金切れで買えなかった(工房在庫は増えていない)。
+        Assert.Equal(0, world.Households[0].WorkshopInventory[Item.Firewood]);
+
+        Assert.Equal(0, world.Households[0].UnfilledPurchase[Item.Firewood]);
+    }
 }

@@ -134,7 +134,8 @@ if (line.ExpectedStock < line.TargetStock)
                                        _definition.ToolDurabilityPerUnit);
 ```
 
-- **`=` ではなく `+=` である。** 薪は必需と生産の入力の2行に現れる([GDD02b §2](../03-gdd/02b-consumption-and-household.md))ので、代入だと後の行が前の行を消す
+- **走査を終えたあと、その日その品目を1個でも買えていたなら `UnfilledPurchase[itemId]` を 0 に戻す。**(**フェーズ2 の訂正。1巡目の象限 I-b。** 元の指示は行単位の判定だけで足し込みを確定させていたが、[GDD02b §8.1](../03-gdd/02b-consumption-and-household.md) の遠方在庫の条件は「前日、**その品目を**1個も買えず」と**品目単位**である。薪・穀物は必需と生産の入力の2行に現れ、[GDD02b §3.2](../03-gdd/02b-consumption-and-household.md) の順に資金を食い潰すので「先の行は買えて後の行は買えない」は定常的に起きる。行単位のままだと、買えている品目にも遠方在庫が立ち、[#41](https://github.com/stama72/visionary/issues/41) が読む件数が系統的に過大になる。本書 :10 の「§8.1 と食い違ったら §8.1 が勝つ」を適用した)
+- **`=` ではなく `+=` である。** 薪は必需と生産の入力の2行に現れる([GDD02b §2](../03-gdd/02b-consumption-and-household.md))ので、代入だと後の行が前の行を消す。**数量の側は行をまたいで合計してよい** — [GDD02b §2](../03-gdd/02b-consumption-and-household.md) の目標在庫は (用途, 品目) ごとに立つので、§8.1 の `目標在庫 − 予想在庫` を品目へ持ち上げると用途の和になる。**0 に戻す規則が掛かるのは「1個でも買えた品目」だけで、数量の合計には掛からない**
 - **`QuantityInUnits` を通すのは耐久のためである。** `DemandLine.TargetStock` / `ExpectedStock` は**耐久だけ耐久値**(N × 1000 倍)で入っている。通さないと工具の不足量が数千倍になる(W2-10 欠陥3 と同じ型の誤り)
 - **部分的にでも買えた行は数えない。** [GDD06 §3.1](../03-gdd/06-trade-and-negotiation.md) の条件は「その日に買えず」であって「目標在庫まで買えず」ではない
 - **`ExpectedStock` / `TargetStock` は段4 が作った値であり、買い物より前の在庫である**([GDD02b §5.1](../03-gdd/02b-consumption-and-household.md))。**`world` から在庫を読み直さない** — 読み直すと「その日に買った量」が混ざる
@@ -239,6 +240,14 @@ public sealed class NeedGenerationSystem : ISimSystem
 | 28 | `HashChangesWhenNeedIdChanges` / `HashChangesWhenNextNeedIdChanges` / `HashChangesWhenUnfilledPurchaseChanges` | 新しい3欄がハッシュに入っている | `StateHasher` への追記漏れ | |
 
 **26・27 は `WorldGenerator.Generate` の世界で回す**(`TradePipelineTests` の既存の規律。手組みの縮退した世界を使わない)。**1〜25 は `EconomySystemTestFixtures` の小さな世界でよい**(`WorldDefinition.M0` の値に依存させない。[#28](https://github.com/stama72/visionary/issues/28) が値を動かす)。**15 は世帯が3戸要るので、フィクスチャに「世帯を N 戸作る」口を足してよい** — 既存の1戸の口(`BuildWorldWithOneHousehold`)の挙動は変えないこと。
+
+### 別表: レビューで足したテスト(フェーズ2)
+
+**上の表は実装へ渡した時点の指示であって最終形ではない。** ここはレビューの巡で足したぶんである。
+
+| # | テスト | 検証内容 | この実装ミスで落ちる | 核心(当てる変異 / 期待) |
+| - | ------ | -------- | -------------------- | ------------------------- |
+| 29 | `UnfilledPurchaseIsZeroWhenTheItemWasBoughtOnAnotherLine` | 薪が必需と生産の入力の2行に立ち、**必需の行では買えたが生産の入力の行では資金が尽きて買えなかった**日 → `UnfilledPurchase[薪]` は 0(遠方在庫は立たない) | 判定を行単位のままにする([GDD02b §8.1](../03-gdd/02b-consumption-and-household.md)「**その品目を**1個も買えず」を落とす) | **核心**。変異: 走査後の「その日1個でも買えた品目を 0 に戻す」を消す / 期待 **赤** |
 
 ## 編集してよい文書
 

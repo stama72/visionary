@@ -259,6 +259,13 @@ public sealed class TradeSystem : ISimSystem
         // その後もずっとNeedを立て続ける(タスク仕様)。
         Array.Clear(household.UnfilledPurchase);
 
+        // 品目ごとに「その日1個でも買えたか」を記録する(#40訂正。フェーズ2レビュー1巡目
+        // 象限I-b)。判定は行単位ではなく品目単位である ── GDD02b §8.1 の遠方在庫の条件は
+        // 「前日、その品目を1個も買えず」。薪・穀物のように必需と生産の入力の2行に現れる品目は、
+        // GDD02b §3.2 の走査順で資金を食い潰すので「先の行は買えて後の行は買えない」が定常的に
+        // 起きる。行単位のままだと、買えている品目にも遠方在庫が立ってしまう。
+        var boughtItem = new bool[_definition.ItemCount];
+
         // demand.Linesの並び順そのままに走査する ── GDD02b §3.2の走査順(必需→耐久→生産の入力→
         // 嗜好、同一用途は品目Id昇順)そのものである。資金は世帯内の共有資源なので、並べ替えると
         // 決済順が変わり結果が変わる(#36引き継ぎ「並べ直さないこと」)。
@@ -266,16 +273,33 @@ public sealed class TradeSystem : ISimSystem
         {
             bool purchased = TryPurchaseLine(world, household, line, visitedDistrictIds);
 
+            if (purchased)
+            {
+                boughtItem[line.ItemId] = true;
+                continue;
+            }
+
             // #40: その行についてTradeSettlement.Execute/ExecuteImportを一度も呼ばなかった
             // (=1個も買えなかった)かつ予想在庫が目標在庫を下回っていたなら、不足量を足し込む。
             // += である(薪が必需と生産の入力の2行に現れるため。代入だと後の行が前の行を消す)。
-            // 部分的にでも買えた行(purchased == true)は数えない(GDD06 §3.1「その日に買えず」
-            // であって「目標在庫まで買えず」ではない)。ExpectedStock/TargetStockは段4が作った
-            // 買い物より前の値であり、worldから読み直さない(「その日に買った量」が混ざる)。
-            if (!purchased && line.ExpectedStock < line.TargetStock)
+            // 数量の合計(行をまたいだ+=)は品目単位の0クリアの対象ではない ── ExpectedStock/
+            // TargetStockは段4が作った買い物より前の値であり、worldから読み直さない
+            // (「その日に買った量」が混ざる)。
+            if (line.ExpectedStock < line.TargetStock)
             {
                 household.UnfilledPurchase[line.ItemId] += BuyerBudget.QuantityInUnits(
                     line.Purpose, line.TargetStock - line.ExpectedStock, _definition.ToolDurabilityPerUnit);
+            }
+        }
+
+        // 走査を終えたあと、その日1個でも買えた品目はUnfilledPurchaseを0へ戻す(#40訂正)。
+        // 部分的にでも買えた品目は数えない(GDD06 §3.1「その日に買えず」であって
+        // 「目標在庫まで買えず」ではない) ── 行単位の合計を積んだ後に、品目単位で上書きする。
+        for (int itemId = 0; itemId < _definition.ItemCount; itemId++)
+        {
+            if (boughtItem[itemId])
+            {
+                household.UnfilledPurchase[itemId] = 0;
             }
         }
     }

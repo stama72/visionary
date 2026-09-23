@@ -82,4 +82,24 @@ public static class IntegerMath
     /// <exception cref="OverflowException">結果が int に収まらないとき。</exception>
     public static int ApplyPermille(int value, int permille) =>
         checked((int)CeilDiv((long)value * permille, PermilleScale));
+
+    /// <summary>
+    /// ‰係数を適用して切り下げる。<c>value × permille / 1000</c>。GDD02a §1 が
+    /// 「切り上げ規約の意図的な例外」として指定する丸めの向き(<see cref="ApplyPermille"/> は
+    /// 切り上げ)であり、<see cref="Visionary.Sim.Recipe.CapacityRuns(int, int)"/> の内側の除算
+    /// (労働力合計‰ × 設備係数‰ ÷ 1000)と
+    /// <see cref="Visionary.Sim.Systems.LaborCapacity.EffectiveLaborPermille(int, int)"/>
+    /// が共に読む、生産能力の式の内側の切り下げの唯一の置き場所である(W2-19訂正。レビュー1巡目
+    /// 象限I-a ── 以前は同じ式が2か所に手で綴られており、片方の丸めを直したときもう片方が
+    /// 黙ってずれる余地があった)。
+    /// </summary>
+    /// <remarks>
+    /// <b>戻り値は <see cref="long"/> のままにする</b>(<see cref="ApplyPermille"/> と違い、
+    /// ここでは <c>int</c> へ丸めない)。<c>Recipe.CapacityRuns</c> はこの値をさらに所要労働‰で
+    /// 除算するため、ここで <c>checked((int)...)</c> すると、本来不要な場面でオーバーフロー検査が
+    /// 早まってしまう。<c>int</c> が欲しい呼び出し側(<c>LaborCapacity.EffectiveLaborPermille</c>)は
+    /// 自分で <c>checked</c> キャストする。
+    /// </remarks>
+    public static long FloorPermille(int value, int permille) =>
+        FloorDiv((long)value * permille, PermilleScale);
 }
