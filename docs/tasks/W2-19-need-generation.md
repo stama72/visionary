@@ -255,7 +255,7 @@ public sealed class NeedGenerationSystem : ISimSystem
 | 31 | `UnfilledPurchaseSubtractsExpectedStock` | 買えなかった行で **`ExpectedStock` が 0 でも `TargetStock` 以上でもない**(`0 < ExpectedStock < TargetStock`)世界 → `UnfilledPurchase[i]` が `TargetStock − ExpectedStock` であって `TargetStock` ではない | `− line.ExpectedStock` を落とす / 符号を逆にする | **核心**。変異: `TradeSystem` の足し込みの `line.TargetStock - line.ExpectedStock` を `line.TargetStock` にする / 期待 **赤** |
 | 32 | `DistantStockNeedQuantityForToolsIsInUnits` | 工具の `UnfilledPurchase` が正の世界で、遠方在庫 Need の `Quantity` が**個数**のまま(耐久値へ換算し直されない) | 順4 が読むときに `ToolDurabilityPerUnit` を掛け直す(順5 が個で書いた値を耐久値へ戻す) | |
 
-| 33 | `UnfilledPurchaseIsZeroForItemZeroWhenItWasBoughtOnAnotherLine` | #29 と同じ主張を**品目 Id 0(穀物)**で見る。`UnfilledPurchase` 配列の全要素が 0 | 走査後の 0 戻しループの初期値を `itemId = 1` にする(**品目 Id 0 だけが 0 戻しを免れる**) | |
+| 33 | `UnfilledPurchaseIsZeroForItemZeroWhenItWasBoughtOnAnotherLine` | #29 と同じ主張を**品目 Id 0(穀物)**で見る。`UnfilledPurchase` 配列の全要素が 0 | 走査後の 0 戻しループの初期値を `itemId = 1` にする(**品目 Id 0 だけが 0 戻しを免れる**) | **核心**。変異: 0 戻しループの初期値を `itemId = 1` にする / 期待 **赤** |
 
 **3巡目(網羅パス)が見つけた「守るテストが無い経路」への手当てである。** #31 は、遠方在庫の数量を決める唯一の式を守るテストが1件も無かったため(既存の #22・#23 は**どちらも `ExpectedStock = 0` の世界**で書かれており式に差が出ない。#21 はガードに弾かれて式へ到達しない)。#32 は、順5 が個で書き順4 が個で読む、という単位の一貫性を端から端まで見るテストが無かったため(#11 は必需品で書かれており耐久を踏まない)。
 

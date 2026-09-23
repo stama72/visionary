@@ -2489,10 +2489,17 @@ public sealed class TradeSystemTests
     /// <c>RunOneHouseholdsShopping</c> 走査後の「その日1個でも買えた品目を0へ戻す」側であって、
     /// 冒頭の <c>Array.Clear(household.UnfilledPurchase)</c> ではない ── 2日目はその品目を
     /// 実際に買えているので、冒頭のクリアを消しても走査後の0戻しが最後に0を書き、本テストは
-    /// 変異で赤にならない(手元の実測で確認済み)。<b>冒頭の <c>Array.Clear</c> を守るのは
+    /// 変異で赤にならない。<b>冒頭の <c>Array.Clear</c> を守るのは
     /// <see cref="UnfilledPurchaseDoesNotPersistWhenNoLineAddsToIt"/>(別表#30。「核心」印は
     /// そちらにある)である</b> ── あちらは「買えず、かつ足し込みも起きない品目」の経路を通し、
     /// 本テストが踏まない <c>Array.Clear</c> 単体の経路を踏む。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(実測日 2026-09-23、<c>mutator</c> が使い捨てworktree(<c>.pipeline/mutation/40</c>)
+    /// で対象コミット <c>7cb44e6</c> に当てた。ベースライン532件全緑)。</b>
+    /// <c>RunOneHouseholdsShopping</c> 冒頭の <c>Array.Clear(household.UnfilledPurchase);</c> を
+    /// 削除する変異は、落ちたのは <see cref="UnfilledPurchaseDoesNotPersistWhenNoLineAddsToIt"/>
+    /// 1件のみで、<b>本テストは緑のまま</b>だった(実測により上記の主張の裏が取れた)。
     /// </remarks>
     [Fact]
     public void UnfilledPurchaseIsClearedEveryDay()
@@ -2542,6 +2549,16 @@ public sealed class TradeSystemTests
     /// <b>核心。変異: <c>RunOneHouseholdsShopping</c> 冒頭の <c>Array.Clear(household.UnfilledPurchase)</c>
     /// を消す / 期待 赤。</b>
     /// </para>
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(実測日 2026-09-23、<c>mutator</c> が使い捨てworktree(<c>.pipeline/mutation/40</c>)
+    /// で対象コミット <c>7cb44e6</c> に当てた。ベースライン532件全緑)。</b>
+    /// <list type="bullet">
+    /// <item>冒頭の <c>Array.Clear(household.UnfilledPurchase);</c> を削除する変異は<b>赤</b>
+    /// (本テスト1件のみ落ちた。期待どおり)。</item>
+    /// <item>冒頭を <c>Array.Clear(household.UnfilledPurchase, 0, Length - 1);</c> にする変異
+    /// (配列末尾の1品目だけ持ち越す)も<b>赤</b>(本テスト1件のみ落ちた。期待どおり)。</item>
+    /// </list>
     /// </remarks>
     [Fact]
     public void UnfilledPurchaseDoesNotPersistWhenNoLineAddsToIt()
@@ -2616,6 +2633,12 @@ public sealed class TradeSystemTests
     /// <b>核心。変異: <c>TradeSystem</c> の足し込みの <c>line.TargetStock - line.ExpectedStock</c> を
     /// <c>line.TargetStock</c> にする / 期待 赤。</b>
     /// </para>
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(実測日 2026-09-23、<c>mutator</c> が使い捨てworktree(<c>.pipeline/mutation/40</c>)
+    /// で対象コミット <c>7cb44e6</c> に当てた。ベースライン532件全緑)。</b>
+    /// <c>UnfilledPurchase</c> の足し込みの数量を <c>line.TargetStock - line.ExpectedStock</c> から
+    /// <c>line.TargetStock</c> にする変異は<b>赤</b>(本テスト1件のみ落ちた。期待どおり)。
     /// </remarks>
     [Fact]
     public void UnfilledPurchaseSubtractsExpectedStock()
@@ -2702,6 +2725,12 @@ public sealed class TradeSystemTests
     /// 耐久だけ耐久値(N × 1000 倍)で入っているので、通さないと工具の不足量が数千倍になる
     /// (W2-10 欠陥3と同じ型の誤り)。
     /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(実測日 2026-09-23、<c>mutator</c> が使い捨てworktree(<c>.pipeline/mutation/40</c>)
+    /// で対象コミット <c>7cb44e6</c> に当てた。ベースライン532件全緑)。</b>
+    /// <c>UnfilledPurchase</c> の足し込みから <c>BuyerBudget.QuantityInUnits(...)</c> を外す変異は
+    /// <b>赤</b>(本テスト1件のみ落ちた。期待どおり)。
+    /// </remarks>
     [Fact]
     public void UnfilledPurchaseForToolsIsInUnits()
     {
@@ -2768,6 +2797,13 @@ public sealed class TradeSystemTests
     /// 耐久の行が別に不足を積まないようにする ── そうしないと、薪だけでなく工具の
     /// <c>UnfilledPurchase</c> も(この世界では)正当に正の値を持ち、配列全体を0で比較できない。
     /// </para>
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(実測日 2026-09-23、<c>mutator</c> が使い捨てworktree(<c>.pipeline/mutation/40</c>)
+    /// で対象コミット <c>7cb44e6</c> に当てた。ベースライン532件全緑)。</b>
+    /// 走査後の0戻しループを丸ごと削除する変異は<b>赤</b>(期待どおり)。本テストに加え、
+    /// 巻き添えで <see cref="UnfilledPurchaseIsZeroForItemZeroWhenItWasBoughtOnAnotherLine"/>
+    /// (別表#33)も落ちた(計2件)。
     /// </remarks>
     [Fact]
     public void UnfilledPurchaseIsZeroWhenTheItemWasBoughtOnAnotherLine()
@@ -2842,6 +2878,12 @@ public sealed class TradeSystemTests
     /// <b>核心。変異: 走査後の0戻しループの初期値を <c>itemId = 1</c> にする(<c>Item.Grain</c>
     /// だけ免れる)/ 期待 赤。</b>
     /// </para>
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(実測日 2026-09-23、<c>mutator</c> が使い捨てworktree(<c>.pipeline/mutation/40</c>)
+    /// で対象コミット <c>7cb44e6</c> に当てた。ベースライン532件全緑)。</b>
+    /// 走査後の0戻しループの初期値を <c>itemId = 0</c> から <c>itemId = 1</c> にする変異は
+    /// <b>赤</b>(本テスト1件のみ落ちた。期待どおり)。
     /// </remarks>
     [Fact]
     public void UnfilledPurchaseIsZeroForItemZeroWhenItWasBoughtOnAnotherLine()

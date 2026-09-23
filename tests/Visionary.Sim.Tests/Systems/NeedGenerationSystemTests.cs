@@ -153,6 +153,12 @@ public sealed class NeedGenerationSystemTests
     /// 【核心】テスト表 #5。フラグ1・消費不足0(在庫は満ちている)→ 困窮は立たない。
     /// GDD02b §3.3「フラグが見ているのは現金であって在庫ではない」を落とすと立ってしまう。
     /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(実測日 2026-09-23、<c>mutator</c> が使い捨てworktree(<c>.pipeline/mutation/40</c>)
+    /// で対象コミット <c>7cb44e6</c> に当てた。ベースライン532件全緑)。</b>
+    /// <c>NeedGenerationSystem.CollectDistress</c> の <c>unmet &lt;= 0</c> の継続チェックを削除する
+    /// 変異は<b>赤</b>(本テスト1件のみ落ちた。期待どおり)。
+    /// </remarks>
     [Fact]
     public void DistressNeedDoesNotRiseWithoutUnmetConsumption()
     {
@@ -317,6 +323,15 @@ public sealed class NeedGenerationSystemTests
     /// </summary>
     /// <remarks>
     /// <b>核心。変異: <c>world.Needs.Clear()</c> を消して <c>AddRange</c> だけにする / 期待 赤。</b>
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(実測日 2026-09-23、<c>mutator</c> が使い捨てworktree(<c>.pipeline/mutation/40</c>)
+    /// で対象コミット <c>7cb44e6</c> に当てた。ベースライン532件全緑)。</b>
+    /// <c>NeedGenerationSystem.Step</c> の <c>world.Needs.Clear()</c> を削除する変異は<b>赤</b>
+    /// (期待どおり)。本テストに加え、巻き添えで3件が落ちた:
+    /// <see cref="Visionary.Sim.Tests.Determinism.StateHasherTests.HashChangesWhenNextNeedIdChanges"/> /
+    /// <see cref="NeedIdIsStableWhileTheConditionHolds"/> / <see cref="ExpiredNeedIdIsNotReused"/>
+    /// (計4件)。
     /// </remarks>
     [Fact]
     public void NeedsExpireWhenTheConditionIsGone()
