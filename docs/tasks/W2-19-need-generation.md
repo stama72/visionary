@@ -252,6 +252,13 @@ public sealed class NeedGenerationSystem : ISimSystem
 
 **#20 の「核心」印は #30 へ移る。** 1巡目の修正で入った「走査後に、その日1個でも買えた品目を 0 に戻す」経路が、**#20 の2日目(その品目を買えた日)を丸ごと引き受けてしまう** — 冒頭の `Array.Clear` を消しても最後に 0 が書かれるので、#20 は変異で赤にならない(2巡目の象限 I-a)。`Array.Clear` が今も必要なのは「買えず、かつ足し込みも起きない品目」の経路であり、それを踏むのが #30 である。**#20 は残す**(品目単位の 0 戻しを守る側のテストとして緑であり続ける)。
 
+| 31 | `UnfilledPurchaseSubtractsExpectedStock` | 買えなかった行で **`ExpectedStock` が 0 でも `TargetStock` 以上でもない**(`0 < ExpectedStock < TargetStock`)世界 → `UnfilledPurchase[i]` が `TargetStock − ExpectedStock` であって `TargetStock` ではない | `− line.ExpectedStock` を落とす / 符号を逆にする | **核心**。変異: `TradeSystem` の足し込みの `line.TargetStock - line.ExpectedStock` を `line.TargetStock` にする / 期待 **赤** |
+| 32 | `DistantStockNeedQuantityForToolsIsInUnits` | 工具の `UnfilledPurchase` が正の世界で、遠方在庫 Need の `Quantity` が**個数**のまま(耐久値へ換算し直されない) | 順4 が読むときに `ToolDurabilityPerUnit` を掛け直す(順5 が個で書いた値を耐久値へ戻す) | |
+
+**3巡目(網羅パス)が見つけた「守るテストが無い経路」への手当てである。** #31 は、遠方在庫の数量を決める唯一の式を守るテストが1件も無かったため(既存の #22・#23 は**どちらも `ExpectedStock = 0` の世界**で書かれており式に差が出ない。#21 はガードに弾かれて式へ到達しない)。#32 は、順5 が個で書き順4 が個で読む、という単位の一貫性を端から端まで見るテストが無かったため(#11 は必需品で書かれており耐久を踏まない)。
+
+**あわせて #29・#30 のアサートを配列全体へ広げる。** どちらも単一品目の1点しか見ていないので、冒頭の `Array.Clear` と走査後の 0 戻しの**範囲を1要素ずらす**変異(`Item.Tools` だけ持ち越す / `Item.Grain` だけ 0 戻しを免れる)がどちらも緑になる。
+
 **#24 の変異の期待は実態と食い違ったままにしてある。** `if (purchased) { …; continue; }` の行単位のガードは、走査後の品目単位の 0 戻しに完全に包含されて観測不能になった(ガードを外しても結果が変わらない)。**ガードは残し、#24 の変異は当てない** — 理由は引き継ぎメモの「直さないと決めた指摘」に置く。
 
 ## 編集してよい文書

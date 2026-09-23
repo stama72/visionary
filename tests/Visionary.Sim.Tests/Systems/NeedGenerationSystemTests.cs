@@ -284,6 +284,35 @@ public sealed class NeedGenerationSystemTests
     }
 
     /// <summary>
+    /// 別表 #32(#40訂正。レビュー3巡目 網羅パス)。工具の <c>UnfilledPurchase</c> が正の世界で、
+    /// 遠方在庫 Need の <c>Quantity</c> が個数のまま(<c>ToolDurabilityPerUnit</c> を掛け直されて
+    /// いない)。
+    /// </summary>
+    /// <remarks>
+    /// 順5(<see cref="TradeSystem"/>)が個で書き、順4(本クラス)が個で読む、という単位の一貫性を
+    /// 端から端まで見るテストが無かった(#11 は必需品なので耐久を踏まない)。理由5の実装は
+    /// <c>household.UnfilledPurchase[i]</c> をそのまま <c>Need.Quantity</c> に映すだけで、
+    /// 単位変換を挟まない(GDD02b §8.1)。
+    /// </remarks>
+    [Fact]
+    public void DistantStockNeedQuantityForToolsIsInUnits()
+    {
+        var definition = BuildDefinition(QuietRecipe());
+        var world = BuildWorld(new[] { NpcRank.Master }); // toolStock既定1(理由4を黙って起こさない)
+        world.Households[0].UnfilledPurchase[Item.Tools] = 3; // 個数(耐久値ではない)
+
+        EconomySystemTestFixtures.RunDays(world, new NeedGenerationSystem(definition), days: 1);
+
+        var need = Assert.Single(
+            world.Needs, n => n.ReasonCode == NeedReason.DistantStock && n.ItemId == Item.Tools);
+
+        Assert.Equal(3, need.Quantity);
+        Assert.True(
+            need.Quantity < definition.ToolDurabilityPerUnit,
+            $"耐久値へ掛け直されている疑い(Quantity={need.Quantity})。");
+    }
+
+    /// <summary>
     /// 【核心】テスト表 #12。1日目に立った Need が、条件を消した2日目に <c>world.Needs</c> から消える。
     /// </summary>
     /// <remarks>

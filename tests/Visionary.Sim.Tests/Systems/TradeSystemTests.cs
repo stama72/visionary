@@ -2519,9 +2519,9 @@ public sealed class TradeSystemTests
     }
 
     /// <summary>
-    /// 【核心】別表 #30(#40訂正。レビュー2巡目 象限I-a)。1日目に買えず値が入り、2日目は
-    /// その品目について買えもしないが足し込みも起きない(<c>ExpectedStock &gt;= TargetStock</c>)
-    /// → 0 に戻る。
+    /// 【核心】別表 #30(#40訂正。レビュー2巡目 象限I-a、3巡目 網羅パスでアサートを配列全体へ広げた)。
+    /// 1日目に買えず値が入り、2日目はその品目について買えもしないが足し込みも起きない
+    /// (<c>ExpectedStock &gt;= TargetStock</c>)→ 0 に戻る。
     /// </summary>
     /// <remarks>
     /// <b><see cref="UnfilledPurchaseIsClearedEveryDay"/>(#20)の「核心」印はこのテストへ移る。</b>
@@ -2531,6 +2531,14 @@ public sealed class TradeSystemTests
     /// 「買えず、かつ足し込みも起きない品目」の経路であり、それを踏むのが本テストである
     /// (タスク仕様「別表」#30)。
     /// <para>
+    /// <b>アサートは配列全体へ広げてある(3巡目 網羅パス)。</b>穀物(<see cref="Item.Grain"/>、
+    /// 添字0)だけでなく工具(<see cref="Item.Tools"/>、添字の末尾)も1日目に買えず値が入り、
+    /// 2日目に <c>ExpectedStock &gt;= TargetStock</c> にして足し込みを止める ── 単一品目の1点しか
+    /// 見ないと、<c>Array.Clear</c> の範囲を1要素ずらす変異(末尾の品目だけ持ち越す)が
+    /// 素通りする。資金0で世帯間・窓口のどちらからも一切買えない世界にし、購入の成否を
+    /// 価格や店の有無に依存させない(<c>UnfilledPurchaseSubtractsExpectedStock</c> と同じ手法)。
+    /// </para>
+    /// <para>
     /// <b>核心。変異: <c>RunOneHouseholdsShopping</c> 冒頭の <c>Array.Clear(household.UnfilledPurchase)</c>
     /// を消す / 期待 赤。</b>
     /// </para>
@@ -2538,25 +2546,44 @@ public sealed class TradeSystemTests
     [Fact]
     public void UnfilledPurchaseDoesNotPersistWhenNoLineAddsToIt()
     {
-        var definition = BuildShoppingDefinition(necessityTargetStockDays: TargetStockDaysFor(Item.Grain));
-        var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
-        AddHousehold(world, id: 0, districtId: 4, Occupation.Woodworker, liquidFunds: 1000);
-        AddHousehold(world, id: 1, districtId: 4, Occupation.Baker); // Grainの売り手は終始在庫0。
+        var necessityTargetStockDays = new int[Item.Count];
+        necessityTargetStockDays[Item.Grain] = 5; // 複数日ぶんの目標(2日目の底上げで確実に上回らせる)。
+
+        var definition = BuildShoppingDefinition(necessityTargetStockDays: necessityTargetStockDays);
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+        // 資金0で世帯間・窓口のどちらからも一切買えない(価格・売り手の有無に依存させない)。
+        AddHousehold(world, id: 0, districtId: 4, Occupation.Woodworker, liquidFunds: 0);
 
         var system = new TradeSystem(definition);
 
-        EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目: 売り手不在で買えない
+        // 1日目。穀物(必需、目標5・在庫0)と工具(耐久、目標30000・在庫0)の両方が買えず値が入る。
+        // 工具の添字(Item.Tools)は品目数の末尾であり、穀物の添字(Item.Grain)は先頭である ──
+        // Array.Clearの範囲を1要素ずらす変異は必ずどちらかの端を割る。
+        EconomySystemTestFixtures.RunDays(world, system, days: 1);
         Assert.True(
             world.Households[0].UnfilledPurchase[Item.Grain] > 0,
-            "テストの前提(1日目にUnfilledPurchaseが立つこと)が崩れている。");
+            "テストの前提(1日目に穀物のUnfilledPurchaseが立つこと)が崩れている。");
+        Assert.True(
+            world.Households[0].UnfilledPurchase[Item.Tools] > 0,
+            "テストの前提(1日目に工具のUnfilledPurchaseが立つこと)が崩れている。");
 
-        // 2日目。売り手は依然在庫0(買えない)。世帯在庫を直接底上げしてExpectedStock >=
-        // TargetStockにする ── 足し込み(+=)の条件そのものを外し、走査後の「1個でも買えた品目の
-        // 0戻し」も通らない経路を作る(買っていないのでboughtItemも立たない)。
+        // 2日目。世帯在庫・工房在庫を直接底上げしてどちらもExpectedStock >= TargetStockにする ──
+        // 足し込み(+=)の条件そのものを外し、走査後の「1個でも買えた品目の0戻し」も通らない経路を
+        // 作る(資金0のままなので、そもそも買えない)。Woodworker自身のレシピ(#3のUnusedRecipe)が
+        // 木材(Item.Timber)を入力に持つため、生産の入力の行も併せて底上げする(前提の崩れの実測で
+        // 判明)。
         world.Households[0].HouseholdInventory[Item.Grain] = 1_000_000;
+        world.Households[0].WorkshopInventory[Item.Timber] = 1_000_000;
+        world.Households[0].WorkshopInventory[Item.Tools] = 1; // 耐久値30000 >= 目標30000。
         EconomySystemTestFixtures.RunDays(world, system, days: 1);
 
-        Assert.Equal(0, world.Households[0].UnfilledPurchase[Item.Grain]);
+        for (int itemId = 0; itemId < definition.ItemCount; itemId++)
+        {
+            Assert.True(
+                world.Households[0].UnfilledPurchase[itemId] == 0,
+                $"itemId={itemId}のUnfilledPurchaseが0ではない"
+                    + $"({world.Households[0].UnfilledPurchase[itemId]})。");
+        }
     }
 
     /// <summary>
@@ -2573,6 +2600,46 @@ public sealed class TradeSystemTests
         EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
 
         Assert.Equal(0, world.Households[0].UnfilledPurchase[Item.Grain]);
+    }
+
+    /// <summary>
+    /// 【核心】別表 #31(#40訂正。レビュー3巡目 網羅パス)。買えなかった行で
+    /// <c>0 &lt; ExpectedStock &lt; TargetStock</c> の世界 → <c>UnfilledPurchase[i]</c> は
+    /// <c>TargetStock − ExpectedStock</c> であって <c>TargetStock</c> ではない。
+    /// </summary>
+    /// <remarks>
+    /// 既存の #22・#23 はどちらも <c>ExpectedStock = 0</c> の世界で書かれており式に差が出ず、
+    /// #21 は <c>ExpectedStock &gt;= TargetStock</c> でガードに弾かれて式へ到達しない ──
+    /// 遠方在庫の数量を決める唯一の式(<c>line.TargetStock - line.ExpectedStock</c>)を守る
+    /// テストが1件も無かった(3巡目・網羅パス)。
+    /// <para>
+    /// <b>核心。変異: <c>TradeSystem</c> の足し込みの <c>line.TargetStock - line.ExpectedStock</c> を
+    /// <c>line.TargetStock</c> にする / 期待 赤。</b>
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void UnfilledPurchaseSubtractsExpectedStock()
+    {
+        var necessityTargetStockDays = new int[Item.Count];
+        necessityTargetStockDays[Item.Grain] = 5; // 複数日ぶんの目標。ExpectedStockより明確に大きくする。
+
+        var definition = BuildShoppingDefinition(necessityTargetStockDays: necessityTargetStockDays);
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+        AddHousehold(world, id: 0, districtId: 4, Occupation.Woodworker, liquidFunds: 0); // 資金0で買えない
+        world.Households[0].HouseholdInventory[Item.Grain] = 2; // 0 < ExpectedStock < TargetStock
+
+        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+
+        // 段5bが読んだのと同じ入力(直前に何も買えていないので、需要行を作り直しても同じ値になる)。
+        var demand = new BuyerDemand(definition).Build(
+            world, world.Households[0], hasPreviousOutputOfferPrice: false, previousOutputOfferPrice: 0);
+        var line = demand.Lines.Single(l => l.Purpose == DemandPurpose.Necessity && l.ItemId == Item.Grain);
+
+        Assert.True(
+            line.ExpectedStock > 0 && line.ExpectedStock < line.TargetStock,
+            $"テストの前提(0 < ExpectedStock({line.ExpectedStock}) < TargetStock({line.TargetStock}))が崩れている。");
+
+        Assert.Equal(line.TargetStock - line.ExpectedStock, world.Households[0].UnfilledPurchase[Item.Grain]);
     }
 
     /// <summary>
@@ -2684,9 +2751,9 @@ public sealed class TradeSystemTests
     }
 
     /// <summary>
-    /// 【核心】別表 #29(#40訂正。レビュー1巡目 象限I-b)。薪が必需と生産の入力の2行に立ち、
-    /// 必需の行では買えたが生産の入力の行では資金が尽きて買えなかった日、
-    /// <c>UnfilledPurchase[薪]</c> は0(遠方在庫は立たない)。
+    /// 【核心】別表 #29(#40訂正。レビュー1巡目 象限I-b、3巡目 網羅パスでアサートを配列全体へ
+    /// 広げた)。薪が必需と生産の入力の2行に立ち、必需の行では買えたが生産の入力の行では
+    /// 資金が尽きて買えなかった日、<c>UnfilledPurchase[薪]</c> は0(遠方在庫は立たない)。
     /// </summary>
     /// <remarks>
     /// <b>判定は行単位ではなく品目単位である</b>(GDD02b §8.1「前日、その品目を1個も買えず」)。
@@ -2695,6 +2762,12 @@ public sealed class TradeSystemTests
     /// 無条件で真を返すため、<see cref="ErrandPlanner"/> の外出判断に依存しない)。薪は
     /// どのレシピも出力しないので1次産品(窓口価格=床=1)。<b>核心。変異: 走査後の「その日
     /// 1個でも買えた品目を0に戻す」を消す / 期待 赤。</b>
+    /// <para>
+    /// <b>アサートは配列全体へ広げてある(3巡目 網羅パス)。</b>工具(耐久、全世帯に常に立つ行)の
+    /// 目標在庫をちょうど満たす工具を1個持たせ(<c>ExpectedStock == TargetStock</c>)、
+    /// 耐久の行が別に不足を積まないようにする ── そうしないと、薪だけでなく工具の
+    /// <c>UnfilledPurchase</c> も(この世界では)正当に正の値を持ち、配列全体を0で比較できない。
+    /// </para>
     /// </remarks>
     [Fact]
     public void UnfilledPurchaseIsZeroWhenTheItemWasBoughtOnAnotherLine()
@@ -2730,6 +2803,9 @@ public sealed class TradeSystemTests
         // GDD02b §3.2の走査順(必需→耐久→生産の入力)で、必需の行が資金を食い潰した後に
         // 生産の入力の行を処理する。
         AddHousehold(world, id: 0, districtId: District.ExternalMarketDistrictId, Occupation.Miller, liquidFunds: 5);
+        // 耐久(工具)の行を中立化する ── 目標在庫(30000)ちょうどを満たす工具1個を持たせ、
+        // 耐久の行がこの世界で正当な不足を積まないようにする(配列全体を0で比較するため)。
+        world.Households[0].WorkshopInventory[Item.Tools] = 1;
 
         EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
 
@@ -2740,6 +2816,12 @@ public sealed class TradeSystemTests
         // 前提: 生産の入力の行は資金切れで買えなかった(工房在庫は増えていない)。
         Assert.Equal(0, world.Households[0].WorkshopInventory[Item.Firewood]);
 
-        Assert.Equal(0, world.Households[0].UnfilledPurchase[Item.Firewood]);
+        for (int itemId = 0; itemId < definition.ItemCount; itemId++)
+        {
+            Assert.True(
+                world.Households[0].UnfilledPurchase[itemId] == 0,
+                $"itemId={itemId}のUnfilledPurchaseが0ではない"
+                    + $"({world.Households[0].UnfilledPurchase[itemId]})。");
+        }
     }
 }
