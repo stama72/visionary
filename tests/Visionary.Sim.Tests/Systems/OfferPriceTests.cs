@@ -216,12 +216,13 @@ public sealed class OfferPriceTests
     }
 
     /// <summary>
-    /// 【核心】W2-20 タスク仕様テスト表 #8。在庫比334‰(係数1333‰、>1000)・前日の約定無し・
-    /// 非破産 → true。同じ在庫でも、破産中 / 前日約定あり / 在庫比1000‰(係数1000‰、≤1000)は
-    /// それぞれ false。
+    /// 【核心】W2-20 タスク仕様テスト表 #8(1巡目 I-b の訂正込み)。在庫比334‰(係数1333‰、
+    /// >1000)・前日の約定無し・非破産・相場基準あり → true。同じ在庫でも、相場基準なし /
+    /// 破産中 / 前日約定あり / 在庫比1000‰(係数1000‰、≤1000)はそれぞれ false。
     /// </summary>
     /// <remarks>
-    /// この実装ミスで落ちる: <c>hasSettledYesterday</c> の向きを反転した / 破産中の分岐を落とした /
+    /// この実装ミスで落ちる: <c>hasReference</c> を見ずに在庫比だけから係数を再計算した /
+    /// <c>hasSettledYesterday</c> の向きを反転した / 破産中の分岐を落とした /
     /// <c>UnsoldCapPermille</c>(1000)を呼び出し側へ写して片方だけ動かした
     /// (W2-20 タスク仕様。<c>MetricsSystem</c> 側の配線は <c>MetricsSystemTests
     /// .UnsoldCapIsCountedOnlyWhenItBites</c> が別に押さえる)。
@@ -231,19 +232,24 @@ public sealed class OfferPriceTests
     {
         // 在庫比334‰ → 係数 1500 - CeilDiv(334,2) = 1500-167 = 1333(>1000)。
         Assert.True(OfferPrice.WasUnsoldCapApplied(
-            sellableStock: 1, shipmentTargetStock: 3, isBankrupt: 0, hasSettledYesterday: false));
+            hasReference: true, sellableStock: 1, shipmentTargetStock: 3, isBankrupt: 0, hasSettledYesterday: false));
+
+        // 相場基準が立たない日は、係数を評価するまでもなくfalse(盲目の売り手日をラチェット
+        // 停止に混入させない。レビュー1巡目 I-b)。
+        Assert.False(OfferPrice.WasUnsoldCapApplied(
+            hasReference: false, sellableStock: 1, shipmentTargetStock: 3, isBankrupt: 0, hasSettledYesterday: false));
 
         // 破産中は500‰固定が先に効くので頭打ちは何もしない。
         Assert.False(OfferPrice.WasUnsoldCapApplied(
-            sellableStock: 1, shipmentTargetStock: 3, isBankrupt: 1, hasSettledYesterday: false));
+            hasReference: true, sellableStock: 1, shipmentTargetStock: 3, isBankrupt: 1, hasSettledYesterday: false));
 
         // 前日の約定があれば頭打ちは適用しない(そもそも評価しない)。
         Assert.False(OfferPrice.WasUnsoldCapApplied(
-            sellableStock: 1, shipmentTargetStock: 3, isBankrupt: 0, hasSettledYesterday: true));
+            hasReference: true, sellableStock: 1, shipmentTargetStock: 3, isBankrupt: 0, hasSettledYesterday: true));
 
         // 在庫比1000‰ → 係数1000‰(≤1000)。minが実際には切っていない。
         Assert.False(OfferPrice.WasUnsoldCapApplied(
-            sellableStock: 3, shipmentTargetStock: 3, isBankrupt: 0, hasSettledYesterday: false));
+            hasReference: true, sellableStock: 3, shipmentTargetStock: 3, isBankrupt: 0, hasSettledYesterday: false));
     }
 
     /// <summary>破産中フラグが0/1以外なら ArgumentOutOfRangeException。</summary>
@@ -253,6 +259,6 @@ public sealed class OfferPriceTests
     public void WasUnsoldCapAppliedRejectsFlagsOutsideZeroAndOne(int isBankrupt)
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => OfferPrice.WasUnsoldCapApplied(
-            sellableStock: 1, shipmentTargetStock: 3, isBankrupt, hasSettledYesterday: false));
+            hasReference: true, sellableStock: 1, shipmentTargetStock: 3, isBankrupt, hasSettledYesterday: false));
     }
 }

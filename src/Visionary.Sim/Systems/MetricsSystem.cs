@@ -250,6 +250,16 @@ public sealed class MetricsSystem : ISimSystem
 
             // run_cost = Σ_j(仕入れ移動平均単価[j] × 必要数量_j) + 摩耗費[1回]
             // (GDD02a §5。式そのもの、規則8の表)。摩耗費はBuyerBudget.WearCostPerRunを呼ぶ。
+            //
+            // 残る穴(修正しない、レビュー1巡目 I-b): run_costは順10時点のhousehold.Occupationの
+            // レシピから組み立てる。ProductionRunsを書いたのは順1(ProductionSystem)で、そちらは
+            // 付け替え前の職業で走っている(職業を書き換えるのは順3 HouseholdSystem、GDD02b §4.2)。
+            // したがって職業付け替えが走った日だけ、run_cost(新レシピ)×production_runs(旧レシピの
+            // 回数)という次元の合わない積になる。output_item_idも新職業の出力なので、当日のSale行
+            // から取るsales_valueと対応しない。直していないのは、生産時点のレシピを順10まで運ぶ器が
+            // 無いためである ── MetricsScratchは順5のBeginDay()が当日ぶんを消すので、順1からの
+            // 書き込みは残らない。器を足すのは設計判断なのでissueへ落とした。付け替えの日の
+            // profit / profit_totalを素直な値として読まないこと。
             long runCost = 0;
 
             foreach (var input in recipe.Inputs)

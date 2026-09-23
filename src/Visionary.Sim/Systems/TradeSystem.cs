@@ -162,7 +162,7 @@ public sealed class TradeSystem : ISimSystem
 
             world.Metrics.SellerHasNoReference[household.Id] = hasReference ? 0 : 1;
             world.Metrics.SellerCoefficientCapped[household.Id] = OfferPrice.WasUnsoldCapApplied(
-                sellableStock, shipmentTargetStock, household.IsBankrupt, hasSettled)
+                hasReference, sellableStock, shipmentTargetStock, household.IsBankrupt, hasSettled)
                 ? 1
                 : 0;
 

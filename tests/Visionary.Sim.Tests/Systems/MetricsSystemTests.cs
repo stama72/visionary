@@ -49,7 +49,7 @@ public sealed class MetricsSystemTests
         return row;
     }
 
-    private static WorldDefinition BuildDefinition(int breadFloor = 10, int grainFloor = 10)
+    private static WorldDefinition BuildDefinition(int breadFloor = 10, int grainFloor = 10, int shipmentDays = 1)
     {
         // Grain(itemId 0)はUnusedRecipe(Baker〜Smith)が生産するため、都市生産品として
         // 外部買値を持つ必要がある(WorldDefinitionのコンストラクタの検証)。
@@ -67,7 +67,7 @@ public sealed class MetricsSystemTests
             opportunityCostBaseByOccupation: new[] { 1, 1, 1, 1, 1 },
             rankCoefficientPermille: new[] { 1000, 1000, 1000 },
             travelHoursPerDistrict: 1,
-            shipmentDays: 1,
+            shipmentDays: shipmentDays,
             inputBufferDays: 1,
             externalBuyPriceOverride: externalBuyPrice);
     }
@@ -264,6 +264,58 @@ public sealed class MetricsSystemTests
             sink.Days[0].Economy.InputBlockedHouseholds);
     }
 
+    /// <summary>
+    /// #24(別表。レビュー1巡目 I-a の訂正)。段5b の経路(2)(資金上限の切り詰め)<b>だけ</b>が
+    /// input_blocked_households を立てる世帯日を作る。上の #4
+    /// (<see cref="InputBlockedCountsTheFirstDay"/>)は経路(2)を核心に指定していたが、
+    /// 実際には流動資金0の世帯が段4の CashCap==0 経路で先に1を立てるため、経路(2)の代入を
+    /// 丸ごと削っても緑のままだった(実測、下記remarks)。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>流動資金1・耐久(工具)の目標在庫が大きい世帯を1戸だけ置く。</b>必需(パン)は
+    /// この定義では1日消費量0(<c>dailyConsumptionPerNpcByRank</c> が全品目0)なので目標在庫0 ──
+    /// 在庫圧力‰が0になり相場ゲートで弾かれ、必需は一切購入されない(流動資金を減らさない)。
+    /// 段4の時点で生産の入力(木材)の CashCap = FloorDiv(流動資金1 − 必需の取り置き0, 1) = 1
+    /// (0 ではない ── 段4経路はここでは立たない)。
+    /// </para>
+    /// <para>
+    /// 段5bは耐久→生産の入力の順に処理する。耐久(工具1個、窓口価格1)を買うと流動資金が
+    /// 1→0になり、続く生産の入力(木材、窓口価格1)は「店は見つかる(窓口は中心区画に常に届く)
+    /// が資金が尽きている」状態になる ── <c>TradeSettlement.FundsCap(0, 1) == 0</c> で
+    /// 経路(2)が立つ。事前に手計算した値(段4のCashCap=1)を <c>BuyerDemand.Build</c> を直接
+    /// 呼んで確認済み(2026-09-24、この変更のための実測)。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void InputBlockedCountsWhenFundsCapTruncates()
+    {
+        var definition = BuildDefinition(breadFloor: 10);
+
+        // 中心区画(4)に置く ── 窓口(木材・工具はともに1次産品)へ移動せずに届く。
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+        AddHousehold(world, id: 0, districtId: 4, Occupation.Miller, liquidFunds: 1);
+
+        var sink = new FakeMetricsSink();
+        var scheduler = new SimScheduler(
+            new ISimSystem[] { new TradeSystem(definition), new MetricsSystem(definition, sink) },
+            new RandomSource(1));
+        scheduler.Advance(world, ticks: 24);
+
+        Assert.Single(sink.Days);
+
+        // 前提: 耐久(工具)は買えている(段4のCashCapが0ではないことの状況証拠)。
+        Assert.Equal(1, world.Households[0].WorkshopInventory[Item.Tools]);
+
+        // 前提: 生産の入力(木材)は買えていない(経路(2)で切り詰められたこと)。
+        Assert.Equal(0, world.Households[0].WorkshopInventory[Item.Timber]);
+
+        // 前提: 必需(パン)は資金不足に数えられていない(この世帯日を経路(2)だけで説明する)。
+        Assert.Equal(0, world.Households[0].UnaffordableNecessityCount);
+
+        Assert.Equal(1, sink.Days[0].Economy.InputBlockedHouseholds);
+    }
+
     /// <summary>#6。売り注文を出さなかった世帯がいる日、seller_days が世帯数を下回る。</summary>
     [Fact]
     public void SellerDaysCountOnlyPostedOffers()
@@ -308,29 +360,50 @@ public sealed class MetricsSystemTests
     }
 
     /// <summary>
-    /// #8。<see cref="OfferPrice.WasUnsoldCapApplied"/> 自体の4分岐は
-    /// <c>OfferPriceTests</c> が直接押さえる。ここでは配線(世帯数分すべてが立つ日と、
-    /// 一部だけが立つ日の両方が観測できること)だけを見る。
+    /// #8'(上の#8を訂正。レビュー1巡目 I-b)。<see cref="OfferPrice.WasUnsoldCapApplied"/>
+    /// 自体の分岐は <c>OfferPriceTests</c> が直接押さえる。ここでは配線を見る ──
+    /// <b>相場基準が立たない日(初日)は seller_days_coefficient_capped が立たない</b>ことと、
+    /// 相場基準があり・前日の約定が無く・在庫比の係数が1000‰を超える日に実際に1が立つことの
+    /// 両方を確かめる(初日を「全員立つ日」として読んだ旧版は、初日が全売り手について
+    /// 相場基準を持たない日であることを見落としていた)。
     /// </summary>
     [Fact]
     public void UnsoldCapIsCountedOnlyWhenItBites()
     {
-        var definition = WorldDefinition.M0;
-        var world = WorldGenerator.Generate(definition, new RandomSource(1));
+        // 出荷目標在庫 = 生産能力1 × 出力数量1 × 出荷日数5 = 5。販売在庫1で在庫比200‰
+        // → 係数1500-CeilDiv(200,2)=1400‰(>1000)。
+        var definition = BuildDefinition(breadFloor: 10, shipmentDays: 5);
+
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+        AddHousehold(world, id: 0, districtId: 0, Occupation.Miller);
+        world.Households[0].WorkshopInventory[Item.Bread] = 1;
+
+        // 他の売り手の観測を直接Knowledgeへ注入する(初日ぶん、Tick.Zero)。相場基準
+        // (MarketReference.TrySeller)は「前日までの観測」しか有効と認めないので、
+        // 初日(day0、dayDifference==0)はまだ無効 ── day1になって初めて有効になる。
+        world.Knowledge[0].Add(new PriceObservation
+        {
+            ItemId = Item.Bread,
+            LocationId = 0,
+            Price = 10,
+            SellerId = 1, // 実在しない世帯でよい(TrySellerはKnowledgeの記録しか読まない)。
+            ObservedAt = Tick.Zero,
+            Source = ObservationSource.Direct,
+        });
+
         var sink = new FakeMetricsSink();
-        var scheduler = new SimScheduler(FullPipeline(definition, sink), new RandomSource(1));
+        var scheduler = new SimScheduler(
+            new ISimSystem[] { new TradeSystem(definition), new MetricsSystem(definition, sink) },
+            new RandomSource(1));
         scheduler.Advance(world, ticks: 2 * 24);
 
-        var day0 = sink.Days[0];
-        var day1 = sink.Days[1];
+        Assert.Equal(2, sink.Days.Count);
 
-        // 初日は誰も前日の約定が無い(hasSettledYesterday=false)ので、在庫比の係数が
-        // 1000‰を超える売り手は全員頭打ちが効く。
-        Assert.True(day0.Economy.SellerDaysCoefficientCapped >= 1);
+        // 初日: 相場基準が無い(誰も他の売り手の観測を持たない)ので0。
+        Assert.Equal(0, sink.Days[0].Economy.SellerDaysCoefficientCapped);
 
-        // 2日目は一部の売り手だけが頭打ちに当たる(全員でも0でもない)。
-        Assert.True(day1.Economy.SellerDaysCoefficientCapped > 0);
-        Assert.True(day1.Economy.SellerDaysCoefficientCapped < day1.Economy.SellerDays);
+        // 2日目: 相場基準あり・前日の約定無し・係数1400‰(>1000) → 1。
+        Assert.Equal(1, sink.Days[1].Economy.SellerDaysCoefficientCapped);
     }
 
     /// <summary>#9。全日・全品目で offer_at_floor_with_export_count <= offer_at_floor_count。</summary>

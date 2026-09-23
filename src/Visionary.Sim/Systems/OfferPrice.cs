@@ -130,6 +130,13 @@ public static class OfferPrice
     /// 呼び出し側へ写すと片方だけ動かせてしまうためである(GDD02c §1.1 の値は調整対象)。
     /// </para>
     /// <para>
+    /// <b>相場基準が立たない日(<paramref name="hasReference"/> == false)は false</b>
+    /// (レビュー1巡目 I-b の訂正)。その日、段1 は <see cref="Calculate"/> を呼ばずに床を
+    /// そのまま提示価格にするので、価格係数‰ はそもそも算出されておらず頭打ちは評価すら
+    /// されていない。在庫比から係数を再計算して1を立てると、「盲目(相場基準なし)」の
+    /// 売り手日が「ラチェットの停止(頭打ち)」に混入する(W2-20 タスク仕様)。
+    /// </para>
+    /// <para>
     /// <b>破産中(<paramref name="isBankrupt"/> != 0)は false。</b>500‰の固定が先に効くので
     /// 頭打ちは何もしない(<see cref="Calculate"/> の既存の分岐と同じ順序)。
     /// <b><paramref name="hasSettledYesterday"/> が真なら false。</b>
@@ -138,7 +145,7 @@ public static class OfferPrice
     /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="isBankrupt"/> が0/1以外。</exception>
     public static bool WasUnsoldCapApplied(
-        int sellableStock, int shipmentTargetStock, int isBankrupt, bool hasSettledYesterday)
+        bool hasReference, int sellableStock, int shipmentTargetStock, int isBankrupt, bool hasSettledYesterday)
     {
         if (isBankrupt is not (0 or 1))
         {
@@ -146,7 +153,7 @@ public static class OfferPrice
                 nameof(isBankrupt), isBankrupt, "破産中フラグは 0 / 1(GDD02c §1.4)。");
         }
 
-        if (isBankrupt == 1 || hasSettledYesterday)
+        if (!hasReference || isBankrupt == 1 || hasSettledYesterday)
         {
             return false;
         }
