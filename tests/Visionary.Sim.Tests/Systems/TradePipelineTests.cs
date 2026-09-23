@@ -25,6 +25,8 @@ public sealed class TradePipelineTests
     {
         new ProductionSystem(definition),
         new ConsumptionSystem(definition),
+        new HouseholdSystem(definition), // 順3(#39)。順5(Trade)より後に置いてはならない
+                                          // (②が同一tick内で循環する。GDD02b §3.3 / TDD01 §3.3)。
         new TradeSystem(definition),
     };
 
@@ -2424,5 +2426,174 @@ public sealed class TradePipelineTests
             $"seed={seed}: 条件3が day {string.Join(", ", scan.AllHouseholdsEmptyDays)} で破れた"
                 + $"(違反{scan.AllHouseholdsEmptyDays.Count}日 / 延べ生産回数="
                 + $"{scan.TotalProductionRuns} / 延べ都市内約定={scan.TotalInternalSettlements})。");
+    }
+
+    /// <summary>世帯を1戸、指定の区画・職業で作る(単独NPC世帯。<c>TradeSystemTests.AddHousehold</c>相当)。</summary>
+    private static void AddHousehold(World world, int id, int districtId, Occupation occupation, int liquidFunds)
+    {
+        world.Npcs[id].Rank = NpcRank.Master;
+        world.Households[id] = new HouseholdState(
+            id: id, districtId: districtId, headNpcId: id, memberNpcIds: new[] { id }, itemCount: Item.Count);
+        world.Households[id].Occupation = occupation;
+        world.Households[id].LiquidFunds = liquidFunds;
+    }
+
+    /// <summary>
+    /// テスト表 #13(#39)専用の定義。薪(Woodworker)とパン(Baker)の売り手を実在の職業として持たせる
+    /// 必要があるため、<see cref="EconomySystemTestFixtures.BuildDefinition"/>(カスタムレシピを
+    /// 1件しか差し込めない)ではなく <see cref="WorldDefinition.M0"/> の実レシピ表(5職業とも本物の
+    /// 入出力を持つ)を流用し、それ以外の係数だけを本テスト用に単純化した値へ差し替える。
+    /// </summary>
+    /// <remarks>
+    /// <b>本クラスの「世界は必ず<see cref="WorldGenerator.Generate"/>で作る」規約に対する意図的な
+    /// 例外である。</b>タスク仕様(W2-18)が「世界は手組みでよい」を#1〜#13すべてに対して明示的に
+    /// 許可しており、#13固有の注記は「使うパイプラインをFullPipelineにする」ことだけを追加で
+    /// 要求している。順3(<see cref="HouseholdSystem"/>)は価格も観測も読まないため、本クラスの
+    /// 既存テストが避けている「縮退した世界」の懸念(#36引き継ぎ)は本テストには当たらない。
+    /// </remarks>
+    private static WorldDefinition BuildFirewoodCrowdsOutBreadDefinition()
+    {
+        var recipes = WorldDefinition.M0.Recipes; // Miller/Baker/Brewer/Woodworker/Smithの実レシピ。
+
+        var necessityTargetStockDays = new int[Item.Count];
+        necessityTargetStockDays[Item.Firewood] = 3; // T=3日×2/日=6単位。
+        necessityTargetStockDays[Item.Bread] = 3;    // T=3日×1/日=3単位。
+
+        var dailyConsumptionPerNpcByRank = new[]
+        {
+            BuildRow((Item.Firewood, 2), (Item.Bread, 1)), // 親方。
+            new int[Item.Count],                            // 職人(この世界には居ない)。
+            new int[Item.Count],                            // 徒弟(同上)。
+        };
+
+        // 季節係数は一様1000‰にする(薪の消費量計算から季節変動を除き、数値の見通しを保つ)。
+        var firewoodConsumptionSeasonPermille = new[] { 1000, 1000, 1000, 1000 };
+
+        // 都市生産品(Flour/Firewood/Bread/Beer/Tools)の外部買値。薪10・パン50が本テストの床。
+        // 他2品目(Flour/Beer/Tools)はこのテストで触れないが1以上の検査を満たす必要がある。
+        var externalBuyPrice = new int[Item.Count];
+        externalBuyPrice[Item.Flour] = 1;
+        externalBuyPrice[Item.Firewood] = 10;
+        externalBuyPrice[Item.Bread] = 50;
+        externalBuyPrice[Item.Beer] = 1;
+        externalBuyPrice[Item.Tools] = 1;
+
+        // 1次産品(Grain/Timber/IronOre/Charcoal)の外部売値の基準値(値そのものは仕様ではない)。
+        var externalSellPriceBase = new int[Item.Count];
+        externalSellPriceBase[Item.Grain] = 10;
+        externalSellPriceBase[Item.Timber] = 9;
+        externalSellPriceBase[Item.IronOre] = 14;
+        externalSellPriceBase[Item.Charcoal] = 12;
+
+        // 季節係数は一様1000‰(合計4000)。1次産品・都市生産品のどちらの検査も満たす。
+        var externalSellPriceSeasonPermille = new int[Item.Count][];
+        for (int itemId = 0; itemId < Item.Count; itemId++)
+        {
+            externalSellPriceSeasonPermille[itemId] = new[] { 1000, 1000, 1000, 1000 };
+        }
+
+        return new WorldDefinition(
+            itemCount: Item.Count,
+            householdsPerOccupation: 2, // recipes.Length(5)×2=10戸(区画数9〜18)。
+            recipes: recipes,
+            initialLiquidFunds: 0, // 未使用(世帯はAddHouseholdで手組みするため)。
+            initialAcquisitionCost: Enumerable.Repeat(1, Item.Count).ToArray(),
+            initialHouseholdInventory: new int[Item.Count],
+            initialWorkshopInputDays: 0,
+            initialToolStock: 1,
+            initialSkillPermilleByRank: new[] { 0, 0, 0 },
+            laborPermilleByRank: new[] { 1000, 800, 300 },
+            dailyConsumptionPerNpcByRank: dailyConsumptionPerNpcByRank,
+            firewoodConsumptionSeasonPermille: firewoodConsumptionSeasonPermille,
+            minimumMarginPermille: 0,
+            observationRetentionDays: 7,
+            necessityTargetStockDays: necessityTargetStockDays,
+            preferenceTargetStockDays: new int[Item.Count],
+            toolTargetStockPermille: 1000,
+            rankCoefficientPermille: new[] { 1000, 1000, 1000 },
+            tolerancePermille: 1200,
+            opportunityCostBaseByOccupation: Enumerable.Repeat(1, recipes.Length).ToArray(),
+            travelHoursPerDistrict: 1,
+            acquisitionCostSmoothingPermille: 250,
+            externalSellPriceBase: externalSellPriceBase,
+            externalSellPriceSeasonPermille: externalSellPriceSeasonPermille,
+            externalBuyPrice: externalBuyPrice,
+            inputBufferDays: 1,
+            shipmentDays: 1,
+            toolLifeLaborDays: 30,
+            equipmentPermilleWithoutTools: 0,
+            disposableHours: 12,
+            trustDiscountPermille: 200,
+            tradeMarginPermille: 1000,
+            isExportEnabled: false); // 輸出はこのテストの関心事の外(#39タスク仕様「数値は仕様ではない」)。
+    }
+
+    private static int[] BuildRow(params (int ItemId, int Quantity)[] entries)
+    {
+        var row = new int[Item.Count];
+
+        foreach (var (itemId, quantity) in entries)
+        {
+            row[itemId] = quantity;
+        }
+
+        return row;
+    }
+
+    /// <summary>
+    /// テスト表 #13(#39)。必需2品目(薪 Id 5 → パン Id 6 の走査順)で、薪の世帯在庫が
+    /// <c>2 × 目標在庫</c> に達し、同じ日にパンが <c>fundsCap == 0</c> で0個に切られ(経路(2))、
+    /// 翌日の順3で <c>IsBankrupt == 1</c> になる。<see cref="TradeSystemTests.NecessityShortfallIsCountedOnBothPaths"/>
+    /// の経路(2)の組み立て(必需2品目が同じ流動資金を奪い合う世界)を出発点にし、薪が上側clampまで
+    /// 買えるようにする(タスク仕様「#13の組み立て」節)。
+    /// </summary>
+    /// <remarks>
+    /// <b>買い手に高めの相場観測を仕込む手を採る</b>(タスク仕様が挙げる2つの手のうち)。信用割引を
+    /// 効かせる手は採らない ── <see cref="StoreChoice.TrySelect"/> は <c>trust: 0</c> を定数で渡す
+    /// ため(GDD01「W2では信用が常に0」)、信用を配線する#44より前の現コードでは効かない。
+    /// </remarks>
+    [Fact]
+    public void BankruptFlagRisesAfterFirewoodCrowdsOutBread()
+    {
+        var definition = BuildFirewoodCrowdsOutBreadDefinition();
+        var world = new World(npcCount: 3, householdCount: 3, itemCount: Item.Count);
+
+        AddHousehold(world, id: 0, districtId: 0, Occupation.Smith, liquidFunds: 160); // 買い手。
+        AddHousehold(world, id: 1, districtId: 0, Occupation.Woodworker, liquidFunds: 0); // 薪の売り手。
+        AddHousehold(world, id: 2, districtId: 0, Occupation.Baker, liquidFunds: 0);      // パンの売り手。
+
+        world.Households[1].WorkshopInventory[Item.Firewood] = 100_000; // 売り切れさせない。
+        world.Households[2].WorkshopInventory[Item.Bread] = 100_000;
+
+        var buyer = world.Households[0];
+        var systems = FullPipeline(definition);
+        var scheduler = new SimScheduler(systems, new RandomSource(1));
+
+        // 観測を「前日」にするため、システムを何も登録せずに1日空回しする(タスク仕様の日数は
+        // 仕様ではない。ExportErrandIsSkippedWhenTheDayIsFull 等と同じ手法)。
+        EconomySystemTestFixtures.AdvanceClockOnly(world, ticks: 24);
+
+        // 買い手に薪の高い相場観測を仕込む(相場基準1000。許容乖離1200‰でB=1200、薪の売り手は
+        // 相場基準を持たないため実効価格は床10のまま。B > 2×10 なので上側clampへ届く)。
+        world.Knowledge[buyer.HeadNpcId].Add(new PriceObservation
+        {
+            ItemId = Item.Firewood,
+            LocationId = 0,
+            Price = 1000,
+            SellerId = 999,
+            ObservedAt = Tick.Zero,
+            Source = ObservationSource.Direct,
+        });
+
+        scheduler.Advance(world, ticks: 24); // 1日目。薪が上側clamp、パンが経路(2)で0個。
+
+        Assert.Equal(12, buyer.HouseholdInventory[Item.Firewood]); // 2×目標在庫(6)。
+        Assert.Equal(0, buyer.HouseholdInventory[Item.Bread]);
+        Assert.Equal(1, buyer.UnaffordableNecessityCount);
+        Assert.Equal(0, buyer.IsBankrupt); // 順3がこのtickで読むのは前日の値(まだ存在しない)。
+
+        scheduler.Advance(world, ticks: 24); // 2日目。順3が前日の資金不足を読みフラグを立てる。
+
+        Assert.Equal(1, buyer.IsBankrupt);
     }
 }
