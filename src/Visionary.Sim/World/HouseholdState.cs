@@ -210,6 +210,17 @@ public sealed class HouseholdState
     /// (順5 Trade が上書きするのはその後)、GDD02b §3.3「前日の購入結果を評価する」が
     /// 順序の帰結として成立する。<b>フラグそのものは本タスクでは立てない。</b>
     /// </remarks>
+    /// <summary>
+    /// 当日、1個も買えず、かつ予想在庫が目標在庫を下回っていた量。添字 = itemId。単位: 個
+    /// (耐久(工具)も耐久値ではなく個数で入る。GDD06 §3.1)。
+    /// </summary>
+    /// <remarks>
+    /// 書き手は <see cref="Systems.TradeSystem"/> 段5b だけである(<see cref="UnaffordableNecessityCount"/>
+    /// と同じく毎日0クリアしてから書く)。読み手は翌日の <see cref="Systems.NeedGenerationSystem"/>
+    /// (理由 <see cref="NeedReason.DistantStock"/>)。
+    /// </remarks>
+    public int[] UnfilledPurchase { get; }
+
     public int UnaffordableNecessityCount
     {
         get => unaffordableNecessityCount;
@@ -294,6 +305,7 @@ public sealed class HouseholdState
         WorkshopInventory = new int[itemCount];
         PurchaseUnitCostAverage = new int[itemCount];
         UnmetConsumption = new int[itemCount];
+        UnfilledPurchase = new int[itemCount];
         IsBankrupt = 0;
         ToolWear = 0;
         UnaffordableNecessityCount = 0;

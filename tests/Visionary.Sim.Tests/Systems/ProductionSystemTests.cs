@@ -827,4 +827,65 @@ public sealed class ProductionSystemTests
         EconomySystemTestFixtures.RunDays(world, system, days: 1);
         Assert.Equal(0, world.Households[0].ProductionRuns);
     }
+
+    /// <summary>
+    /// テスト表 #25(#40)。<see cref="LaborCapacity"/> へ切り出した後も GDD02a §2 の能力表
+    /// (水車小屋番: 1300‰→7 / 1200‰→6 / 1000‰→5 / 650‰(工具なし)→3)が変わらないこと。
+    /// M0 の実際のレシピ(所要労働185‰)と工具なし係数(500‰)を使う ── 手組みの値ではなく
+    /// 表そのものと突き合わせる。
+    /// </summary>
+    [Fact]
+    public void ProductionSystemStillProducesTheSameAfterExtraction()
+    {
+        var definition = WorldDefinition.M0;
+        var recipe = definition.Recipes[(int)Occupation.Miller];
+
+        World BuildWorld(NpcRank[] memberRanks, bool hasTools, int errandLaborLossPermille)
+        {
+            var world = new World(
+                npcCount: memberRanks.Length, householdCount: 1, itemCount: definition.ItemCount);
+
+            var memberNpcIds = new int[memberRanks.Length];
+
+            for (int i = 0; i < memberRanks.Length; i++)
+            {
+                world.Npcs[i].Rank = memberRanks[i];
+                memberNpcIds[i] = i;
+            }
+
+            world.Households[0] = new HouseholdState(
+                id: 0, districtId: 0, headNpcId: 0, memberNpcIds: memberNpcIds, itemCount: definition.ItemCount);
+            world.Households[0].Occupation = Occupation.Miller;
+            world.Households[0].WorkshopInventory[Item.Tools] = hasTools ? 1 : 0;
+            world.Households[0].WorkshopInventory[recipe.Inputs[0].ItemId] = 100; // 穀物を十分に
+            world.Households[0].ErrandLaborLossPermille = errandLaborLossPermille;
+
+            return world;
+        }
+
+        var system = new ProductionSystem(definition);
+
+        // 1300‰: 親方+徒弟、工具あり、損失0 → floor(1300/185)=7。
+        var world1300 = BuildWorld(
+            new[] { NpcRank.Master, NpcRank.Apprentice }, hasTools: true, errandLaborLossPermille: 0);
+        EconomySystemTestFixtures.RunDays(world1300, system, days: 1);
+        Assert.Equal(7, world1300.Households[0].ProductionRuns);
+
+        // 1200‰: 前日の外出損失100‰ → floor(1200/185)=6。
+        var world1200 = BuildWorld(
+            new[] { NpcRank.Master, NpcRank.Apprentice }, hasTools: true, errandLaborLossPermille: 100);
+        EconomySystemTestFixtures.RunDays(world1200, system, days: 1);
+        Assert.Equal(6, world1200.Households[0].ProductionRuns);
+
+        // 1000‰: 親方だけ → floor(1000/185)=5。
+        var world1000 = BuildWorld(new[] { NpcRank.Master }, hasTools: true, errandLaborLossPermille: 0);
+        EconomySystemTestFixtures.RunDays(world1000, system, days: 1);
+        Assert.Equal(5, world1000.Households[0].ProductionRuns);
+
+        // 650‰: 親方+徒弟、工具なし(設備係数500‰) → floor(floor(1300×500÷1000)÷185)=floor(650÷185)=3。
+        var world650 = BuildWorld(
+            new[] { NpcRank.Master, NpcRank.Apprentice }, hasTools: false, errandLaborLossPermille: 0);
+        EconomySystemTestFixtures.RunDays(world650, system, days: 1);
+        Assert.Equal(3, world650.Households[0].ProductionRuns);
+    }
 }

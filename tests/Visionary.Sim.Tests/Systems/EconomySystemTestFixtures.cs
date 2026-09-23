@@ -182,6 +182,31 @@ internal static class EconomySystemTestFixtures
     }
 
     /// <summary>
+    /// <paramref name="householdCount"/> 戸、各1名(世帯主、<see cref="NpcRank.Master"/>)の世界を作る。
+    /// 職業はすべて <c>Occupation.Miller</c>(<see cref="BuildDefinition"/> の <c>primaryRecipe</c> の添字)。
+    /// </summary>
+    /// <remarks>
+    /// <b>#40(NeedGenerationSystem)が世帯Id昇順の走査順を確かめるために口を足す。</b>既存の
+    /// <see cref="BuildWorldWithOneHousehold"/> の挙動は変えない(タスク仕様)。各世帯の
+    /// 個別の状態(在庫・破産中フラグなど)はテスト側が構築後に直接書き込む。
+    /// </remarks>
+    internal static World BuildWorldWithHouseholds(int householdCount)
+    {
+        var world = new World(npcCount: householdCount, householdCount: householdCount, itemCount: Item.Count);
+
+        for (int id = 0; id < householdCount; id++)
+        {
+            world.Npcs[id].Rank = NpcRank.Master;
+
+            world.Households[id] = new HouseholdState(
+                id: id, districtId: 0, headNpcId: id, memberNpcIds: new[] { id }, itemCount: Item.Count);
+            world.Households[id].Occupation = Occupation.Miller;
+        }
+
+        return world;
+    }
+
+    /// <summary>
     /// システムを一切登録せず、時計だけを <paramref name="ticks"/> 進める
     /// (<see cref="StateHasherTests.HashChangesWhenClockAdvances"/> と同じ手法)。
     /// 季節をまたぐテストで、経路上の日を生産・消費させずに世界を早送りするために使う。

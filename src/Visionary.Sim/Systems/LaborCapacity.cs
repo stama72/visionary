@@ -1,0 +1,66 @@
+using Visionary.Sim.Numerics;
+
+namespace Visionary.Sim.Systems;
+
+/// <summary>
+/// 労働力と設備係数の求め方(GDD02a §2・§3)。<see cref="ProductionSystem"/> と
+/// <see cref="NeedGenerationSystem"/>(理由 <see cref="NeedReason.CannotExpandProduction"/>)の
+/// 両方が同じ2つの値を必要とするため1か所に寄せる。
+/// </summary>
+/// <remarks>
+/// <b>式を2か所に置かない</b>(<see cref="Recipe.CapacityRuns"/> の doc コメントと同じ理由。
+/// 片方の丸めを直したとき他方が黙ってずれる)。
+/// </remarks>
+public static class LaborCapacity
+{
+    /// <summary>設備係数‰(GDD02a §3)。工具在庫が閾値以上なら 1000、無ければ definition の値。</summary>
+    public static int EquipmentPermille(WorldDefinition definition, HouseholdState household)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(household);
+
+        return household.WorkshopInventory[Item.Tools] >= ProductionSystem.EquipmentThresholdStock
+            ? IntegerMath.PermilleScale
+            : definition.EquipmentPermilleWithoutTools;
+    }
+
+    /// <summary>労働力合計‰ = max(0, Σ構成員の労働力係数‰ − 前日の外出の労働損失‰)(GDD02a §2)。</summary>
+    /// <remarks>構成員は <see cref="HouseholdState.MemberNpcIds"/> の昇順のまま走査する(並べ替えない)。</remarks>
+    public static int LaborPermille(WorldDefinition definition, World world, HouseholdState household)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(world);
+        ArgumentNullException.ThrowIfNull(household);
+
+        int totalLaborPermille = 0;
+
+        foreach (int npcId in household.MemberNpcIds)
+        {
+            totalLaborPermille += definition.LaborPermilleByRank[(int)world.Npcs[npcId].Rank];
+        }
+
+        return Math.Max(0, totalLaborPermille - household.ErrandLaborLossPermille);
+    }
+
+    /// <summary>floor(労働力合計‰ × 設備係数‰ ÷ 1000)(GDD02a §1 の内側の切り下げ)。</summary>
+    /// <remarks>中間の積は <see cref="long"/>(労働力合計‰ × 設備係数‰ は <see cref="int"/> を超えうる。
+    /// <see cref="Recipe.CapacityRuns"/> と同じ理由)。</remarks>
+    /// <exception cref="ArgumentOutOfRangeException">どちらかの引数が負のとき。</exception>
+    public static int EffectiveLaborPermille(int laborPermille, int equipmentPermille)
+    {
+        if (laborPermille < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(laborPermille), laborPermille, "労働力合計‰は非負(GDD02a §2)。");
+        }
+
+        if (equipmentPermille < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(equipmentPermille), equipmentPermille, "設備係数‰は非負(GDD02a §3)。");
+        }
+
+        return checked((int)IntegerMath.FloorDiv(
+            (long)laborPermille * equipmentPermille, IntegerMath.PermilleScale));
+    }
+}

@@ -94,19 +94,26 @@ public static class StateHasher
         WriteSectionHeader(hasher, buffer, Section.Needs, world.Needs.Count);
         foreach (var need in world.Needs)
         {
-            WriteInt32(hasher, buffer, need.TypeCode);
+            WriteInt32(hasher, buffer, (int)need.TypeCode);
             WriteInt32(hasher, buffer, need.TargetHouseholdId);
             WriteInt32(hasher, buffer, need.ItemId);
             WriteInt32(hasher, buffer, need.Quantity);
             WriteInt64(hasher, buffer, need.Deadline.Value);
             WriteInt32(hasher, buffer, need.Urgency);
-            WriteInt32(hasher, buffer, need.ReasonCode);
+            WriteInt32(hasher, buffer, (int)need.ReasonCode);
+
+            // #40が足した欄。既存の値は動かさず要素の末尾へ足す(同じ規律)。
+            WriteInt32(hasher, buffer, need.Id);
         }
+
+        // #40が足した欄。区分の末尾(ループの後)へ足す(同じ規律)。
+        WriteInt32(hasher, buffer, world.NextNeedId);
 
         WriteSectionHeader(hasher, buffer, Section.Promises, world.Promises.Count);
         foreach (var promise in world.Promises)
         {
-            WriteInt32(hasher, buffer, promise.NeedIndex);
+            // #40: NeedIndex(World.Needsの添字)からNeedId(Need.Id)へ改名。位置・型は変えない。
+            WriteInt32(hasher, buffer, promise.NeedId);
             WriteInt64(hasher, buffer, promise.T0.Value);
             WriteInt64(hasher, buffer, promise.T1.Value);
             WriteInt32(hasher, buffer, promise.B);
@@ -201,6 +208,9 @@ public static class StateHasher
             // #96が足した2欄。既存の値は動かさず末尾へ足す(同じ規律)。
             WriteInt32(hasher, buffer, household.ErrandLaborLossPermille);
             WriteInt32(hasher, buffer, household.ProductionRuns);
+
+            // #40が足した欄。既存の値は動かさず末尾へ足す(同じ規律)。
+            WriteInt32Array(hasher, buffer, household.UnfilledPurchase);
         }
 
         // EventLog は含めない(§3.8 の除外表)。意思決定に関与せず、追記専用で巨大。

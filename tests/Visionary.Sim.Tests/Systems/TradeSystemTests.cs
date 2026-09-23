@@ -1,3 +1,4 @@
+using System.Linq;
 using Visionary.Sim.Determinism;
 using Visionary.Sim.Randomness;
 using Visionary.Sim.Systems;
@@ -2477,5 +2478,162 @@ public sealed class TradeSystemTests
                 && entry.ItemId == Item.Bread
                 && entry.CounterpartyId == 0
                 && entry.Quantity == 1);
+    }
+
+    /// <summary>
+    /// 【核心】W2-19 タスク仕様テスト表 #20。1日目に売り手不在で買えず
+    /// <c>UnfilledPurchase</c> が立ち、2日目に売り手が現れて買えると 0 に戻る。
+    /// </summary>
+    /// <remarks>
+    /// <b>核心。変異: <c>RunOneHouseholdsShopping</c> 冒頭の <c>UnfilledPurchase</c> のクリアを
+    /// 消す(<c>Array.Clear</c> を外す)/ 期待 赤。</b>クリアが無いと2日目に買えても前日の値が
+    /// 足し込まれたまま残る。
+    /// </remarks>
+    [Fact]
+    public void UnfilledPurchaseIsClearedEveryDay()
+    {
+        var definition = BuildShoppingDefinition(necessityTargetStockDays: TargetStockDaysFor(Item.Grain));
+        var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
+        AddHousehold(world, id: 0, districtId: 4, Occupation.Woodworker, liquidFunds: 1000);
+        AddHousehold(world, id: 1, districtId: 4, Occupation.Baker); // Grainの売り手(1日目は在庫0)。
+
+        var system = new TradeSystem(definition);
+
+        EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目: 売り手不在で買えない
+        Assert.True(
+            world.Households[0].UnfilledPurchase[Item.Grain] > 0,
+            "テストの前提(1日目にUnfilledPurchaseが立つこと)が崩れている。");
+
+        world.Households[1].WorkshopInventory[Item.Grain] = 100; // 2日目、売り手が現れる
+        EconomySystemTestFixtures.RunDays(world, system, days: 1);
+
+        Assert.True(
+            world.Households[0].HouseholdInventory[Item.Grain] > 0,
+            "テストの前提(2日目に実際に買えたこと)が崩れている。");
+        Assert.Equal(0, world.Households[0].UnfilledPurchase[Item.Grain]);
+    }
+
+    /// <summary>
+    /// テスト表 #21。買えなかったが予想在庫が既に目標在庫以上 → <c>UnfilledPurchase</c> は0。
+    /// </summary>
+    [Fact]
+    public void UnfilledPurchaseIsZeroWhenStockIsAtTarget()
+    {
+        var definition = BuildShoppingDefinition(necessityTargetStockDays: TargetStockDaysFor(Item.Grain));
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+        AddHousehold(world, id: 0, districtId: 4, Occupation.Woodworker, liquidFunds: 1000);
+        world.Households[0].HouseholdInventory[Item.Grain] = 1000; // 予想在庫が目標在庫を上回る
+
+        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+
+        Assert.Equal(0, world.Households[0].UnfilledPurchase[Item.Grain]);
+    }
+
+    /// <summary>
+    /// テスト表 #22。穀物が必需と生産の入力の2行に現れ、両方買えない日 → 2行の合計が入る
+    /// (代入 <c>=</c> だと後の行が前の行を消す)。
+    /// </summary>
+    [Fact]
+    public void UnfilledPurchaseSumsBothPurposesForTheSameItem()
+    {
+        var recipe = new Recipe(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = Item.Flour, Quantity = 1 } },
+            inputs: new[] { new ItemQuantity { ItemId = Item.Grain, Quantity = 2 } },
+            laborPermille: 1000);
+
+        var necessityTargetStockDays = new int[Item.Count];
+        necessityTargetStockDays[Item.Grain] = 1;
+
+        var grainConsumption = new int[Item.Count];
+        grainConsumption[Item.Grain] = 1;
+        var dailyConsumptionPerNpcByRank = new[]
+        {
+            (int[])grainConsumption.Clone(), (int[])grainConsumption.Clone(), (int[])grainConsumption.Clone(),
+        };
+
+        var definition = EconomySystemTestFixtures.BuildDefinition(
+            recipe,
+            dailyConsumptionPerNpcByRank: dailyConsumptionPerNpcByRank,
+            necessityTargetStockDays: necessityTargetStockDays,
+            opportunityCostBaseByOccupation: new[] { 1, 1, 1, 1, 1 },
+            rankCoefficientPermille: new[] { 1000, 1000, 1000 },
+            inputBufferDays: 5);
+
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+        AddHousehold(world, id: 0, districtId: 4, Occupation.Miller, liquidFunds: 0); // 資金0で両行とも買えない
+
+        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+
+        // 段5bが読んだのと同じ入力(直前に何も買えていないので、需要行を作り直しても同じ値になる)。
+        var demand = new BuyerDemand(definition).Build(
+            world, world.Households[0], hasPreviousOutputOfferPrice: false, previousOutputOfferPrice: 0);
+        var necessityLine = demand.Lines.Single(
+            line => line.Purpose == DemandPurpose.Necessity && line.ItemId == Item.Grain);
+        var inputLine = demand.Lines.Single(
+            line => line.Purpose == DemandPurpose.ProductionInput && line.ItemId == Item.Grain);
+        int expected = (necessityLine.TargetStock - necessityLine.ExpectedStock)
+            + (inputLine.TargetStock - inputLine.ExpectedStock);
+
+        Assert.True(expected > 0, "テストの前提(両方の行に正の不足量)が崩れている。");
+        Assert.Equal(expected, world.Households[0].UnfilledPurchase[Item.Grain]);
+    }
+
+    /// <summary>
+    /// 【核心】テスト表 #23。工具が買えなかった日、<c>UnfilledPurchase[Item.Tools]</c> が
+    /// 個数(耐久値ではない)であること。
+    /// </summary>
+    /// <remarks>
+    /// <b>核心。変異: <c>QuantityInUnits(...)</c> を外して <c>TargetStock − ExpectedStock</c> を
+    /// そのまま足す / 期待 赤。</b><c>DemandLine.TargetStock</c> / <c>ExpectedStock</c> は
+    /// 耐久だけ耐久値(N × 1000 倍)で入っているので、通さないと工具の不足量が数千倍になる
+    /// (W2-10 欠陥3と同じ型の誤り)。
+    /// </remarks>
+    [Fact]
+    public void UnfilledPurchaseForToolsIsInUnits()
+    {
+        var definition = BuildShoppingDefinition();
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+        AddHousehold(world, id: 0, districtId: 4, Occupation.Miller, liquidFunds: 0); // 資金0で買えない
+        world.Households[0].WorkshopInventory[Item.Tools] = 0;
+
+        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+
+        var demand = new BuyerDemand(definition).Build(
+            world, world.Households[0], hasPreviousOutputOfferPrice: false, previousOutputOfferPrice: 0);
+        var durableLine = demand.Lines.Single(line => line.Purpose == DemandPurpose.Durable);
+        int expected = BuyerBudget.QuantityInUnits(
+            DemandPurpose.Durable, durableLine.TargetStock - durableLine.ExpectedStock,
+            definition.ToolDurabilityPerUnit);
+
+        Assert.True(expected > 0, "テストの前提(耐久の目標在庫が予想在庫を上回ること)が崩れている。");
+        Assert.True(
+            expected < definition.ToolDurabilityPerUnit,
+            $"耐久値そのまま({expected})が入っている疑い(この前提自体がQuantityInUnitsの効果を測れていない)。");
+        Assert.Equal(expected, world.Households[0].UnfilledPurchase[Item.Tools]);
+    }
+
+    /// <summary>
+    /// テスト表 #24。目標には届かないが1個は買えた行 → <c>UnfilledPurchase</c> は0
+    /// (「その日に買えず」であって「目標在庫まで買えず」ではない、GDD06 §3.1)。
+    /// </summary>
+    [Fact]
+    public void PartiallyFilledLineIsNotCountedAsUnfilled()
+    {
+        var necessityTargetStockDays = new int[Item.Count];
+        necessityTargetStockDays[Item.Grain] = 3; // 複数日ぶんの目標。1個買っても届かない。
+
+        var definition = BuildShoppingDefinition(necessityTargetStockDays: necessityTargetStockDays);
+        var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
+        AddHousehold(world, id: 0, districtId: 0, Occupation.Woodworker, liquidFunds: 1000);
+        AddHousehold(world, id: 1, districtId: 0, Occupation.Baker); // Grainの売り手。在庫は1個だけ。
+        world.Households[1].WorkshopInventory[Item.Grain] = 1;
+
+        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+
+        // 前提: 実際に1個だけ買えた(目標3には届いていない)。
+        Assert.Equal(1, world.Households[0].HouseholdInventory[Item.Grain]);
+
+        Assert.Equal(0, world.Households[0].UnfilledPurchase[Item.Grain]);
     }
 }

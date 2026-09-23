@@ -25,14 +25,10 @@ public enum PromiseState
 /// 約束(クエスト、GDD01 §2.8 / TDD01 §3.2)。W1 では型の宣言のみで、
 /// 信用変化の計算式(GDD01 §2.8)は持たない。
 /// </summary>
-/// <remarks>
-/// <see cref="NeedIndex"/> は W2 で変わる。今の仮の形と正すべき方向は
-/// TDD01 §3.6「W1 で置いた仮決め」の表が持つ(ここに複製しない)。
-/// </remarks>
 public readonly record struct Promise
 {
-    /// <summary>元になった Need への参照(上記remarks参照)。</summary>
-    public int NeedIndex { get; init; }
+    /// <summary>元になった Need の <see cref="Need.Id"/>(<c>World.Needs</c> の添字ではない、TDD01 §3.6)。</summary>
+    public int NeedId { get; init; }
 
     /// <summary>約束した日付(t0、GDD01 §2.8)。</summary>
     public Tick T0 { get; init; }
