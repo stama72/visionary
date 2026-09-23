@@ -110,6 +110,14 @@ public sealed class HouseholdSystemTests
     /// 変異は <c>Recipes[0]</c>(Miller・小麦粉)の在庫(既定 0)を読むので b が誤って開き、
     /// 「維持される」はずの本行が付け替わってしまう。
     /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(<c>mutator</c>、2026-09-23、<c>8bdd6ee</c>)。</b>
+    /// <see cref="OccupationReassignment.IsGateOpen"/> のゲート条件c(<c>household.ProductionRuns == 0</c>
+    /// の早期return)を丸ごと落とす変異。期待は赤、実測は赤(1件) ── 落ちたのは本テストの
+    /// <c>OccupationChangesOnlyWhenAllThreeConditionsHold(isBankrupt: True, sellableStockIsZero: True,
+    /// productionRunsIsZero: False, expectReassignment: False, occupation: Miller)</c>(c欠けのケース)
+    /// のみ。受け入れ条件を満たした。
+    /// </remarks>
     [Theory]
     [InlineData(true, true, true, true, Occupation.Miller)]       // 3条件すべて → 付け替わる
     [InlineData(false, true, true, false, Occupation.Miller)]     // a欠け(健全) → 維持
@@ -194,6 +202,17 @@ public sealed class HouseholdSystemTests
     /// 【核心 C-2】テスト表 #6。その職業の担い手が自世帯だけなら、3条件が成立していても
     /// <see cref="HouseholdState.Occupation"/> は不変(GDD02b §4.2 が構造的に防ぐ「担い手0」)。
     /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(<c>mutator</c>、2026-09-23、<c>8bdd6ee</c>)。</b>
+    /// <see cref="OccupationReassignment.TrySelectTarget"/> 冒頭の <c>CarrierCount(...) &lt;= 1</c>
+    /// 早期returnを丸ごと落とす変異。期待は赤、実測は赤(5件) ── 落ちたのは本テスト(受け入れ対象)、
+    /// <see cref="TrySelectTargetLeavesTheCurrentOccupationInTargetWhenItReturnsFalse"/>、
+    /// <see cref="CarrierCountIsCountedLiveSoTheSecondCarrierStays"/>、
+    /// <c>TradePipelineTests.EveryOccupationKeepsAtLeastOneCarrierOverSixtyDays(seed: 7)</c>、
+    /// 同 <c>(seed: 42)</c>。受け入れ条件は引き続き本テストが落ちることであり、60日走行の赤は
+    /// 測定値であって受け入れの根拠ではない(詳細は
+    /// <see cref="TradePipelineTests.EveryOccupationKeepsAtLeastOneCarrierOverSixtyDays"/> のremarks)。
+    /// </remarks>
     [Fact]
     public void LastCarrierOfAnOccupationIsNeverReassigned()
     {
@@ -311,6 +330,18 @@ public sealed class HouseholdSystemTests
     /// <remarks>
     /// <b>受け入れ条件は「赤」ではなく「本テストが落ちること」である(タスク仕様)。</b>他のテストが
     /// 道連れで落ちても、担い手世帯数の数え方を守った証拠にはならない。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(<c>mutator</c>、2026-09-23、<c>8bdd6ee</c>)。</b>
+    /// <see cref="HouseholdSystem.Step"/> の手順2 で担い手世帯数をループ前にスナップショットし、
+    /// ループ中は配列を使い回す変異。期待は赤、実測は赤(4件) ── 落ちたのは本テスト(受け入れ対象)、
+    /// <c>TradePipelineTests.EveryOccupationKeepsAtLeastOneCarrierOverSixtyDays(seed: 3)</c>、
+    /// 同 <c>(seed: 42)</c>、<c>TradePipelineTests.SmithNeverRunsOutOfToolsOverSixtyDays(seed: 7)</c>。
+    /// <b>当て方の注記(<c>mutator</c> の報告)</b>: <see cref="OccupationReassignment.TrySelectTarget"/>
+    /// のシグネチャに必須引数を足すと既存の直接呼び出しテスト(本ファイル #19)がビルドエラーになるため、
+    /// オプション引数でスナップショットを渡す形にし、未指定時はその場で等価なスナップショットを1回
+    /// 組み立てるフォールバックを置いて当てた。変異の効果(ループ中は配列を使い回す = 世帯Idの小さい方
+    /// の付け替えが、同じループ内の大きい方の判定に反映されない)はそのまま再現されている。
     /// </remarks>
     [Fact]
     public void CarrierCountIsCountedLiveSoTheSecondCarrierStays()

@@ -1432,6 +1432,18 @@ public sealed class TradePipelineTests
     /// seed=1: day10 / seed=2: day17 / seed=3: day9 / seed=7: day11 / seed=42: day10。
     /// 全5シードで60日以内に分布が動いたため、5シードすべてに断定を足す。
     /// </remarks>
+    /// <remarks>
+    /// <b>核心C-2の追加測定(<c>mutator</c>、2026-09-23、<c>8bdd6ee</c>)。</b>
+    /// <see cref="OccupationReassignment.TrySelectTarget"/> 冒頭の <c>CarrierCount(...) &lt;= 1</c>
+    /// 早期return(「最後の1世帯は付け替えない」の保護)を丸ごと落とす変異(核心C-2。
+    /// <see cref="HouseholdSystemTests.LastCarrierOfAnOccupationIsNeverReassigned"/> が受け入れ対象)
+    /// を当てると、本テストは seed=7・seed=42 で赤になった。担い手0を検出した位置:
+    /// seed=42: day=23 Miller(以降day 25・27・29・31もMiller)、day=41 Woodworker、day=45 Woodworker。
+    /// seed=7: day=36 Smith(以降day 39・42・45・48・51・54・57・60もSmith)。
+    /// <b>C-2の受け入れ条件は引き続き
+    /// <see cref="HouseholdSystemTests.LastCarrierOfAnOccupationIsNeverReassigned"/> が落ちることである
+    /// ── 本テストの60日走行の赤は測定値であって、特定の契約が壊れた証拠として読まない。</b>
+    /// </remarks>
     [Theory]
     [InlineData(1)]
     [InlineData(2)]

@@ -19,9 +19,18 @@ namespace Visionary.Sim.Systems;
 /// </para>
 /// <para>
 /// <b>Step の本体は2つの独立したループである</b>(GDD02b §4.1「手順ごとに全世帯をId昇順で回す。
-/// 世帯ごとに1→2を回すのではない」)。<b>1つのループへ畳まない</b> ── 畳むと世帯Id0の付け替えが、
-/// まだフラグを更新していない世帯Id1の担い手世帯数に効く(手順2の走査順の約束は「フラグ更新後の
-/// world」を前提にしている)。
+/// 世帯ごとに1→2を回すのではない」)。分割は<b>この規則が要求している</b>ため保つ。
+/// </para>
+/// <para>
+/// <b>ただしこれは機械で守られていない(訂正、#39タスク仕様1巡目レビュー)。</b>手順2が他世帯から
+/// 読むのは <see cref="HouseholdState.Occupation"/> と <see cref="HouseholdState.DistrictId"/> だけで、
+/// <see cref="HouseholdState.IsBankrupt"/> は自世帯のぶんしか読まない。手順1が書くのは
+/// <see cref="HouseholdState.IsBankrupt"/> だけである。<b>したがって畳んだ実装と畳まない実装は、
+/// どの世界でも同じ結果を返す</b> ── 変異M-fold(手順1・2を1つのループに畳む。2026-09-23、
+/// <c>8bdd6ee</c>)で497件全合格・1本も落ちないことを<c>mutator</c>が実測した。
+/// <b>効き始めるのは、手順2が他世帯の<see cref="HouseholdState.IsBankrupt"/>を読むようになった
+/// 日である</b>(<a href="https://github.com/stama72/visionary/issues/196">#196</a>が④のゲートを
+/// 別の状態へ移すなら、そこで初めて分割が結果を変える)。そのときテストは1本も無い。
 /// </para>
 /// </remarks>
 public sealed class HouseholdSystem : ISimSystem
