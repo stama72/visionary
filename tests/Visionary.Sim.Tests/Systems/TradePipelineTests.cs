@@ -1744,10 +1744,16 @@ public sealed class TradePipelineTests
         /// <remarks>
         /// <b>訂正(W2-16 タスク仕様 6.2)。</b>この等値assertは±1のずれを<b>構造では</b>守らない。
         /// −1方向(<c>dayIndex</c>が1小さくなる)で落ちる行があるのは<c>DayIndex==29</c>に都市内約定
-        /// が残っているシードだけであり、実測では条件2の違反日にday30を含むシードが1/2/3/7の4つある
-        /// (= その日の都市内約定は0件)ため、−1方向で赤になるのはシード42の1本だけである。しかも
-        /// それは「たまたま最終日まで都市内で取引が残っている」というデータに乗っている。構造で
-        /// 留めているのは<see cref="FirstScannedLedgerDayIndex"/>・
+        /// が残っているシードだけである。
+        /// <b>訂正(W2-22、#216)。</b>出荷日数1(<a
+        /// href="https://github.com/stama72/visionary/issues/210">#210</a>決定1)を入れた新しい
+        /// 基準値では、条件2の違反日が5シードとも0日になった ── 核心
+        /// (<see cref="NoInternalSettlementDays"/>が空)が成り立つ限り、day 30に都市内約定が必ず
+        /// 1件以上ある。したがって−1方向のずれは<b>5シードとも</b>この等値assertより先に核心自身を
+        /// 赤にする(W2-22タスク仕様「日付の±1は、正の向きでは核心が見る」)。<b>これは本assert
+        /// (等値検算)が構造で守るようになったという意味ではない</b> ── 守っているのは核心のほうで
+        /// あり、核心が緑であることが前提である。構造で留めているのは
+        /// <see cref="FirstScannedLedgerDayIndex"/>・
         /// <see cref="LastScannedLedgerDayIndex"/>(下記、W2-16 タスク仕様 6.4)のほうである。
         /// </remarks>
         public long TotalCityGoodInternalRowsIgnoringDate { get; set; }
@@ -1856,9 +1862,16 @@ public sealed class TradePipelineTests
     /// 削除したことで構造として守るものが無くなった結果であり(正側の核心
     /// <c>Count == 0</c>も空振り防止<c>Count &lt; 30</c>も、どちらも違反日が増える方向しか
     /// 見ない)、<b>退行ではなく既知の限界の再確認である。</b>構造的な留め具は本タスクでは足さない
-    /// ── それは#173の持ち物であり、フェーズ3がissueへ切り出す予定である。条件1・条件2は#174 の
-    /// 後も反転側のみのままであり、上で述べた「数え落とし」方向の非対称はそちらには残っている
-    /// (向きが反転しきって条件1・2にも正側が立てば、それについては解消する)。
+    /// ── それは#173の持ち物であり、フェーズ3がissueへ切り出す予定である。
+    /// <b>訂正(W2-22、#216)。</b>条件1・条件2は本節がここまで前提にしてきた「#174 の後も
+    /// 反転側のみのまま」からもう外れている ── W2-22で出荷日数1(#210決定1)が入り、5シードとも
+    /// 違反日0になったため正側へ移った(反転側の2メソッドは削除済み)。<b>「向きが反転しきって
+    /// 条件1・2にも正側が立てば、それについては解消する」という上の一文は誤りだった。</b>実際に
+    /// 正側が立っても、上で述べた「数え落とし」方向の非対称は消えない ── 数え過ぎ方向が見えなく
+    /// なり、数え落とし方向が見えるようになるだけであり、<b>これは非対称の解消ではなく、死角の
+    /// 入れ替えである</b>(W2-22タスク仕様「向きが変わると、検出器が見るものが変わる」。条件3で
+    /// 先に起きたのと同じ入れ替えが、条件1・条件2でも起きた)。条件1・条件2それぞれの向き別の
+    /// 結論(M-1/M-10の実測)と、検出器自身の空洞化(V-5/V-6)は各テストのdocコメントを参照。
     /// <para>
     /// <b>変異の実測(<c>mutator</c> が測定、2026-09-22)がこの非対称を裏づける。</b>
     /// 数え落とし方向の取り違え(M-6: 条件2の向き<c>Purchase</c>→<c>Sale</c> / M-7: 条件2の品目範囲を
@@ -2022,11 +2035,15 @@ public sealed class TradePipelineTests
         // あり、二重に数えられることはない。
         //
         // 訂正(W2-16 タスク仕様 6.2)。この等値assertは±1のずれを構造では守らない ──
-        // −1方向で落ちる行があるのはDayIndex==29に都市内約定が残っているシードだけで、実測では
-        // 条件2の違反日にday30を含むシードが1/2/3/7の4つある(その日の都市内約定は0件)ため、
-        // −1方向で赤になるのはシード42の1本だけであり、それも「たまたま最終日まで都市内で取引が
-        // 残っている」というデータに乗っている。構造で留めているのは下のFirstScannedLedgerDayIndex
-        // /LastScannedLedgerDayIndexのほうである(W2-16 タスク仕様 6.4)。
+        // −1方向で落ちる行があるのはDayIndex==29に都市内約定が残っているシードだけである。
+        //
+        // 訂正(W2-22、#216)。出荷日数1(#210決定1)を入れた新しい基準値では、条件2の違反日が
+        // 5シードとも0日になった ── 核心(NoInternalSettlementDaysが空)が成り立つ限りday 30に
+        // 都市内約定が必ず1件以上あるので、−1方向のずれは5シードともこの等値assertより先に
+        // 核心自身を赤にする(W2-22タスク仕様「日付の±1は、正の向きでは核心が見る」)。これは
+        // 本assert(等値検算)が構造で守るようになったという意味ではない ── 守っているのは核心の
+        // ほうであり、核心が緑であることが前提である。構造で留めているのは下の
+        // FirstScannedLedgerDayIndex/LastScannedLedgerDayIndexのほうである(W2-16 タスク仕様 6.4)。
         foreach (var household in world.Households)
         {
             foreach (var entry in world.Ledgers[household.Id])
@@ -2276,6 +2293,12 @@ public sealed class TradePipelineTests
     /// この取り違えは核心に見えない見込みである</b> ── 全世帯が常に1以上を報告する世界は
     /// 「違反日0」そのものであり、正側の核心(<c>ProductionStoppedDays.Count == 0</c>)は素の
     /// 実装と区別が付かない(実測はV-2。下記「変異の実測」参照)。
+    /// <b>見えなくなったものはこれだけではない。</b>反転側(<c>Count &gt; 0</c>)が消えたので、
+    /// <c>ScanThirtyDays</c>が違反日を記録する行(<c>scan.ProductionStoppedDays.Add(day)</c>)が
+    /// 一度も走らなくなる書き換えは、どのassertにも触れない ── 6本の留め具はデータを1行も
+    /// 読まず、条件別の空振り防止は別の変数(<c>TotalProductionRuns</c>)を見ており、核心は
+    /// 空のリストを見て緑になる。<b>構造的な留め具は足さない</b>(追補Aの理由)。実測はV-5
+    /// (下記「変異の実測」参照)。
     /// </remarks>
     /// <remarks>
     /// <b>向きが変わって見えるようになったもの(数え落とし方向)。</b>W2-16のM-10(条件1の合計を
@@ -2317,7 +2340,7 @@ public sealed class TradePipelineTests
     /// </list>
     /// </remarks>
     /// <remarks>
-    /// <b>変異の実測。</b>(V-1〜V-3は<c>mutator</c>の実測待ち)
+    /// <b>変異の実測。</b>(V-1〜V-3・V-5は<c>mutator</c>の実測待ち)
     /// </remarks>
     [Theory]
     [InlineData(1)]
@@ -2330,7 +2353,7 @@ public sealed class TradePipelineTests
         var scan = ScanThirtyDays(seed);
         _output.WriteLine(scan.Format(seed));
 
-        // 核心と独立な空振り防止(6本)。この4本はデータを1行も参照しない ── 帳簿が空でも、経済が
+        // 核心と独立な空振り防止(6本)。この6本はデータを1行も参照しない ── 帳簿が空でも、経済が
         // 直っても値は1/30/0/29である(W2-16 タスク仕様 6.4)。ラベルが0始まりに滑る書き換えや、
         // 帳簿の絞り込みのdayIndexの窓が±1ずれる書き換えを構造で落とす。
         Assert.Equal(30, scan.FinalDayIndex);
@@ -2372,6 +2395,15 @@ public sealed class TradePipelineTests
     /// 本テストへ移した。W2-22タスク仕様「実装の手順」)。
     /// </remarks>
     /// <remarks>
+    /// <b>向きが変わって見えなくなったもの。</b>反転側(<c>Count &gt; 0</c>)が消えたので、
+    /// <c>ScanThirtyDays</c>が違反日を記録する行(<c>scan.NoInternalSettlementDays.Add(day)</c>)が
+    /// 一度も走らなくなる書き換えは、どのassertにも触れない ── 6本の留め具はデータを1行も読まず、
+    /// 条件別の空振り防止は別の変数(<c>TotalInternalSettlements</c>)を見ており、下記の日付の検算
+    /// (<c>TotalCityGoodInternalRowsIgnoringDate</c>との等値assert)も<c>NoInternalSettlementDays</c>を
+    /// 参照しないので、核心は空のリストを見て緑になる。<b>構造的な留め具は足さない</b>
+    /// (追補Aの理由)。実測はV-6(下記「変異の実測」参照)。
+    /// </remarks>
+    /// <remarks>
     /// <b>都市内の判定。</b><c>CounterpartyId != HouseholdState.ExternalMarketSellerId</c>が
     /// 「都市内の約定」の判定そのもの(<a href="../../../docs/03-gdd/02d-external-market-and-money.md">
     /// GDD02d §2.1</a>)。窓口からの輸入で緑になるのを防ぐ(開発者の決定、2026-09-22)。
@@ -2398,6 +2430,19 @@ public sealed class TradePipelineTests
     /// <b>正側でこれを測り直す(V-4)結果は下記「変異の実測」に転記する。</b>
     /// </remarks>
     /// <remarks>
+    /// <b>向き・品目の絞り込みは依然として機械に守られていない(W2-16の実測を引き継ぐ)。</b>
+    /// M-6(絞り込みの<c>Direction == Purchase</c>を<c>Sale</c>へ変える)とM-7(品目範囲の下限を
+    /// <c>Item.Flour</c>から<c>Item.Grain</c>へ広げ0〜8にする)は、当時の反転側でどちらも
+    /// <b>緑のまま</b>だった ── M-6は1約定につき買い手<c>Purchase</c>・売り手<c>Sale</c>が
+    /// 1本ずつ立つので件数が完全に一致し、M-7は都市内で売買される品目が必ず4〜8なので恒等変換に
+    /// なる。<b>この2つは向きに依らず緑である</b>(正側でも同じ理由で緑のまま見込み)。上の
+    /// 「向きが変わって見えるようになったもの(数え落とし方向)」は<b>相手軸</b>(V-4)についての
+    /// 記述であり、<b>向き・品目の軸まで機械に守られるようになったわけではない</b>。絞り込みの
+    /// 4軸(日付・向き・相手・品目)のうち、機械が見ているのは日付だけである(6.4の留め具、
+    /// M-13/M-14。日付の絞り込み自体は上の「日付の±1が核心に見えるようになったこと」の対象)。
+    /// <b>この絞り込みを書き換えるときは機械に頼れない。</b>
+    /// </remarks>
+    /// <remarks>
     /// <b>30日である理由。</b><see cref="ProductionNeverStopsForAWholeDayOverThirtyDays"/>と同じ
     /// (W2-16タスク仕様)。
     /// </remarks>
@@ -2407,7 +2452,7 @@ public sealed class TradePipelineTests
     /// 実測行と同一(1回の走行で3条件をまとめて採るため)。5シードとも条件2の違反日が0日になった。
     /// </remarks>
     /// <remarks>
-    /// <b>変異の実測。</b>(V-1・V-4は<c>mutator</c>の実測待ち)
+    /// <b>変異の実測。</b>(V-1・V-4・V-6は<c>mutator</c>の実測待ち)
     /// </remarks>
     [Theory]
     [InlineData(1)]
@@ -2420,7 +2465,7 @@ public sealed class TradePipelineTests
         var scan = ScanThirtyDays(seed);
         _output.WriteLine(scan.Format(seed));
 
-        // 核心と独立な空振り防止(6本)。この4本はデータを1行も参照しない ── 帳簿が空でも、経済が
+        // 核心と独立な空振り防止(6本)。この6本はデータを1行も参照しない ── 帳簿が空でも、経済が
         // 直っても値は1/30/0/29である(W2-16 タスク仕様 6.4)。ラベルが0始まりに滑る書き換えや、
         // 帳簿の絞り込みのdayIndexの窓が±1ずれる書き換えを構造で落とす。
         Assert.Equal(30, scan.FinalDayIndex);
@@ -2460,7 +2505,7 @@ public sealed class TradePipelineTests
     /// <b>正の向き。</b>失敗(条件が破れる日が現れる)は退行であり凶報である。
     /// </remarks>
     /// <remarks>
-    /// <b>30日である理由。</b><see cref="ProductionStopsForAWholeDayWithinThirtyDays"/>と同じ
+    /// <b>30日である理由。</b><see cref="ProductionNeverStopsForAWholeDayOverThirtyDays"/>と同じ
     /// (W2-16タスク仕様)。
     /// </remarks>
     /// <remarks>
@@ -2482,7 +2527,7 @@ public sealed class TradePipelineTests
     /// </remarks>
     /// <remarks>
     /// <b>基準値の実測(2026-09-22、自家消費(#174)を入れた後の実測である)。</b>5シードとも条件3の
-    /// 違反日が0日になった(<see cref="ProductionStopsForAWholeDayWithinThirtyDays"/> の
+    /// 違反日が0日になった(<see cref="ProductionNeverStopsForAWholeDayOverThirtyDays"/> の
     /// doc コメントに転記済みの実測行 ── seed7も含め全5シードで「条件3: 違反0日」)。W2-16の手順
     /// (「作るもの4」)に従い、seed7を反転側から本テスト(正側)へ移し、反転側の
     /// <c>[InlineData]</c> が空になった<c>AllHouseholdsRunEmptyWithinThirtyDays</c>はメソッドごと
@@ -2502,7 +2547,7 @@ public sealed class TradePipelineTests
     /// <item><b>M-4</b>(<c>ConsumptionSystem</c> の <c>household.HouseholdInventory[itemId] -=
     /// consumedQuantity;</c> を行ごと削る)は<b>赤</b>。当時の反転側(seed7)の核心(世帯在庫が
     /// 減らないので全戸空の日が来ない)が落ちた。同じ変異は条件1の反転側
-    /// (<see cref="ProductionStopsForAWholeDayWithinThirtyDays"/>)も全5シードで落としている
+    /// (<see cref="ProductionNeverStopsForAWholeDayOverThirtyDays"/>)も全5シードで落としている
     /// (予測外の巻き込み、原因は特定していない)。</item>
     /// <item><b>M-8</b>(判定を <c>HouseholdInventory</c> から <c>WorkshopInventory</c> へ変える)は、
     /// 当時の本テスト(正側4シード)では<b>緑のまま</b>。落ちたのは当時の反転側(seed7)の核心
@@ -2531,7 +2576,7 @@ public sealed class TradePipelineTests
         var scan = ScanThirtyDays(seed);
         _output.WriteLine(scan.Format(seed));
 
-        // 核心と独立な空振り防止。この4本はデータを1行も参照しない ── 帳簿が空でも、経済が直っても
+        // 核心と独立な空振り防止(6本)。この6本はデータを1行も参照しない ── 帳簿が空でも、経済が直っても
         // 値は1/30/0/29である(W2-16 タスク仕様 6.4)。ラベルが0始まりに滑る書き換えや、帳簿の
         // 絞り込みのdayIndexの窓が±1ずれる書き換えを構造で落とす。
         Assert.Equal(30, scan.FinalDayIndex);
