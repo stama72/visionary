@@ -1060,7 +1060,7 @@ public sealed class WorldDefinition
             externalSellPriceSeasonPermille: externalSellPriceSeasonPermille,
             externalBuyPrice: externalBuyPrice,
             inputBufferDays: 3,                  // 単位: 日(GDD02a §4)
-            shipmentDays: 3,                      // 単位: 日(GDD02c §1.3)
+            shipmentDays: 1,                      // 単位: 日(GDD02c §1.3)
             toolLifeLaborDays: 13,                // 単位: 人日(GDD02a §3.1)
             equipmentPermilleWithoutTools: 500,   // 単位: ‰(GDD02a §3)
             disposableHours: 12,                  // 単位: 時間(GDD08 §3.1)

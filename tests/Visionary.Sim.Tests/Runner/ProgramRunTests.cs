@@ -44,12 +44,23 @@ public sealed class ProgramRunTests : IDisposable
     /// #20。<c>WorldDefinition.M0</c> を36,000日回し、CSVの書き出しまで含めて60秒以内。
     /// </summary>
     /// <remarks>
-    /// <b>着手時点では空振りに近い(タスク仕様の注記)。</b>着手時点の master では経済が
+    /// <b>着手時点では空振りに近かった(タスク仕様の注記)。</b>着手時点の master では経済が
     /// 20〜30日で止まるので、36,000日 の大半は1日あたりの仕事がほぼ0になる(実測:
     /// 1,600日 が85ミリ秒)。「60秒以内で通った」ことは、経済が生きた状態で通ることを
-    /// 意味しない。性能を実際に守っているのは #19
+    /// 意味しなかった。性能を実際に守っているのは #19
     /// (<see cref="Visionary.Sim.Tests.Systems.MarketReferenceTests.PreviousDaySettledPriceStopsAtTheSecondDay"/>)
     /// のほうであり、本テストは完了条件の写しとして置く。
+    /// </remarks>
+    /// <remarks>
+    /// <b>W2-22 追随(2026-09-24)。</b>出荷日数 1(#216)が入り、M0・シード1・30日で条件1・条件2
+    /// (<see cref="Visionary.Sim.Tests.Systems.TradePipelineTests.ProductionNeverStopsForAWholeDayOverThirtyDays"/>
+    /// / <see
+    /// cref="Visionary.Sim.Tests.Systems.TradePipelineTests.InternalSettlementsOfCityGoodsNeverDisappearOverThirtyDays"/>)
+    /// が0件の違反日で成立するようになった ── 「20〜30日で止まる」という上の前提はもう成り立たない。
+    /// <b>実測(<c>vsim run</c> 内部の <c>stopwatch</c> の値、シード1・36,000日・CSV書き出し込み):
+    /// 3,033ミリ秒。</b>60秒の予算を大きく下回っており、経済が生きた状態でも「空振りに近い」
+    /// という評価はなお当たる ── 予算の9割以上が余っているため、本テストが実際に守っているのは
+    /// 依然として#19であり、本テスト自身の閾値(60秒)には近づいていない。
     /// </remarks>
     [Fact]
     public void LongRunFinishesWithinTheBudget()
