@@ -30,6 +30,8 @@ public sealed class RunSummaryBuilderTests
     /// <summary>
     /// #30。核心。3シードが(赤,緑,緑)なら赤、(緑,判定不能,緑)なら判定不能、(緑,緑,緑)なら緑。
     /// <c>redSeeds</c> / <c>indeterminateSeeds</c> がシード昇順。
+    /// <b>mutator実測(2026-09-24)</b>: 変異#30(<c>RunSummaryBuilder</c> の判定不能の枝を
+    /// <see cref="Verdict.Green"/> へ)で赤(落ちた)。
     /// </summary>
     [Fact]
     public void OverallFoldsRedOverIndeterminateOverGreen()
@@ -76,6 +78,8 @@ public sealed class RunSummaryBuilderTests
     /// 55(別表(レビュー3巡目で追加)#55)。(赤, 判定不能, 緑) のシードの組で <c>overall</c> が
     /// 赤になり、<c>redSeeds</c> / <c>indeterminateSeeds</c> の双方が正しく埋まる。#30 の赤ケースは
     /// (赤, 緑, 緑) で判定不能のシードを含んでおらず、判定不能を含む赤の組を試していなかった。
+    /// <b>mutator実測(2026-09-24)</b>: 変異E6(<c>RunSummaryBuilder</c> の三項を入れ替え、判定不能を
+    /// 赤より先に判定)で赤(落ちた)。
     /// </summary>
     [Fact]
     public void OverallKeepsRedOverIndeterminateAcrossSeeds()

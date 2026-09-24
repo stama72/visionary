@@ -74,7 +74,11 @@ public sealed class VerificationAccumulatorTests
         Assert.Equal(Verdict.Red, GetItem(result, "8-1a").Verdict);
     }
 
-    /// <summary>#1(8-6)。8-6は過渡期(day0)の違反でも赤になる。</summary>
+    /// <summary>
+    /// #1(8-6)。8-6は過渡期(day0)の違反でも赤になる。
+    /// <b>mutator実測(2026-09-24)</b>: 変異#1(「8-6の日次の帯の検査を過渡期の後から始める」)/
+    /// 変異#24(「初期貨幣総量を <c>snapshot[0].Economy.MoneyTotal</c> から取る」)のどちらでも赤(落ちた)。
+    /// </summary>
     [Fact]
     public void WindowsStartAfterTheTransient_MoneyBoundedChecksDayZero()
     {
@@ -130,6 +134,9 @@ public sealed class VerificationAccumulatorTests
     /// 割る走行なら149日でも赤になる(赤 &gt; 判定不能。全日の帯チェックは窓を使わない)。
     /// <i>この実装ミスで落ちる</i>: <see cref="VerificationAccumulator.ResolveMoneyBounded"/> が
     /// <c>firstRedDay == -1</c> だけを見て緑を返していた(窓が0でも緑になっていた)。
+    /// <b>mutator実測(2026-09-24)</b>: 変異#1(8-6の日次検査を過渡期の後から始める)/ 変異#24
+    /// (初期貨幣総量を <c>snapshot[0].Economy.MoneyTotal</c> から取る)/ 変異E2(<c>ResolveMoneyBounded</c>
+    /// の窓0のときの判定不能を <see cref="Verdict.Green"/> へ)のいずれでも赤(落ちた)。
     /// </summary>
     [Fact]
     public void MoneyBoundedIsIndeterminateWithoutWindows()
@@ -150,7 +157,15 @@ public sealed class VerificationAccumulatorTests
         Assert.Equal(0, redItem.FirstRedDay);
     }
 
-    /// <summary>#3。有効日0の品目は判定不能になり、緑にならない(8-1a/8-1b/8-5b)。</summary>
+    /// <summary>
+    /// #3。有効日0の品目は判定不能になり、緑にならない(8-1a/8-1b/8-5b)。
+    /// <b>mutator実測(2026-09-24)</b>: 変異#47(枝の畳み込みで判定不能を緑として扱う)は赤(落ちた)。
+    /// <b>自分の名を冠する変異#3(「8-1aの有効日0の枝を <see cref="Verdict.Green"/> へ」)は検出しない
+    /// (緑のまま)。</b> 150日(窓1つ)の走行なので、Bread以外の4品目の偏差の枝が「基準窓から1窓」で
+    /// もともと判定不能になり、8-1aの項目判定が判定不能のまま動かないためである。この変異を実際に
+    /// 捕まえているのは <see cref="BandBranchWindowFoldIsObservable"/>(#52)であり、レビュー3巡目が
+    /// 足したものである。
+    /// </summary>
     [Fact]
     public void EmptyDenominatorIsIndeterminateNotGreen()
     {
@@ -178,6 +193,7 @@ public sealed class VerificationAccumulatorTests
     /// <summary>
     /// #4(別表(フェーズ1の訂正)#4' により390日以上へ訂正。検証内容は変えない)。
     /// 有効日が29日の窓は判定不能、30日なら判定が出る。
+    /// <b>mutator実測(2026-09-24)</b>: 変異#47(枝の畳み込みで判定不能を緑として扱う)で赤(落ちた)。
     /// </summary>
     [Fact]
     public void ValidDayFloorIsEnforced()
@@ -214,6 +230,8 @@ public sealed class VerificationAccumulatorTests
     /// #5(別表(フェーズ1の訂正)#5' により390日以上へ訂正。検証内容は変えない)。核心。基準は
     /// <see cref="WorldDefinition.ExternalBuyPrice"/> であり、<see cref="PriceRow.ExternalBuyPrice"/>
     /// を読むと同じ定数どうしの比較になる ── テストは <see cref="PriceRow"/> 側に誤った床を入れる。
+    /// <b>mutator実測(2026-09-24)</b>: 変異#5(基準を <see cref="WorldDefinition.ExternalBuyPrice"/> から
+    /// <see cref="PriceRow.ExternalBuyPrice"/> へ)で赤(落ちた)。
     /// </summary>
     [Fact]
     public void DivergenceUsesTheFloorAsTheBase()
@@ -238,6 +256,9 @@ public sealed class VerificationAccumulatorTests
     /// <summary>
     /// 6'(別表(フェーズ1の訂正)。上の #6 を訂正)。「3窓」は走行の窓数ではなく基準窓(偏差‰ が
     /// 0でない最初の窓)から最後の窓までの窓数である(TDD01 §5.2)。
+    /// <b>mutator実測(2026-09-24)</b>: 変異#44(基準窓の判定から偏差‰ &gt; 0 のガードを削除)/
+    /// 変異#45(基準窓を先頭窓に固定し、0なら緑で打ち切る)/ 変異#47(枝の畳み込みで判定不能を
+    /// 緑として扱う)のいずれでも赤(落ちた)。
     /// </summary>
     /// <remarks>
     /// <b>タスク仕様 別表(フェーズ1の訂正)#6' の具体的な数値列(4窓の例 <c>0, 0, 300, 700</c>)は
@@ -283,6 +304,11 @@ public sealed class VerificationAccumulatorTests
     /// で床×2に固定する ── これをしないと基準窓が窓1で必ず立ち、緑になるのは条件(2)
     /// (最後の窓の偏差‰ &gt;= 100)が効いているだけになり、「基準窓が存在しない → 緑」の枝に
     /// カバレッジが無くなる。
+    /// <b>mutator実測(2026-09-24)</b>: <b>自分の名を冠する変異#44(基準窓の判定から偏差‰ &gt; 0 の
+    /// ガードを削除)は検出しない(緑のまま)。</b> 全窓の偏差‰ が0なので、変異後も散らばりの下限
+    /// (<see cref="VerificationThresholds.DispersionFloorPermille"/> = 100)が赤の条件を独立に偽にし、
+    /// 結局緑へ着地するためである。この変異を捕まえているのは <see cref="DispersionGrowthNeedsThreeWindows"/>
+    /// と <see cref="IndeterminateBranchDoesNotFoldToGreen"/> である。
     /// </summary>
     [Fact]
     public void DispersionIsGreenWhenDispersionNeverAppears()
@@ -306,6 +332,8 @@ public sealed class VerificationAccumulatorTests
     /// 45(別表(フェーズ1の訂正))。核心。偏差‰ が窓ごとに 0, 0, 300, 700, 1500 と並ぶ走行(5窓)で
     /// 8-1aが赤、FirstRedDayが最後の窓の末日になる(床への張り付きから離脱して発散する経路を
     /// 検出できる ── 「最初の窓が0なら以後この枝を諦める」実装だと黙って見逃す)。
+    /// <b>mutator実測(2026-09-24)</b>: 変異#45(基準窓を先頭窓に固定し、0なら緑で打ち切る)で
+    /// 赤(落ちた)。
     /// </summary>
     [Fact]
     public void DispersionFiresAfterLeavingTheFloor()
@@ -329,6 +357,8 @@ public sealed class VerificationAccumulatorTests
     /// 46(別表(フェーズ1の訂正))。偏差‰ が 1, 2, 99 の走行(3窓)は緑(単調・3窓・最後≥基準×2だが
     /// 100‰未満)、1, 2, 100 は赤(散らばりの下限 <see cref="VerificationThresholds.DispersionFloorPermille"/>
     /// = 100)。
+    /// <b>mutator実測(2026-09-24)</b>: 変異#7(相対平均絶対偏差の分母から窓の平均を落とす)で
+    /// 赤(落ちた)。
     /// </summary>
     [Fact]
     public void DispersionNeedsAbsoluteDispersionToo()
@@ -351,6 +381,9 @@ public sealed class VerificationAccumulatorTests
     /// 47(別表(フェーズ1の訂正))。核心。帯の枝が緑・偏差の枝が判定不能(基準窓以降が2窓)の
     /// 走行で、8-1aが判定不能になる(判定不能を緑へ倒さない。TDD01 §5.2「畳み方はどの階層でも
     /// 赤 &gt; 判定不能 &gt; 緑」)。
+    /// <b>mutator実測(2026-09-24)</b>: 変異#44(基準窓の判定から偏差‰ &gt; 0 のガードを削除)/
+    /// 変異#45(基準窓を先頭窓に固定し、0なら緑で打ち切る)/ 変異#47(枝の畳み込みで判定不能を
+    /// 緑として扱う)のいずれでも赤(落ちた)。
     /// </summary>
     [Fact]
     public void IndeterminateBranchDoesNotFoldToGreen()
@@ -368,6 +401,7 @@ public sealed class VerificationAccumulatorTests
     /// <summary>
     /// 48(別表(フェーズ1の訂正))。5品目のうち1品目だけが赤の窓で8-1aが赤。1品目だけが
     /// 判定不能で残りが緑なら判定不能(品目間の畳み込み。TDD01 §5.2「畳む階層は3つ」)。
+    /// <b>mutator実測(2026-09-24)</b>: 変異#47(枝の畳み込みで判定不能を緑として扱う)で赤(落ちた)。
     /// </summary>
     [Fact]
     public void ItemsFoldAcrossGoodsWithinAWindow()
@@ -394,6 +428,12 @@ public sealed class VerificationAccumulatorTests
     /// だが成長条件(基準窓×2)を満たさないので緑になる ── 8-1aの判定不能が「偏差の枝の判定不能
     /// との合成」からではなく、帯の枝そのものの窓の畳み込みから出ていることを分離して確かめる
     /// (どのテストも2つの枝が両方とも判定不能な入力しか作っていなかった。レビュー3巡目指摘A)。
+    /// <b>mutator実測(2026-09-24)</b>: 変異#3(8-1aの有効日0の枝を <see cref="Verdict.Green"/> へ)/
+    /// 変異#47(枝の畳み込みで判定不能を緑として扱う)/ 変異E1(<c>ResolveFold</c>(窓の階層)の
+    /// 判定不能条件を <c>IndeterminateWindows == WindowsSeen</c>(旧条文)へ)/ 変異E3
+    /// (<c>Resolve8_1a</c> の帯の枝の窓の畳み込みだけを旧条文へ)のいずれでも赤(落ちた)。
+    /// <b>このテストは変異#3の唯一の検出者である</b> ── <see cref="EmptyDenominatorIsIndeterminateNotGreen"/>
+    /// (変異#3を冠する当のテスト)は検出しない(上記の doc コメントを参照)。
     /// </summary>
     [Fact]
     public void BandBranchWindowFoldIsObservable()
@@ -418,6 +458,9 @@ public sealed class VerificationAccumulatorTests
     /// 窓が混在する走行で判定不能になる(緑にならない。TDD01 §5.2「赤 &gt; 判定不能 &gt; 緑」は
     /// 窓の階層でも同じ)。<i>この実装ミスで落ちる</i>: 窓の階層だけ「すべて判定不能なら判定不能」
     /// で畳んだ(<see cref="VerificationAccumulator.ResolveFold"/> の旧実装)。
+    /// <b>mutator実測(2026-09-24)</b>: 変異#23(8-5cの「試された日が0なら判定不能」の枝を
+    /// <see cref="Verdict.Red"/> へ)/ 変異E1(<c>ResolveFold</c> の判定不能条件を旧条文へ)の
+    /// いずれでも赤(落ちた)。
     /// </summary>
     [Fact]
     public void WindowFoldKeepsIndeterminateOverGreen()
@@ -451,6 +494,8 @@ public sealed class VerificationAccumulatorTests
     /// <c>IndeterminateWindows &gt; 0</c> と <c>RedLocked</c> が同時に真になる状態を作るためである。
     /// <i>この実装ミスで落ちる</i>: <see cref="VerificationAccumulator.ResolveFold"/> が判定不能を
     /// 赤より優先する順序で判定した(順位を取り違えた)。
+    /// <b>mutator実測(2026-09-24)</b>: 変異#23(8-5cの「試された日が0なら判定不能」の枝を
+    /// <see cref="Verdict.Red"/> へ)で赤(落ちた)。
     /// </summary>
     [Fact]
     public void WindowFoldKeepsRedOverIndeterminate()
@@ -506,6 +551,12 @@ public sealed class VerificationAccumulatorTests
     /// 判定不能になる入力で、8-1b / 8-3 / 8-4 / 8-5b が赤になる(<see cref="VerificationAccumulator.Pool"/> の階層。
     /// 「赤 &gt; 判定不能」)。#50 は判定不能を窓1・赤を窓2に置いて<b>窓の階層</b>だけを試して
     /// いた ── このテストは<b>品目・職業の階層</b>を試す(レビュー3巡目指摘B)。
+    /// <b>mutator実測(2026-09-24)</b>: 変異#15(8-3の集計を職業別から都市合計へ)/ 変異E4
+    /// (<c>Pool</c> で判定不能を赤より先に <c>return</c> する)のいずれでも赤(落ちた)。
+    /// <b>このテストは変異E4の唯一の検出者である。</b> 走査順の逆向きサブケース(下の「Idの向きを
+    /// 逆にする」ブロック)を足す前は、変異E4に対して緑のまま生存していた ── 赤が常に若いId側に
+    /// 先に来る入力だけでは、判定不能を先に見つけて早期returnする変異と、最後まで走査して赤を
+    /// 拾う正しい実装が同じ結果になるためである。
     /// </summary>
     /// <remarks>
     /// <b>8-3の「判定不能」は、他の3項目と形が異なる</b>(決めて報告)。TDD01 §5.2「8-3」の列は
@@ -634,6 +685,8 @@ public sealed class VerificationAccumulatorTests
     /// 54(別表(レビュー3巡目で追加)#54)。窓の全日で <see cref="DailySnapshot.Households"/> が
     /// 空の走行は、8-3が判定不能になる(TDD01 §5.2「全職業が0戸なら判定不能」。#13は世帯行を
     /// 5件に減らすだけで、職業が1つも残らない走行を試していなかった)。
+    /// <b>mutator実測(2026-09-24)</b>: 変異E5(<c>Evaluate8_3</c> の「全職業0戸→判定不能」を
+    /// <see cref="Verdict.Green"/> へ)で赤(落ちた)。
     /// </summary>
     [Fact]
     public void ProductionStopIsIndeterminateWithoutAnyHousehold()
@@ -652,6 +705,8 @@ public sealed class VerificationAccumulatorTests
     /// 56(別表(レビュー3巡目で追加)#56)。窓の全日で需要行(<c>demand_lines</c>)が0の走行は、
     /// 8-7が判定不能になる(TDD01 §5.2 L466 の唯一の判定不能条件。#27は day 100/101 に需要行を
     /// 残しており、分母が0になる走行を試していなかった)。
+    /// <b>mutator実測(2026-09-24)</b>: 変異E7(<c>Evaluate8_7</c> の分母0の枝を
+    /// <see cref="Verdict.Green"/> へ)で赤(落ちた)。
     /// </summary>
     [Fact]
     public void UnknownPriceRatioIsIndeterminateWithoutDemandLines()
@@ -760,7 +815,11 @@ public sealed class VerificationAccumulatorTests
         ApplyAlternatingMedian(days, itemId, windowStart, windowEnd, 100 - half, 100 + half);
     }
 
-    /// <summary>#7。核心。相対平均絶対偏差‰は分母に窓の平均を含む(絶対平均偏差にしない)。</summary>
+    /// <summary>
+    /// #7。核心。相対平均絶対偏差‰は分母に窓の平均を含む(絶対平均偏差にしない)。
+    /// <b>mutator実測(2026-09-24)</b>: 変異#7(相対平均絶対偏差の分母から窓の平均を落とす)で
+    /// 赤(落ちた)。
+    /// </summary>
     [Fact]
     public void DispersionIsRelativeMeanAbsoluteDeviation()
     {
@@ -801,6 +860,8 @@ public sealed class VerificationAccumulatorTests
     /// #8。核心。除外は「その日に出品した売り手が全員床かつ輸出」の日だけ。一部だけ該当する日は
     /// 除外されない(除外を <c>offer_at_floor_count == offer_count</c> で書くと、一部だけ該当する日も
     /// 除外され、有効日数が誤って減る)。
+    /// <b>mutator実測(2026-09-24)</b>: 変異#8(除外を <c>OfferAtFloorCount == OfferCount</c> へ)で
+    /// 赤(落ちた)。
     /// </summary>
     [Fact]
     public void RigidityExcludesOnlyAllFloorExportDays()
@@ -878,6 +939,8 @@ public sealed class VerificationAccumulatorTests
 
     /// <summary>
     /// #10。核心。<c>partner_switch_permille == -1</c> の日は母数に入らず、-1しか無い窓は判定不能。
+    /// <b>mutator実測(2026-09-24)</b>: 変異#10(<c>partner_switch_permille &gt;= 0</c> の絞り込みを
+    /// 落とす)で赤(落ちた)。
     /// </summary>
     [Fact]
     public void SwitchRateIgnoresUndefinedDays()
@@ -966,7 +1029,11 @@ public sealed class VerificationAccumulatorTests
         Assert.Equal((long)WindowDays * DailySnapshotTestBuilder.Definition.HouseholdCount, evidence.Denominator);
     }
 
-    /// <summary>#14。核心。8-2aと8-2bは別々の閾値(100‰ / 250‰)を持つ。</summary>
+    /// <summary>
+    /// #14。核心。8-2aと8-2bは別々の閾値(100‰ / 250‰)を持つ。
+    /// <b>mutator実測(2026-09-24)</b>: 変異#14(8-2bの閾値を
+    /// <see cref="VerificationThresholds.BankruptHouseholdRatioPermille"/> へ差し替え)で赤(落ちた)。
+    /// </summary>
     [Fact]
     public void BankruptAndInputBlockedHaveSeparateThresholds()
     {
@@ -991,7 +1058,10 @@ public sealed class VerificationAccumulatorTests
         Assert.Equal(150L, FindEvidence(GetItem(result, "8-2a"), "bankruptHouseholdRatio").Value);
     }
 
-    /// <summary>#15。核心。醸造2戸だけが全日停止でも8-3が赤になる(職業別に判定する)。</summary>
+    /// <summary>
+    /// #15。核心。醸造2戸だけが全日停止でも8-3が赤になる(職業別に判定する)。
+    /// <b>mutator実測(2026-09-24)</b>: 変異#15(8-3の集計を職業別から都市合計へ)で赤(落ちた)。
+    /// </summary>
     [Fact]
     public void ProductionStopIsJudgedPerOccupation()
     {
@@ -1008,7 +1078,10 @@ public sealed class VerificationAccumulatorTests
         Assert.Equal(Verdict.Red, GetItem(Run(days), "8-3").Verdict);
     }
 
-    /// <summary>#16。醸造が閾値を超えていない緑の窓でも、根拠に醸造の停止割合が出る。</summary>
+    /// <summary>
+    /// #16。醸造が閾値を超えていない緑の窓でも、根拠に醸造の停止割合が出る。
+    /// <b>mutator実測(2026-09-24)</b>: 変異#15(8-3の集計を職業別から都市合計へ)で赤(落ちた)。
+    /// </summary>
     [Fact]
     public void BrewerEvidenceIsAlwaysPresent()
     {
@@ -1038,7 +1111,10 @@ public sealed class VerificationAccumulatorTests
         Assert.Equal(80, evidence.Denominator);
     }
 
-    /// <summary>#18。核心。担い手世帯が1戸になった窓は8-4が判定不能になる(差0でも赤にしない)。</summary>
+    /// <summary>
+    /// #18。核心。担い手世帯が1戸になった窓は8-4が判定不能になる(差0でも赤にしない)。
+    /// <b>mutator実測(2026-09-24)</b>: 変異#18(担い手数の判定不能の枝を削る)で赤(落ちた)。
+    /// </summary>
     [Fact]
     public void DistrictSpreadIsIndeterminateWithOneSeller()
     {
@@ -1146,7 +1222,11 @@ public sealed class VerificationAccumulatorTests
         Assert.Equal(0, item.FirstRedDay);
     }
 
-    /// <summary>#21。核心。連続日数は窓をまたいで数える(境界をまたぐ30日連続で赤、29日では緑)。</summary>
+    /// <summary>
+    /// #21。核心。連続日数は窓をまたいで数える(境界をまたぐ30日連続で赤、29日では緑)。
+    /// <b>mutator実測(2026-09-24)</b>: 変異#21(連続日数のカウンタを窓の先頭でリセット)で
+    /// 赤(落ちた)。
+    /// </summary>
     [Fact]
     public void BandExceededCountsAcrossWindowBoundaries()
     {
@@ -1218,6 +1298,8 @@ public sealed class VerificationAccumulatorTests
 
     /// <summary>
     /// #23。核心。天井が1日も試されていない窓は判定不能。試された日が1日でもあり窓口購入0なら赤。
+    /// <b>mutator実測(2026-09-24)</b>: 変異#23(8-5cの「試された日が0なら判定不能」の枝を
+    /// <see cref="Verdict.Red"/> へ)で赤(落ちた)。
     /// </summary>
     [Fact]
     public void WindowPurchaseIsIndeterminateWhenTheCeilingIsNeverTested()
@@ -1273,7 +1355,12 @@ public sealed class VerificationAccumulatorTests
         Assert.Equal(Verdict.Red, GetItem(Run(testedOnce), "8-5c").Verdict);
     }
 
-    /// <summary>#24。核心。初期貨幣総量は definition から取る(day0の実測値ではない)。</summary>
+    /// <summary>
+    /// #24。核心。初期貨幣総量は definition から取る(day0の実測値ではない)。
+    /// <b>mutator実測(2026-09-24)</b>: 変異#1(8-6の日次の帯の検査を過渡期の後から始める)/
+    /// 変異#24(初期貨幣総量を <c>snapshot[0].Economy.MoneyTotal</c> から取る)のどちらでも
+    /// 赤(落ちた)。
+    /// </summary>
     [Fact]
     public void MoneyBoundUsesTheDefinitionInitialTotal()
     {
@@ -1351,6 +1438,9 @@ public sealed class VerificationAccumulatorTests
     /// 根拠(<c>boundedBy</c> を含む6件)が根拠から落ちない。着手時点の経済ではほぼ全シードが
     /// この経路を通るため(day0〜1で貨幣が枯れる)、落ちると <c>boundedBy</c> が summary.json
     /// に一度も現れなくなる。
+    /// <b>mutator実測(2026-09-24)</b>: 変異#1(8-6の日次の帯の検査を過渡期の後から始める)/
+    /// 変異#24(初期貨幣総量を <c>snapshot[0].Economy.MoneyTotal</c> から取る)のどちらでも
+    /// 赤(落ちた)。
     /// </summary>
     [Fact]
     public void MoneyBoundedKeepsWindowEvidenceWhenDayLevelDecides()
@@ -1374,7 +1464,10 @@ public sealed class VerificationAccumulatorTests
         Assert.Contains(item.Evidence, e => e.Name == "importValueSum");
     }
 
-    /// <summary>#27。核心。割合は窓合計を先に足してから割る(日ごとに割って平均しない)。</summary>
+    /// <summary>
+    /// #27。核心。割合は窓合計を先に足してから割る(日ごとに割って平均しない)。
+    /// <b>mutator実測(2026-09-24)</b>: 変異#27(8-7を日ごとの割合の平均へ)で赤(落ちた)。
+    /// </summary>
     [Fact]
     public void UnknownPriceRatioSumsBeforeDividing()
     {
@@ -1399,6 +1492,8 @@ public sealed class VerificationAccumulatorTests
     /// <summary>
     /// #28。核心。日単位の条件(8-5a)はその日、窓単位の条件(8-2a)は窓の末日がFirstRedDayになる。
     /// 2つの赤い窓があっても最初の窓の値のまま上書きされない。
+    /// <b>mutator実測(2026-09-24)</b>: 変異#28(<c>FirstRedDay</c> を赤くなるたびに上書き)で
+    /// 赤(落ちた)。
     /// </summary>
     [Fact]
     public void FirstRedDayIsTheDayTheJudgementLands()

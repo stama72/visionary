@@ -163,6 +163,9 @@ public sealed class SummaryJsonTests : IDisposable
     /// <summary>
     /// #38。核心。<see cref="CompositeDailyMetricsSink"/> を通した走行の5つのCSVが、
     /// <see cref="CsvMetricsSink"/> 単体の走行とバイト一致する(収集側に触れないという宣言の機械)。
+    /// <b>mutator実測(2026-09-24)</b>: 変異#38(<c>CompositeDailyMetricsSink</c> の呼び出し順を逆に
+    /// したうえで <c>VerificationAccumulator</c> に <c>snapshot.Prices</c> の要素を書き換えさせる)で
+    /// 赤(落ちた)。
     /// </summary>
     [Fact]
     public void CsvOutputIsUnchangedByTheAccumulator()
