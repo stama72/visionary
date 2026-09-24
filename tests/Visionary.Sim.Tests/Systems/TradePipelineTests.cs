@@ -2546,9 +2546,12 @@ public sealed class TradePipelineTests
     /// <list type="bullet">
     /// <item><b>M-4</b>(<c>ConsumptionSystem</c> の <c>household.HouseholdInventory[itemId] -=
     /// consumedQuantity;</c> を行ごと削る)は<b>赤</b>。当時の反転側(seed7)の核心(世帯在庫が
-    /// 減らないので全戸空の日が来ない)が落ちた。同じ変異は条件1の反転側
-    /// (<see cref="ProductionNeverStopsForAWholeDayOverThirtyDays"/>)も全5シードで落としている
-    /// (予測外の巻き込み、原因は特定していない)。</item>
+    /// 減らないので全戸空の日が来ない)が落ちた。同じ変異は条件1の当時の反転側
+    /// (現在は削除され、正側 <see cref="ProductionNeverStopsForAWholeDayOverThirtyDays"/> に
+    /// 置き換わっている)も全5シードで落としている(予測外の巻き込み、原因は特定していない)。
+    /// <b>正側では論理的に緑のはずである</b>(反転側〈違反日 &gt; 0〉が赤になった = 条件1の
+    /// 違反日が0になった、ということなので、正側〈違反日 == 0〉は成立する。これは推論であって
+    /// 実測ではない)(V-11は<c>mutator</c>の実測待ち)。</item>
     /// <item><b>M-8</b>(判定を <c>HouseholdInventory</c> から <c>WorkshopInventory</c> へ変える)は、
     /// 当時の本テスト(正側4シード)では<b>緑のまま</b>。落ちたのは当時の反転側(seed7)の核心
     /// だった。</item>
