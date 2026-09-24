@@ -246,13 +246,29 @@ public sealed class VerificationAccumulatorTests
     }
 
     /// <summary>
-    /// 44(別表(フェーズ1の訂正))。核心。全窓で偏差‰ = 0 の390日以上の走行は8-1aが緑
-    /// (基準窓が一度も立たない。TDD01 §5.2「基準窓が存在しない → 緑」)。
+    /// 44(別表(フェーズ1の訂正)。レビュー2巡目指摘2により、全品目・全窓で偏差‰ = 0(全有効日の
+    /// 中央値が一定)になる入力へ訂正)。核心。全窓で偏差‰ = 0 の390日以上の走行は8-1aが緑
+    /// (基準窓が一度も立たない。TDD01 §5.2「基準窓が存在しない → 緑」)。<b>既定の
+    /// <see cref="DailySnapshotTestBuilder.Sequence"/> は中央値を一定にしない</b>
+    /// (<c>MedianFor</c> が周期的に変動する)ため、全品目の全日を <see cref="ApplyConstantMedian"/>
+    /// で床×2に固定する ── これをしないと基準窓が窓1で必ず立ち、緑になるのは条件(2)
+    /// (最後の窓の偏差‰ &gt;= 100)が効いているだけになり、「基準窓が存在しない → 緑」の枝に
+    /// カバレッジが無くなる。
     /// </summary>
     [Fact]
     public void DispersionIsGreenWhenDispersionNeverAppears()
     {
         var days = DailySnapshotTestBuilder.Sequence(ThreeWindowDays).ToList();
+
+        for (int itemId = 0; itemId < DailySnapshotTestBuilder.Definition.ItemCount; itemId++)
+        {
+            if (DailySnapshotTestBuilder.Definition.IsPrimaryItem(itemId))
+            {
+                continue;
+            }
+
+            ApplyConstantMedian(days, itemId, 0, ThreeWindowDays - 1, DailySnapshotTestBuilder.Floor(itemId) * 2);
+        }
 
         Assert.Equal(Verdict.Green, GetItem(Run(days), "8-1a").Verdict);
     }
@@ -340,6 +356,165 @@ public sealed class VerificationAccumulatorTests
         ZeroOutSettledCount(withOneIndeterminateItem, Item.Beer, TransientDays, TransientDays + 90); // 窓1のみ29日有効
 
         Assert.Equal(Verdict.Indeterminate, GetItem(Run(withOneIndeterminateItem), "8-1a").Verdict);
+    }
+
+    /// <summary>
+    /// 49(レビュー2巡目指摘1)。窓の階層を持つ4項目(8-1b/8-4/8-5b/8-5c)は、緑の窓と判定不能の
+    /// 窓が混在する走行で判定不能になる(緑にならない。TDD01 §5.2「赤 &gt; 判定不能 &gt; 緑」は
+    /// 窓の階層でも同じ)。<i>この実装ミスで落ちる</i>: 窓の階層だけ「すべて判定不能なら判定不能」
+    /// で畳んだ(<see cref="VerificationAccumulator.ResolveFold"/> の旧実装)。
+    /// </summary>
+    [Fact]
+    public void WindowFoldKeepsIndeterminateOverGreen()
+    {
+        int window1End = TransientDays + WindowDays - 1;
+        int window2Start = window1End + 1;
+        int window2End = window2Start + WindowDays - 1;
+
+        var days = DailySnapshotTestBuilder.Sequence(window2End + 1).ToList();
+
+        // 窓1は既定の健全な日のまま(4項目とも緑)。窓2だけを判定不能にする ──
+        // 8-1b/8-5b はBreadの約定を殺して有効日数を0にし、8-4はBreadの区画を1つに減らして
+        // 有効日数を0にし、8-5cは全品目のOfferMaxを天井以下に落として「試された日」を0にする。
+        ZeroOutSettledCount(days, Item.Bread, window2Start, window2End);
+        RemoveSecondDistrict(days, Item.Bread, window2Start, window2End);
+        SetOfferMaxNeverTested(days, window2Start, window2End);
+
+        var result = Run(days);
+
+        Assert.Equal(Verdict.Indeterminate, GetItem(result, "8-1b").Verdict);
+        Assert.Equal(Verdict.Indeterminate, GetItem(result, "8-4").Verdict);
+        Assert.Equal(Verdict.Indeterminate, GetItem(result, "8-5b").Verdict);
+        Assert.Equal(Verdict.Indeterminate, GetItem(result, "8-5c").Verdict);
+    }
+
+    /// <summary>
+    /// 50(レビュー2巡目指摘1)。窓の階層を持つ4項目(8-1b/8-4/8-5b/8-5c)は、赤・判定不能・緑の
+    /// 窓が混在する走行で赤になり、<see cref="VerificationItemResult.FirstRedDay"/> は赤くなった窓の
+    /// 末日になる。<b>判定不能の窓を先に(窓1)置いてから赤の窓(窓2)を置く</b> ── 赤くロックした
+    /// 後に判定不能を数えない実装(<see cref="VerificationAccumulator.Merge"/>)の下で、
+    /// <c>IndeterminateWindows &gt; 0</c> と <c>RedLocked</c> が同時に真になる状態を作るためである。
+    /// <i>この実装ミスで落ちる</i>: <see cref="VerificationAccumulator.ResolveFold"/> が判定不能を
+    /// 赤より優先する順序で判定した(順位を取り違えた)。
+    /// </summary>
+    [Fact]
+    public void WindowFoldKeepsRedOverIndeterminate()
+    {
+        int window1Start = TransientDays;
+        int window1End = TransientDays + WindowDays - 1;
+        int window2Start = window1End + 1;
+        int window2End = window2Start + WindowDays - 1;
+        int window3Start = window2End + 1;
+        int window3End = window3Start + WindowDays - 1;
+
+        // 8-1b(Bread): 窓1で約定を殺して判定不能、窓2でレンジを狭めて赤(硬直)、窓3は既定の緑。
+        var rigidityDays = DailySnapshotTestBuilder.Sequence(window3End + 1).ToList();
+        ZeroOutSettledCount(rigidityDays, Item.Bread, window1Start, window1End);
+        ApplyConstantMedian(rigidityDays, Item.Bread, window2Start, window2End, DailySnapshotTestBuilder.Floor(Item.Bread) * 2);
+        var rigidityItem = GetItem(Run(rigidityDays), "8-1b");
+        Assert.Equal(Verdict.Red, rigidityItem.Verdict);
+        Assert.Equal(window2End, rigidityItem.FirstRedDay);
+
+        // 8-5b(Beer): 窓1で約定を殺して判定不能、窓2で天井超えを30日以上続けて赤、窓3は既定の緑。
+        int beerCeiling = DailySnapshotTestBuilder.Ceiling(Item.Beer);
+        var bandDays = DailySnapshotTestBuilder.Sequence(window3End + 1).ToList();
+        ZeroOutSettledCount(bandDays, Item.Beer, window1Start, window1End);
+        for (int day = window2Start; day <= window2End; day++)
+        {
+            bandDays[day] = DailySnapshotTestBuilder.WithPrice(
+                bandDays[day], Item.Beer, bandDays[day].Prices[Item.Beer] with { SettledMedian = beerCeiling + 1, SettledCount = 4 });
+        }
+        var bandItem = GetItem(Run(bandDays), "8-5b");
+        Assert.Equal(Verdict.Red, bandItem.Verdict);
+        Assert.Equal(window2End, bandItem.FirstRedDay);
+
+        // 8-4(Flour): 窓1で区画を1つに減らして判定不能、窓2で2区画を同値にそろえて赤(収束)、窓3は既定の緑。
+        var spreadDays = DailySnapshotTestBuilder.Sequence(window3End + 1).ToList();
+        RemoveSecondDistrict(spreadDays, Item.Flour, window1Start, window1End);
+        ConvergeDistricts(spreadDays, Item.Flour, window2Start, window2End, DailySnapshotTestBuilder.Floor(Item.Flour) * 2);
+        var spreadItem = GetItem(Run(spreadDays), "8-4");
+        Assert.Equal(Verdict.Red, spreadItem.Verdict);
+        Assert.Equal(window2End, spreadItem.FirstRedDay);
+
+        // 8-5c: 窓1は全品目のOfferMaxを天井以下にして「試された日」を0にし判定不能、窓2は
+        // 天井を試しつつ窓内の約定を全品目0にして赤、窓3は既定の緑。
+        var purchaseDays = DailySnapshotTestBuilder.Sequence(window3End + 1).ToList();
+        SetOfferMaxNeverTested(purchaseDays, window1Start, window1End);
+        SetOfferMaxTestedWithNoWindowPurchase(purchaseDays, window2Start, window2End);
+        var purchaseItem = GetItem(Run(purchaseDays), "8-5c");
+        Assert.Equal(Verdict.Red, purchaseItem.Verdict);
+        Assert.Equal(window2End, purchaseItem.FirstRedDay);
+    }
+
+    /// <summary><paramref name="itemId"/> の <c>DistrictId == 1</c> の行を除いて1区画だけにする(8-4の有効日数を0にする)。</summary>
+    private static void RemoveSecondDistrict(List<DailySnapshot> days, int itemId, int fromDay, int toDayInclusive)
+    {
+        for (int day = fromDay; day <= toDayInclusive; day++)
+        {
+            var districts = days[day].Districts.Where(d => !(d.ItemId == itemId && d.DistrictId == 1)).ToList();
+            days[day] = DailySnapshotTestBuilder.WithDistricts(days[day], districts);
+        }
+    }
+
+    /// <summary><paramref name="itemId"/> の全区画の <c>SettledMedian</c> を同値にそろえる(区画差0。8-4の赤条件)。</summary>
+    private static void ConvergeDistricts(List<DailySnapshot> days, int itemId, int fromDay, int toDayInclusive, int median)
+    {
+        for (int day = fromDay; day <= toDayInclusive; day++)
+        {
+            var districts = days[day].Districts
+                .Select(d => d.ItemId == itemId ? d with { SettledMedian = median } : d)
+                .ToList();
+            days[day] = DailySnapshotTestBuilder.WithDistricts(days[day], districts);
+        }
+    }
+
+    /// <summary>全品目の <c>OfferMax</c> を天井以下に落とし、8-5cの「天井が試された日」を0にする。</summary>
+    private static void SetOfferMaxNeverTested(List<DailySnapshot> days, int fromDay, int toDayInclusive)
+    {
+        for (int day = fromDay; day <= toDayInclusive; day++)
+        {
+            var prices = days[day].Prices.ToList();
+
+            for (int itemId = 0; itemId < prices.Count; itemId++)
+            {
+                if (DailySnapshotTestBuilder.Definition.IsPrimaryItem(itemId))
+                {
+                    continue;
+                }
+
+                int ceiling = DailySnapshotTestBuilder.Ceiling(itemId);
+                prices[itemId] = prices[itemId] with { OfferMax = ceiling };
+            }
+
+            days[day] = new DailySnapshot(
+                days[day].Economy, prices, days[day].Districts, days[day].Households, days[day].Trades);
+        }
+    }
+
+    /// <summary>
+    /// 全品目の <c>OfferMax</c> を天井超えにして「試された日」にしつつ、<c>WindowSettledCount</c> を
+    /// 0にして窓口購入合計を0にする(8-5cの赤条件 ── 試された日があり窓口購入が0)。
+    /// </summary>
+    private static void SetOfferMaxTestedWithNoWindowPurchase(List<DailySnapshot> days, int fromDay, int toDayInclusive)
+    {
+        for (int day = fromDay; day <= toDayInclusive; day++)
+        {
+            var prices = days[day].Prices.ToList();
+
+            for (int itemId = 0; itemId < prices.Count; itemId++)
+            {
+                if (DailySnapshotTestBuilder.Definition.IsPrimaryItem(itemId))
+                {
+                    continue;
+                }
+
+                int ceiling = DailySnapshotTestBuilder.Ceiling(itemId);
+                prices[itemId] = prices[itemId] with { OfferMax = ceiling + 1, WindowSettledCount = 0 };
+            }
+
+            days[day] = new DailySnapshot(
+                days[day].Economy, prices, days[day].Districts, days[day].Households, days[day].Trades);
+        }
     }
 
     /// <summary>

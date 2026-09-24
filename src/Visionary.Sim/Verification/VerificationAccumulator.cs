@@ -1231,8 +1231,9 @@ public sealed class VerificationAccumulator : IDailyMetricsSink
     }
 
     /// <summary>
-    /// 窓をまたぐ畳み込み(段2。TDD01 §5.2「1つでも赤い窓があれば赤、すべて判定不能なら判定不能、
-    /// それ以外は緑」)。赤くなった最初の窓で <see cref="IdFoldState.FirstRedDay"/> と
+    /// 窓をまたぐ畳み込み(段2。TDD01 §5.2「赤 &gt; 判定不能 &gt; 緑。1つでも赤があれば赤、
+    /// 赤が無く判定不能が1つでもあれば判定不能、それ以外は緑」)。赤くなった最初の窓で
+    /// <see cref="IdFoldState.FirstRedDay"/> と
     /// <see cref="IdFoldState.Evidence"/> を凍結し、以後は上書きしない(テスト #28 の核心)。
     /// </summary>
     private static void Merge(IdFoldState state, Verdict windowVerdict, long windowEndDay, IReadOnlyList<Evidence> evidence)
@@ -1272,8 +1273,9 @@ public sealed class VerificationAccumulator : IDailyMetricsSink
     }
 
     /// <summary>
-    /// 窓をまたぐ畳み込み(TDD01 §5.2「1つでも赤い窓があれば赤、すべて判定不能なら判定不能、
-    /// それ以外は緑」)を、項目のIdを持たない形で返す。8-1a の「帯」の枝(品目ごとに畳んでから
+    /// 窓をまたぐ畳み込み(TDD01 §5.2「赤 &gt; 判定不能 &gt; 緑。1つでも赤があれば赤、
+    /// 赤が無く判定不能が1つでもあれば判定不能、それ以外は緑」)を、項目のIdを持たない形で返す。
+    /// 8-1a の「帯」の枝(品目ごとに畳んでから
     /// さらに「偏差」の枝と合成する)が <see cref="Resolve"/> を経由できないため分離した。
     /// </summary>
     private static (Verdict Verdict, long FirstRedDay, IReadOnlyList<Evidence> Evidence) ResolveFold(IdFoldState state)
@@ -1284,7 +1286,7 @@ public sealed class VerificationAccumulator : IDailyMetricsSink
         {
             verdict = Verdict.Red;
         }
-        else if (state.WindowsSeen == 0 || state.IndeterminateWindows == state.WindowsSeen)
+        else if (state.WindowsSeen == 0 || state.IndeterminateWindows > 0)
         {
             verdict = Verdict.Indeterminate;
         }
