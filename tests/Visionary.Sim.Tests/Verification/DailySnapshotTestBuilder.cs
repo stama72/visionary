@@ -162,9 +162,11 @@ internal static class DailySnapshotTestBuilder
     {
         var list = new List<DistrictRow>();
 
+        // MetricsSystem は1次産品だけを除外して DistrictRow を出す(工具も含む)。テスト#19が
+        // 工具の除外を実際に検査できるよう、ビルダの形を実データに合わせる(レビュー指摘)。
         for (int item = 0; item < Definition.ItemCount; item++)
         {
-            if (Definition.IsPrimaryItem(item) || item == Item.Tools)
+            if (Definition.IsPrimaryItem(item))
             {
                 continue;
             }

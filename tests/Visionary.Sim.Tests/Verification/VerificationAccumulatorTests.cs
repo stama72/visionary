@@ -336,6 +336,31 @@ public sealed class VerificationAccumulatorTests
         Assert.Equal(Verdict.Indeterminate, GetItem(Run(days), "8-1b").Verdict);
     }
 
+    /// <summary>
+    /// #40(レビューで追加)。TDD01 §5.2 の8-1bのスイッチ率は「partner_switch_permille &gt;= 0 の
+    /// <b>全日</b>で &lt; 50‰」が赤の条件である。有効日のうち1日だけ49‰(閾値未満)で残りが
+    /// 既定の500‰(健全)の窓は、全日条件を満たさないのでスイッチ率の枝では赤にならない
+    /// ── 窓最小値(49‰)だけを見ると誤って赤になる。
+    /// </summary>
+    [Fact]
+    public void SwitchRateBranchIsNotRedWhenOnlyOneDayIsBelowTheFloor()
+    {
+        var days = DailySnapshotTestBuilder.Sequence(150).ToList();
+
+        days[100] = DailySnapshotTestBuilder.WithTrades(
+            days[100], days[100].Trades with { PartnerSwitchPermille = 49 });
+
+        var item = GetItem(Run(days), "8-1b");
+
+        Assert.Equal(Verdict.Green, item.Verdict);
+
+        var minEvidence = FindEvidence(item, "partnerSwitchMinPermille");
+        var maxEvidence = FindEvidence(item, "partnerSwitchMaxPermille");
+
+        Assert.Equal(49, minEvidence.Value);
+        Assert.Equal(500, maxEvidence.Value); // 判定を決めたのは最大値のほう。
+    }
+
     /// <summary>#11。輸入含有原価は年間の最悪季節(4季のmax)で評価する。</summary>
     [Fact]
     public void ImportContentCostUsesTheWorstSeason()
@@ -495,6 +520,58 @@ public sealed class VerificationAccumulatorTests
         }
 
         Assert.Equal(Verdict.Green, GetItem(Run(days), "8-4").Verdict);
+    }
+
+    /// <summary>
+    /// #41(レビューで追加)。8-1bのレンジの根拠は床に対する‰であり、同じ根拠の閾値(40‰)と
+    /// 「値 &lt; 閾値 → 赤」の向きで素直に読める(貨幣単位の絶対値と40という閾値を並べると
+    /// 逆向きに読めてしまっていた)。
+    /// </summary>
+    [Fact]
+    public void RigidityRangeEvidenceIsExpressedInPermille()
+    {
+        int floor = DailySnapshotTestBuilder.Floor(Item.Bread);
+        var days = DailySnapshotTestBuilder.Sequence(150).ToList();
+
+        // 全日同一値に固定してレンジ0にする(硬直の赤条件)。
+        for (int day = 0; day < days.Count; day++)
+        {
+            days[day] = DailySnapshotTestBuilder.WithPrice(
+                days[day], Item.Bread, days[day].Prices[Item.Bread] with { SettledMedian = floor * 2, SettledCount = 4 });
+        }
+
+        var evidence = FindEvidence(GetItem(Run(days), "8-1b"), "settledMedianRange:" + Item.Bread);
+
+        Assert.Equal(VerificationThresholds.RigidityRangePermille, evidence.Threshold);
+        Assert.True(evidence.Value < evidence.Threshold); // ‰で読むと「値<閾値→赤」の向きになる。
+        Assert.Equal(0, evidence.Value);
+    }
+
+    /// <summary>
+    /// #42(レビューで追加)。8-4の区画差の窓平均の根拠は床に対する‰であり、同じ根拠の閾値
+    /// (20‰)と「値 &lt; 閾値 → 赤」の向きで素直に読める(名前は Permille なのに Value が
+    /// 貨幣単位の絶対値だった)。
+    /// </summary>
+    [Fact]
+    public void DistrictSpreadEvidenceIsExpressedInPermille()
+    {
+        int floor = DailySnapshotTestBuilder.Floor(Item.Bread);
+        var days = DailySnapshotTestBuilder.Sequence(150).ToList();
+
+        // 全区画・全日同一値に固定して区画差0にする(8-4の赤条件)。
+        for (int day = 0; day < days.Count; day++)
+        {
+            var districts = days[day].Districts
+                .Select(d => d.ItemId == Item.Bread ? d with { SettledMedian = floor * 2 } : d)
+                .ToList();
+            days[day] = DailySnapshotTestBuilder.WithDistricts(days[day], districts);
+        }
+
+        var evidence = FindEvidence(GetItem(Run(days), "8-4"), "districtSpreadAveragePermille:" + Item.Bread);
+
+        Assert.Equal(VerificationThresholds.DistrictSpreadPermille, evidence.Threshold);
+        Assert.True(evidence.Value < evidence.Threshold); // ‰で読むと「値<閾値→赤」の向きになる。
+        Assert.Equal(0, evidence.Value);
     }
 
     /// <summary>#20。day0の床割れも即赤。FirstRedDayは0。</summary>
@@ -711,6 +788,34 @@ public sealed class VerificationAccumulatorTests
         }
         var unknownEvidence = FindEvidence(GetItem(Run(unknown), "8-6"), "boundedBy");
         Assert.Equal(2, unknownEvidence.Value);
+    }
+
+    /// <summary>
+    /// #43(レビューで追加)。日次の帯(day0、過渡期)が窓より先に8-6を赤くしても、窓ぶんの
+    /// 根拠(<c>boundedBy</c> を含む6件)が根拠から落ちない。着手時点の経済ではほぼ全シードが
+    /// この経路を通るため(day0〜1で貨幣が枯れる)、落ちると <c>boundedBy</c> が summary.json
+    /// に一度も現れなくなる。
+    /// </summary>
+    [Fact]
+    public void MoneyBoundedKeepsWindowEvidenceWhenDayLevelDecides()
+    {
+        var days = DailySnapshotTestBuilder.Sequence(150).ToList();
+        int initial = DailySnapshotTestBuilder.InitialTotalMoney;
+
+        // day0(過渡期)で貨幣総量が帯を大きく外れる。窓(day30〜149)は健全なまま1つ閉じる。
+        days[0] = DailySnapshotTestBuilder.WithEconomy(
+            days[0], days[0].Economy with { MoneyTotal = initial / 10 });
+
+        var item = GetItem(Run(days), "8-6");
+
+        Assert.Equal(Verdict.Red, item.Verdict);
+        Assert.Equal(0, item.FirstRedDay);
+        Assert.Contains(item.Evidence, e => e.Name == "boundedBy");
+        Assert.Contains(item.Evidence, e => e.Name == "moneyTotalMin");
+        Assert.Contains(item.Evidence, e => e.Name == "moneyTotalMax");
+        Assert.Contains(item.Evidence, e => e.Name == "moneyTotalWindowEnd");
+        Assert.Contains(item.Evidence, e => e.Name == "exportValueSum");
+        Assert.Contains(item.Evidence, e => e.Name == "importValueSum");
     }
 
     /// <summary>#27。核心。割合は窓合計を先に足してから割る(日ごとに割って平均しない)。</summary>

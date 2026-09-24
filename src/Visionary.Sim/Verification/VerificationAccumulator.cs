@@ -74,6 +74,10 @@ public sealed class VerificationAccumulator : IDailyMetricsSink
     private long _moneyWindowFirstRedDay = -1;
     private IReadOnlyList<Evidence> _moneyWindowEvidence = Array.Empty<Evidence>();
 
+    // 日次の帯が窓より先に赤くした場合でも、窓ぶんの根拠(boundedByを含む6件)を落とさない
+    // ために、最初に閉じた窓の根拠を無条件に(赤・緑を問わず)1度だけ覚えておく(レビュー指摘)。
+    private IReadOnlyList<Evidence>? _firstWindowMoneyEvidence;
+
     // day の昇順・欠けなくの検査。
     private long _lastDay = -1;
     private bool _hasWrittenAnyDay;
@@ -88,6 +92,7 @@ public sealed class VerificationAccumulator : IDailyMetricsSink
     private readonly long[] _windowSellerDaysAtFloorWithExport1b;
     private readonly long[] _windowSellerDays1b;
     private int _windowSwitchMinPermille;
+    private int _windowSwitchMaxPermille;
     private int _windowSwitchValidDays;
 
     private long _windowExportQuantitySum1c;
@@ -372,6 +377,11 @@ public sealed class VerificationAccumulator : IDailyMetricsSink
             if (trades.PartnerSwitchPermille < _windowSwitchMinPermille)
             {
                 _windowSwitchMinPermille = trades.PartnerSwitchPermille;
+            }
+
+            if (trades.PartnerSwitchPermille > _windowSwitchMaxPermille)
+            {
+                _windowSwitchMaxPermille = trades.PartnerSwitchPermille;
             }
         }
 
@@ -677,7 +687,11 @@ public sealed class VerificationAccumulator : IDailyMetricsSink
             parts.Add(itemVerdict);
             evidence.Add(new Evidence(
                 $"settledMedianMax:{item}", max, (long)floor * VerificationThresholds.DivergenceUpperMultiplier, validDays));
-            evidence.Add(new Evidence($"settledMedianMin:{item}", min, floor, validDays));
+
+            // §5.2の帯は [床÷10, 床×10]。下側の閾値は床そのものではなく床÷10である
+            // (レビュー指摘。判定 min×10 < floor は除算を消した形のままで変えない)。
+            long lowerThreshold = IntegerMath.CeilDiv((long)floor, VerificationThresholds.DivergenceLowerDivisor);
+            evidence.Add(new Evidence($"settledMedianMin:{item}", min, lowerThreshold, validDays));
             evidence.Add(new Evidence($"dispersionPermille:{item}", dispersionPermille, -1, validDays));
         }
 
@@ -727,7 +741,12 @@ public sealed class VerificationAccumulator : IDailyMetricsSink
                 int range = max - min;
                 bool narrow = (long)range * 1000 < (long)floor * VerificationThresholds.RigidityRangePermille;
                 rangeVerdict = narrow ? Verdict.Red : Verdict.Green;
-                evidence.Add(new Evidence($"settledMedianRange:{item}", range, VerificationThresholds.RigidityRangePermille, validDays));
+
+                // 根拠は床に対する‰へ変換する(判定そのものは上の除算を使わない式のまま変えない。
+                // レビュー指摘 ── 貨幣単位の絶対値と閾値40‰を並べると「値<閾値→赤」の向きが
+                // 素直に読めなかった)。
+                long rangePermille = IntegerMath.CeilDiv((long)range * 1000, floor);
+                evidence.Add(new Evidence($"settledMedianRange:{item}", rangePermille, VerificationThresholds.RigidityRangePermille, validDays));
             }
 
             parts.Add(rangeVerdict);
@@ -748,15 +767,26 @@ public sealed class VerificationAccumulator : IDailyMetricsSink
         }
         else
         {
-            switchVerdict = _windowSwitchMinPermille < VerificationThresholds.PartnerSwitchFloorPermille
+            // TDD01 §5.2: 赤の条件は「partner_switch_permille >= 0 の全日で < 50‰」(全日条件)。
+            // 全日が閾値未満であることは、有効日の最大値が閾値未満であることと同値である
+            // (窓最小値で判定すると「1日でも下回れば赤」になり、全日条件にならない)。
+            switchVerdict = _windowSwitchMaxPermille < VerificationThresholds.PartnerSwitchFloorPermille
                 ? Verdict.Red
                 : Verdict.Green;
         }
 
         parts.Add(switchVerdict);
+
+        // 窓最小値は仕様の根拠の表が要求する値(判定には使わない)。窓最大値は判定を決めた値
+        // (レビュー指摘。名前で区別する)。
         evidence.Add(new Evidence(
             "partnerSwitchMinPermille",
             _windowSwitchValidDays == 0 ? -1 : _windowSwitchMinPermille,
+            VerificationThresholds.PartnerSwitchFloorPermille,
+            _windowSwitchValidDays));
+        evidence.Add(new Evidence(
+            "partnerSwitchMaxPermille",
+            _windowSwitchValidDays == 0 ? -1 : _windowSwitchMaxPermille,
             VerificationThresholds.PartnerSwitchFloorPermille,
             _windowSwitchValidDays));
 
@@ -873,7 +903,12 @@ public sealed class VerificationAccumulator : IDailyMetricsSink
                 long windowAverage = IntegerMath.CeilDiv(_windowSpreadSum4[item], validDays);
                 bool converged = windowAverage * 1000 < (long)floor * VerificationThresholds.DistrictSpreadPermille;
                 itemVerdict = converged ? Verdict.Red : Verdict.Green;
-                evidence.Add(new Evidence($"districtSpreadAveragePermille:{item}", windowAverage, floor, validDays));
+
+                // 根拠は床に対する‰へ変換する(判定そのものは上の除算を使わない式のまま変えない。
+                // レビュー指摘 ── 名前がPermilleなのにValueが貨幣単位の絶対値だった)。
+                long spreadPermille = IntegerMath.CeilDiv(windowAverage * 1000, floor);
+                evidence.Add(new Evidence(
+                    $"districtSpreadAveragePermille:{item}", spreadPermille, VerificationThresholds.DistrictSpreadPermille, validDays));
             }
 
             parts.Add(itemVerdict);
@@ -1005,6 +1040,11 @@ public sealed class VerificationAccumulator : IDailyMetricsSink
             new("importValueSum", _windowImportValueSum6, -1, -1),
             new("boundedBy", boundedBy, -1, -1),
         };
+
+        // 日次の帯が窓より先に赤くした場合でも、窓ぶんの根拠(boundedByを含む6件)を
+        // ResolveMoneyBounded が組み合わせられるように、最初に閉じた窓の根拠を無条件に
+        // 1度だけ覚えておく(レビュー指摘)。
+        _firstWindowMoneyEvidence ??= evidence;
 
         if (declineRed)
         {
@@ -1159,11 +1199,31 @@ public sealed class VerificationAccumulator : IDailyMetricsSink
 
         Verdict verdict = firstRedDay == -1 ? Verdict.Green : Verdict.Red;
 
-        IReadOnlyList<Evidence> evidence = firstRedDay == -1
-            ? _moneyWindowEvidence
-            : firstRedDay == _moneyDayFirstRedDay
-                ? _moneyDayEvidence
-                : _moneyWindowEvidence;
+        IReadOnlyList<Evidence> evidence;
+
+        if (firstRedDay == -1)
+        {
+            evidence = _moneyWindowEvidence;
+        }
+        else if (firstRedDay == _moneyDayFirstRedDay)
+        {
+            // 日次の帯が先に赤くしても、窓ぶんの根拠(boundedByを含む6件)を落とさない
+            // (レビュー指摘)。「根拠は判定を決めた窓のもの」(規則。#29が実測する)を日次条件へ
+            // 言い換えると、日次の赤い日は窓が閉じる前(過渡期)であることが多いので、最初の窓の
+            // ものを使う。窓がまだ1つも閉じていなければ日次の根拠だけを出す。
+            var combined = new List<Evidence>(_moneyDayEvidence);
+
+            if (_firstWindowMoneyEvidence is not null)
+            {
+                combined.AddRange(_firstWindowMoneyEvidence);
+            }
+
+            evidence = combined;
+        }
+        else
+        {
+            evidence = _moneyWindowEvidence;
+        }
 
         return new VerificationItemResult(VerificationItemIds.MoneyBounded, verdict, firstRedDay, evidence);
     }
@@ -1189,6 +1249,7 @@ public sealed class VerificationAccumulator : IDailyMetricsSink
         Array.Clear(_windowOccupationStoppedDays3, 0, _windowOccupationStoppedDays3.Length);
 
         _windowSwitchMinPermille = int.MaxValue;
+        _windowSwitchMaxPermille = int.MinValue;
         _windowSwitchValidDays = 0;
 
         _windowExportQuantitySum1c = 0;
