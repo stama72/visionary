@@ -218,4 +218,54 @@ public sealed class ProgramRunTests : IDisposable
 
         Assert.Equal(64, exitCode);
     }
+
+    /// <summary>
+    /// #39(W2-21 タスク仕様)。<c>configs/m0-w2-baseline.json</c>(10シード × 36,000日)が
+    /// 600秒以内に終わり、<c>summary.json</c> が出る。
+    /// </summary>
+    /// <remarks>
+    /// <b>W2-20 のテスト #20 と同じく、着手時点の経済は20〜30日で止まるので空振りに近い。</b>
+    /// 判定(<see cref="Visionary.Sim.Verification.VerificationAccumulator"/>)が日数に比例しない
+    /// 仕事をしている(全日の行を溜めた等)場合に検出する回帰テストとして置くが、本タスク着手時点では
+    /// 大半の日が「経済が死んだ後の空振り」であり、性能上の余裕を実測しているわけではない。
+    /// </remarks>
+    [Fact]
+    public void LongRunStillFinishesWithinTheBudget()
+    {
+        string configPath = FindRepoRootFile(Path.Combine("configs", "m0-w2-baseline.json"));
+        string outDirectory = Path.Combine(_workDirectory, "out");
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        int exitCode = Program.Execute(new[] { "run", "--config", configPath, "--out", outDirectory });
+        stopwatch.Stop();
+
+        Assert.Equal(0, exitCode);
+        Assert.True(
+            stopwatch.Elapsed.TotalSeconds < 600,
+            $"10シード×36,000日の走行に{stopwatch.Elapsed.TotalSeconds:F1}秒かかった。");
+        Assert.True(File.Exists(Path.Combine(outDirectory, "summary.json")));
+    }
+
+    /// <summary>
+    /// テスト実行時の作業ディレクトリ(<c>bin/Release/net8.0</c> 等)からリポジトリルートへ向けて
+    /// 上へ辿り、<paramref name="relativePath"/> を探す。
+    /// </summary>
+    private static string FindRepoRootFile(string relativePath)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+
+        while (directory is not null)
+        {
+            string candidate = Path.Combine(directory.FullName, relativePath);
+
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new FileNotFoundException($"リポジトリルートから {relativePath} が見つからない。");
+    }
 }

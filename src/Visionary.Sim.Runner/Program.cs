@@ -4,6 +4,7 @@ using Visionary.Sim.Metrics;
 using Visionary.Sim.Randomness;
 using Visionary.Sim.Systems;
 using Visionary.Sim.Time;
+using Visionary.Sim.Verification;
 
 namespace Visionary.Sim.Runner;
 
@@ -192,6 +193,7 @@ internal static class Program
 
         var definition = WorldDefinition.M0;
         int ticks = checked(config.DurationDays * Tick.HoursPerDay);
+        var verifications = new List<SeedVerification>();
 
         foreach (long seed in config.MasterSeeds!)
         {
@@ -201,11 +203,18 @@ internal static class Program
 
             var world = WorldGenerator.Generate(definition, new RandomSource(seed));
 
+            // accumulator は using の外で作り、Advance の後に Build(seed) を呼ぶ(csvSink の
+            // Dispose と順序を絡めない。W2-21 タスク仕様「6.」)。
+            var accumulator = new VerificationAccumulator(definition);
+
             using (var sink = new CsvMetricsSink(seedOutputDirectory))
             {
-                var scheduler = new SimScheduler(BuildPipeline(definition, sink), new RandomSource(seed));
+                var composite = new CompositeDailyMetricsSink(sink, accumulator);
+                var scheduler = new SimScheduler(BuildPipeline(definition, composite), new RandomSource(seed));
                 scheduler.Advance(world, ticks);
             }
+
+            verifications.Add(accumulator.Build(seed));
 
             stopwatch.Stop();
 
@@ -217,6 +226,10 @@ internal static class Program
                 stopwatch.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture),
                 seedOutputDirectory));
         }
+
+        // summary.json は <out> 直下に1つ(シードごとのディレクトリの下ではない。TDD01 §4.1)。
+        var summary = RunSummaryBuilder.Build(config.DurationDays, verifications);
+        SummaryJsonWriter.Write(Path.Combine(outDirectory, "summary.json"), summary);
 
         return ExitSuccess;
     }
