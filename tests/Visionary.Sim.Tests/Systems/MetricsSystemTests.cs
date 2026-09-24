@@ -1,0 +1,1052 @@
+using Visionary.Sim.Determinism;
+using Visionary.Sim.Metrics;
+using Visionary.Sim.Randomness;
+using Visionary.Sim.Systems;
+using Visionary.Sim.Time;
+
+namespace Visionary.Sim.Tests.Systems;
+
+/// <summary>
+/// <see cref="MetricsSystem"/>(順10、W2-20 タスク仕様)の検査。
+/// </summary>
+public sealed class MetricsSystemTests
+{
+    /// <summary>1日ぶんのスナップショットをそのまま溜める(本番の <c>CsvMetricsSink</c> と違い捨てない)。</summary>
+    private sealed class FakeMetricsSink : IDailyMetricsSink
+    {
+        public List<Snapshot> Days { get; } = new();
+
+        public void Write(in DailySnapshot snapshot) => Days.Add(new Snapshot(
+            snapshot.Economy,
+            snapshot.Prices.ToArray(),
+            snapshot.Districts.ToArray(),
+            snapshot.Households.ToArray(),
+            snapshot.Trades));
+
+        public readonly record struct Snapshot(
+            EconomyRow Economy, PriceRow[] Prices, DistrictRow[] Districts, HouseholdRow[] Households, TradesRow Trades);
+    }
+
+    // ---- W2-08(TradeSystemTests)と同じ最小定義パターン。パン(必需候補)がMillerの出力、
+    // 木材(1次産品)がMillerの入力。値を全部この定義側で握るため、金額の計算が手で追える。
+
+    private static Recipe MillerRecipe() =>
+        new(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = Item.Bread, Quantity = 1 } },
+            inputs: new[] { new ItemQuantity { ItemId = Item.Timber, Quantity = 1 } },
+            laborPermille: 1000);
+
+    private static int[] TargetStockDaysFor(params int[] itemIds)
+    {
+        var row = new int[Item.Count];
+
+        foreach (int itemId in itemIds)
+        {
+            row[itemId] = 1;
+        }
+
+        return row;
+    }
+
+    private static WorldDefinition BuildDefinition(int breadFloor = 10, int grainFloor = 10, int shipmentDays = 1)
+    {
+        // Grain(itemId 0)はUnusedRecipe(Baker〜Smith)が生産するため、都市生産品として
+        // 外部買値を持つ必要がある(WorldDefinitionのコンストラクタの検証)。
+        var externalBuyPrice = new int[Item.Count];
+        externalBuyPrice[Item.Bread] = breadFloor;
+        externalBuyPrice[Item.Grain] = grainFloor;
+
+        return EconomySystemTestFixtures.BuildDefinition(
+            MillerRecipe(),
+            dailyConsumptionPerNpcByRank: new[] { new int[Item.Count], new int[Item.Count], new int[Item.Count] },
+            necessityTargetStockDays: TargetStockDaysFor(Item.Bread),
+            preferenceTargetStockDays: new int[Item.Count],
+            tolerancePermille: 1200,
+            minimumMarginPermille: 0,
+            opportunityCostBaseByOccupation: new[] { 1, 1, 1, 1, 1 },
+            rankCoefficientPermille: new[] { 1000, 1000, 1000 },
+            travelHoursPerDistrict: 1,
+            shipmentDays: shipmentDays,
+            inputBufferDays: 1,
+            externalBuyPriceOverride: externalBuyPrice);
+    }
+
+    private static void AddHousehold(
+        World world, int id, int districtId, Occupation occupation, int liquidFunds = 0)
+    {
+        world.Npcs[id].Rank = NpcRank.Master;
+        world.Households[id] = new HouseholdState(
+            id: id, districtId: districtId, headNpcId: id, memberNpcIds: new[] { id }, itemCount: Item.Count);
+        world.Households[id].Occupation = occupation;
+        world.Households[id].LiquidFunds = liquidFunds;
+    }
+
+    /// <summary><see cref="MetricsSystem"/> だけを1tick(1日)走らせる。段1〜段5bを一切通らない。</summary>
+    private static FakeMetricsSink RunMetricsOnly(WorldDefinition definition, World world)
+    {
+        var sink = new FakeMetricsSink();
+        var scheduler = new SimScheduler(
+            new ISimSystem[] { new MetricsSystem(definition, sink) }, new RandomSource(1));
+        scheduler.Advance(world, ticks: 1);
+
+        return sink;
+    }
+
+    private static void AddLedgerEntry(
+        World world, int ownerHouseholdId, LedgerDirection direction, int itemId, int counterpartyId,
+        int unitPrice, int quantity, Tick occurredAt) =>
+        world.Ledgers[ownerHouseholdId].Add(new LedgerEntry
+        {
+            CounterpartyId = counterpartyId,
+            ItemId = itemId,
+            Quantity = quantity,
+            UnitPrice = unitPrice,
+            OccurredAt = occurredAt,
+            Terms = LedgerTerms.Cash,
+            Direction = direction,
+        });
+
+    /// <summary>TDD01 §3.3 の(現時点で実装済みの)登録順。順6〜順9は存在しないので含まない。</summary>
+    private static ISimSystem[] FullPipeline(WorldDefinition definition, IDailyMetricsSink sink) => new ISimSystem[]
+    {
+        new ProductionSystem(definition),
+        new ConsumptionSystem(definition),
+        new HouseholdSystem(definition),
+        new NeedGenerationSystem(definition),
+        new TradeSystem(definition),
+        new MetricsSystem(definition, sink),
+    };
+
+    /// <summary>#1(核心。上の#1の核心変異を別表#1'が差し替えた)。MetricsSystem を登録した
+    /// 走行と登録しない走行のハッシュが一致する。</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>当てる核心変異は <c>MetricsSystem.Step</c> の中の <c>household.LiquidFunds = 0;</c>
+    /// である</b>(2巡目 I-b / 3巡目 I-a。初稿の <c>household.UnmetConsumption[0] = 0;</c> は
+    /// M0 で恒常0のため確実に no-op だったので差し替えた)。<c>LiquidFunds</c> を選ぶのは
+    /// <b>累積量だからである</b> ── 即日分岐して以後の全日に波及するので、最終日の値に依存しない。
+    /// </para>
+    /// <para>
+    /// <b>日次カウンタ型の欄(<c>ProductionRuns</c> / <c>UnaffordableNecessityCount</c> /
+    /// <c>UnmetConsumption</c>)を当てても意味が無い。</b>翌日の上流(順1
+    /// <c>ProductionSystem</c> / 順5 / <c>ConsumptionSystem</c>)が当日ぶんを無条件に書き直す
+    /// ので、走行中の書き換えは上書きされて消え、30日走行の等値検査に残るのは最終日の値だけ
+    /// である。<c>UnmetConsumption[Item.Grain]</c> は M0 で恒常0なので確実に no-op、
+    /// <c>ProductionRuns</c> も seed 1 では day 23 以降ほぼ0になる。
+    /// </para>
+    /// <para>
+    /// <b>この穴は塞いでいない</b> ── 順10 が最終日以外に日次カウンタを消す変異を、本テストは
+    /// 検出しない(3巡目 I-a)。
+    /// </para>
+    /// <para>
+    /// <b><c>mutator</c> による実測(2026-09-24、07da3de、ベースライン571件全緑)。</b>上記の
+    /// <c>household.LiquidFunds = 0;</c> を <c>MetricsSystem.Step</c> の世帯ループ先頭に実際に
+    /// 挿入したところ、期待どおり赤になった(3件: 本テスト /
+    /// <see cref="MoneyTotalMovesOnlyByExportsAndImports"/> /
+    /// <see cref="PartnerSwitchReflectsChangedSellers"/>)。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void MetricsDoesNotChangeTheStateHash()
+    {
+        var definition = WorldDefinition.M0;
+        var worldWithMetrics = WorldGenerator.Generate(definition, new RandomSource(1));
+        var worldWithoutMetrics = WorldGenerator.Generate(definition, new RandomSource(1));
+
+        var sink = new FakeMetricsSink();
+        var schedulerWithMetrics = new SimScheduler(FullPipeline(definition, sink), new RandomSource(1));
+
+        var schedulerWithoutMetrics = new SimScheduler(
+            new ISimSystem[]
+            {
+                new ProductionSystem(definition),
+                new ConsumptionSystem(definition),
+                new HouseholdSystem(definition),
+                new NeedGenerationSystem(definition),
+                new TradeSystem(definition),
+            },
+            new RandomSource(1));
+
+        schedulerWithMetrics.Advance(worldWithMetrics, ticks: 30 * 24);
+        schedulerWithoutMetrics.Advance(worldWithoutMetrics, ticks: 30 * 24);
+
+        Assert.Equal(StateHasher.Compute(worldWithoutMetrics), StateHasher.Compute(worldWithMetrics));
+    }
+
+    /// <summary>#2。走行後に world.Metrics の全欄を任意の値で埋めても状態ハッシュが変わらない。</summary>
+    [Fact]
+    public void MetricsScratchIsNotHashed()
+    {
+        var definition = WorldDefinition.M0;
+        var world = WorldGenerator.Generate(definition, new RandomSource(1));
+        var sink = new FakeMetricsSink();
+        var scheduler = new SimScheduler(FullPipeline(definition, sink), new RandomSource(1));
+        scheduler.Advance(world, ticks: 5 * 24);
+
+        ulong before = StateHasher.Compute(world);
+
+        Array.Fill(world.Metrics.SellerHasNoReference, 999);
+        Array.Fill(world.Metrics.SellerCoefficientCapped, 999);
+        Array.Fill(world.Metrics.DemandLines, 999);
+        Array.Fill(world.Metrics.DemandLinesWithoutKnownPrice, 999);
+        Array.Fill(world.Metrics.InputBlockedByFunds, 999);
+        Array.Fill(world.Metrics.PreviousCounterpartyId, 999);
+        Array.Fill(world.Metrics.CurrentCounterpartyId, 999);
+
+        ulong after = StateHasher.Compute(world);
+
+        Assert.Equal(before, after);
+    }
+
+    /// <summary>#3(核心)。30日、日次の money_total の差が毎日 export_value − import_value に一致する。</summary>
+    /// <remarks>
+    /// <b><c>mutator</c> による実測(2026-09-24、07da3de、ベースライン571件全緑)。</b>
+    /// <c>MetricsSystem.Step</c> の世帯ループ先頭への <c>household.LiquidFunds = 0;</c> の追加は
+    /// 期待どおり赤(3件、本テストを含む。詳細は
+    /// <see cref="MetricsDoesNotChangeTheStateHash"/> の remarks)。<c>isWindowCounterparty</c> の
+    /// <c>==</c> を <c>!=</c> へ反転する変異も期待どおり赤(4件: 本テスト /
+    /// <see cref="TradesAndCountColumnsAreNotSwapped"/> /
+    /// <see cref="HhiReflectsInternalSettlementConcentration"/> /
+    /// <see cref="WindowPurchasesAreASubsetOfSettlements"/>)── 窓口判定が反転すると
+    /// export/import の内外が入れ替わり、money_total の日次差分が一致しなくなる。
+    /// </remarks>
+    [Fact]
+    public void MoneyTotalMovesOnlyByExportsAndImports()
+    {
+        var definition = WorldDefinition.M0;
+        var world = WorldGenerator.Generate(definition, new RandomSource(1));
+        long previousMoney = (long)definition.InitialLiquidFunds * definition.HouseholdCount;
+
+        var sink = new FakeMetricsSink();
+        var scheduler = new SimScheduler(FullPipeline(definition, sink), new RandomSource(1));
+        scheduler.Advance(world, ticks: 30 * 24);
+
+        Assert.Equal(30, sink.Days.Count);
+
+        foreach (var day in sink.Days)
+        {
+            long expectedDelta = (long)day.Economy.ExportValue - day.Economy.ImportValue;
+            long actualDelta = (long)day.Economy.MoneyTotal - previousMoney;
+
+            Assert.Equal(expectedDelta, actualDelta);
+
+            previousMoney = day.Economy.MoneyTotal;
+        }
+    }
+
+    /// <summary>
+    /// #4(核心)。初日、必需(パン)が現金を持っていったあとの生産の入力(木材)の購入が
+    /// 資金上限の切り詰め(段5b経路(2))で0になり、input_blocked_households が1以上になる。
+    /// </summary>
+    /// <remarks>
+    /// <b><c>mutator</c> による実測(2026-09-24、07da3de、ベースライン571件全緑)。</b>
+    /// <c>TryPurchaseLine</c> の経路(2)(<c>fundsCap == 0</c>)の <c>InputBlockedByFunds</c> 代入を
+    /// 削っても、<b>本テストは緑のまま通った</b>。本テストの世帯は流動資金
+    /// <c>BreadFloor</c>(&gt;0)を持つため、実際にこの世帯日を赤くしているのは経路(2)ではなく
+    /// 段4の <c>CashCap == 0</c> 経路であり、本テストは経路(2)を検出できていない
+    /// (タスク仕様が本テストを経路(2)の核心に指定していたのは仕様の誤りで、2巡目 I-a の訂正どおり
+    /// 実測でも裏付けられた)。経路(2)を実際に検出するのは
+    /// <see cref="InputBlockedCountsWhenFundsCapTruncates"/> である。
+    /// </remarks>
+    [Fact]
+    public void InputBlockedCountsTheFirstDay()
+    {
+        const int BreadFloor = 10;
+        var definition = BuildDefinition(breadFloor: BreadFloor);
+
+        var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
+        AddHousehold(world, id: 0, districtId: 4, Occupation.Miller, liquidFunds: BreadFloor);
+        AddHousehold(world, id: 1, districtId: 4, Occupation.Miller); // パンの売り手。
+        world.Households[1].WorkshopInventory[Item.Bread] = 100;
+
+        var sink = new FakeMetricsSink();
+        var scheduler = new SimScheduler(
+            new ISimSystem[] { new TradeSystem(definition), new MetricsSystem(definition, sink) },
+            new RandomSource(1));
+        scheduler.Advance(world, ticks: 24);
+
+        Assert.Single(sink.Days);
+        Assert.True(
+            sink.Days[0].Economy.InputBlockedHouseholds >= 1,
+            "初日に input_blocked_households が立たなかった"
+                + "(段5b経路(2)、資金上限の切り詰めの配線が落ちている可能性)。");
+    }
+
+    /// <summary>
+    /// #5(核心)。流動資金0の世帯は、生産の入力の店が1件も選ばれない日でも
+    /// input_blocked_households が1になる(段4の CashCap==0 だけで拾える)。
+    /// </summary>
+    /// <remarks>
+    /// <b><c>mutator</c> による実測(2026-09-24、07da3de、ベースライン571件全緑)。</b>段4
+    /// (<c>CashCap == 0</c>)の <c>InputBlockedByFunds</c> 代入を削ると、期待どおり赤になった
+    /// (2件: 本テスト / <see cref="InputBlockedDoesNotLatchAcrossDays"/>)。
+    /// </remarks>
+    [Fact]
+    public void InputBlockedCountsTheDayWithNoStore()
+    {
+        var definition = BuildDefinition(breadFloor: 10);
+
+        // 中心区画(4)から離れた区画に1戸だけ置く。資金0なので何も買う見込みが無く、
+        // ErrandPlannerが中心へ出向く理由も無い ── 木材(1次産品)は窓口でしか買えないので、
+        // 窓口へ到達しない日は店が1件も選ばれない。
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+        AddHousehold(world, id: 0, districtId: 0, Occupation.Miller, liquidFunds: 0);
+
+        var sink = new FakeMetricsSink();
+        var scheduler = new SimScheduler(
+            new ISimSystem[] { new TradeSystem(definition), new MetricsSystem(definition, sink) },
+            new RandomSource(1));
+        scheduler.Advance(world, ticks: 24);
+
+        Assert.Single(sink.Days);
+
+        // 前提: 実際に何も約定していない(資金0なので当然)。
+        Assert.Empty(world.Ledgers[0]);
+
+        // 前提: 中心区画へ出向いていない(外出の労働損失が0)。窓口は中心に居るか訪問しないと
+        // 到達できないので(GDD02d §2.2)、これは段5bが店を1件も選べなかったことの証拠になる ──
+        // 段5bを通っていれば、この世帯日のInputBlockedByFundsは経路(1)からも立ちうる。
+        Assert.Equal(0, world.Households[0].ErrandLaborLossPermille);
+
+        Assert.Equal(
+            1,
+            sink.Days[0].Economy.InputBlockedHouseholds);
+    }
+
+    /// <summary>
+    /// #24(別表。レビュー1巡目 I-a の訂正)。段5b の経路(2)(資金上限の切り詰め)<b>だけ</b>が
+    /// input_blocked_households を立てる世帯日を作る。上の #4
+    /// (<see cref="InputBlockedCountsTheFirstDay"/>)は経路(2)を核心に指定していたが、
+    /// 実際には流動資金0の世帯が段4の CashCap==0 経路で先に1を立てるため、経路(2)の代入を
+    /// 丸ごと削っても緑のままだった(実測、下記remarks)。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>流動資金1・耐久(工具)の目標在庫が大きい世帯を1戸だけ置く。</b>必需(パン)は
+    /// この定義では1日消費量0(<c>dailyConsumptionPerNpcByRank</c> が全品目0)なので目標在庫0 ──
+    /// 在庫圧力‰が0になり相場ゲートで弾かれ、必需は一切購入されない(流動資金を減らさない)。
+    /// 段4の時点で生産の入力(木材)の CashCap = FloorDiv(流動資金1 − 必需の取り置き0, 1) = 1
+    /// (0 ではない ── 段4経路はここでは立たない)。
+    /// </para>
+    /// <para>
+    /// 段5bは耐久→生産の入力の順に処理する。耐久(工具1個、窓口価格1)を買うと流動資金が
+    /// 1→0になり、続く生産の入力(木材、窓口価格1)は「店は見つかる(窓口は中心区画に常に届く)
+    /// が資金が尽きている」状態になる ── <c>TradeSettlement.FundsCap(0, 1) == 0</c> で
+    /// 経路(2)が立つ。事前に手計算した値(段4のCashCap=1)を <c>BuyerDemand.Build</c> を直接
+    /// 呼んで確認済み(2026-09-24、この変更のための実測)。
+    /// </para>
+    /// <para>
+    /// <b><c>mutator</c> による実測(2026-09-24、07da3de、ベースライン571件全緑)。</b>
+    /// <c>TryPurchaseLine</c> の経路(2)(<c>fundsCap == 0</c>)の <c>InputBlockedByFunds</c> 代入を
+    /// 削ると、期待どおり赤(1件、本テストのみ)になった。<see cref="InputBlockedCountsTheFirstDay"/>
+    /// は同じ変異で緑のまま通った(想定どおり ── 詳細はそちらの remarks)。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void InputBlockedCountsWhenFundsCapTruncates()
+    {
+        var definition = BuildDefinition(breadFloor: 10);
+
+        // 中心区画(4)に置く ── 窓口(木材・工具はともに1次産品)へ移動せずに届く。
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+        AddHousehold(world, id: 0, districtId: 4, Occupation.Miller, liquidFunds: 1);
+
+        var sink = new FakeMetricsSink();
+        var scheduler = new SimScheduler(
+            new ISimSystem[] { new TradeSystem(definition), new MetricsSystem(definition, sink) },
+            new RandomSource(1));
+        scheduler.Advance(world, ticks: 24);
+
+        Assert.Single(sink.Days);
+
+        // 前提: 耐久(工具)は買えている(段4のCashCapが0ではないことの状況証拠)。
+        Assert.Equal(1, world.Households[0].WorkshopInventory[Item.Tools]);
+
+        // 前提: 生産の入力(木材)は買えていない(経路(2)で切り詰められたこと)。
+        Assert.Equal(0, world.Households[0].WorkshopInventory[Item.Timber]);
+
+        // 前提: 必需(パン)は資金不足に数えられていない(この世帯日を経路(2)だけで説明する)。
+        Assert.Equal(0, world.Households[0].UnaffordableNecessityCount);
+
+        Assert.Equal(1, sink.Days[0].Economy.InputBlockedHouseholds);
+    }
+
+    /// <summary>#6。売り注文を出さなかった世帯がいる日、seller_days が世帯数を下回る。</summary>
+    [Fact]
+    public void SellerDaysCountOnlyPostedOffers()
+    {
+        var definition = WorldDefinition.M0;
+        var world = WorldGenerator.Generate(definition, new RandomSource(1));
+        var sink = new FakeMetricsSink();
+        var scheduler = new SimScheduler(FullPipeline(definition, sink), new RandomSource(1));
+        scheduler.Advance(world, ticks: 20 * 24);
+
+        Assert.Contains(sink.Days, day => day.Economy.SellerDays < definition.HouseholdCount);
+    }
+
+    /// <summary>
+    /// #7。初日(誰も観測を持たない)は、出品した売り手全員が seller_days_without_reference に
+    /// 数えられ、offer_price が床(外部買値)に一致する。
+    /// </summary>
+    [Fact]
+    public void SellerWithoutReferenceIsCountedAtTheFloor()
+    {
+        var definition = WorldDefinition.M0;
+        var world = WorldGenerator.Generate(definition, new RandomSource(1));
+        var sink = new FakeMetricsSink();
+        var scheduler = new SimScheduler(FullPipeline(definition, sink), new RandomSource(1));
+        scheduler.Advance(world, ticks: 24);
+
+        var day0 = sink.Days[0];
+
+        Assert.True(day0.Economy.SellerDaysWithoutReference >= 1);
+        Assert.Equal(day0.Economy.SellerDays, day0.Economy.SellerDaysWithoutReference);
+
+        foreach (var price in day0.Prices)
+        {
+            if (price.OfferCount == 0)
+            {
+                continue;
+            }
+
+            Assert.Equal(price.ExternalBuyPrice, price.OfferMin);
+            Assert.Equal(price.ExternalBuyPrice, price.OfferMax);
+        }
+    }
+
+    /// <summary>
+    /// #8'(上の#8を訂正。レビュー1巡目 I-b)。<see cref="OfferPrice.WasUnsoldCapApplied"/>
+    /// 自体の分岐は <c>OfferPriceTests</c> が直接押さえる。ここでは配線を見る ──
+    /// <b>相場基準が立たない日(初日)は seller_days_coefficient_capped が立たない</b>ことと、
+    /// 相場基準があり・前日の約定が無く・在庫比の係数が1000‰を超える日に実際に1が立つことの
+    /// 両方を確かめる(初日を「全員立つ日」として読んだ旧版は、初日が全売り手について
+    /// 相場基準を持たない日であることを見落としていた)。
+    /// </summary>
+    [Fact]
+    public void UnsoldCapIsCountedOnlyWhenItBites()
+    {
+        // 出荷目標在庫 = 生産能力1 × 出力数量1 × 出荷日数5 = 5。販売在庫1で在庫比200‰
+        // → 係数1500-CeilDiv(200,2)=1400‰(>1000)。
+        var definition = BuildDefinition(breadFloor: 10, shipmentDays: 5);
+
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+        AddHousehold(world, id: 0, districtId: 0, Occupation.Miller);
+        world.Households[0].WorkshopInventory[Item.Bread] = 1;
+
+        // 他の売り手の観測を直接Knowledgeへ注入する(初日ぶん、Tick.Zero)。相場基準
+        // (MarketReference.TrySeller)は「前日までの観測」しか有効と認めないので、
+        // 初日(day0、dayDifference==0)はまだ無効 ── day1になって初めて有効になる。
+        world.Knowledge[0].Add(new PriceObservation
+        {
+            ItemId = Item.Bread,
+            LocationId = 0,
+            Price = 10,
+            SellerId = 1, // 実在しない世帯でよい(TrySellerはKnowledgeの記録しか読まない)。
+            ObservedAt = Tick.Zero,
+            Source = ObservationSource.Direct,
+        });
+
+        var sink = new FakeMetricsSink();
+        var scheduler = new SimScheduler(
+            new ISimSystem[] { new TradeSystem(definition), new MetricsSystem(definition, sink) },
+            new RandomSource(1));
+        scheduler.Advance(world, ticks: 2 * 24);
+
+        Assert.Equal(2, sink.Days.Count);
+
+        // 初日: 相場基準が無い(誰も他の売り手の観測を持たない)ので0。
+        Assert.Equal(0, sink.Days[0].Economy.SellerDaysCoefficientCapped);
+
+        // 2日目: 相場基準あり・前日の約定無し・係数1400‰(>1000) → 1。
+        Assert.Equal(1, sink.Days[1].Economy.SellerDaysCoefficientCapped);
+    }
+
+    /// <summary>#9。全日・全品目で offer_at_floor_with_export_count <= offer_at_floor_count。</summary>
+    [Fact]
+    public void FloorWithExportIsASubsetOfFloor()
+    {
+        var definition = WorldDefinition.M0;
+        var world = WorldGenerator.Generate(definition, new RandomSource(1));
+        var sink = new FakeMetricsSink();
+        var scheduler = new SimScheduler(FullPipeline(definition, sink), new RandomSource(1));
+        scheduler.Advance(world, ticks: 10 * 24);
+
+        bool sawStrictSubset = false;
+
+        foreach (var day in sink.Days)
+        {
+            Assert.True(day.Economy.SellerDaysAtFloorWithExport <= day.Economy.SellerDaysAtFloor);
+
+            foreach (var price in day.Prices)
+            {
+                Assert.True(price.OfferAtFloorWithExportCount <= price.OfferAtFloorCount);
+
+                if (price.OfferAtFloorWithExportCount < price.OfferAtFloorCount)
+                {
+                    sawStrictSubset = true;
+                }
+            }
+        }
+
+        Assert.True(sawStrictSubset, "床に居るが輸出していない売り手日が1件も観測されなかった(値の問題の可能性)。");
+    }
+
+    /// <summary>
+    /// #10'(上の#10を訂正。レビュー2巡目 I-a)。単価10(数量5)と13(数量1)の約定が1件ずつの日、
+    /// settled_median が12になる(切り下げなら11)。<b>数量を別々にする</b> ── 2件とも数量1だと
+    /// 重み付き中央値と行単位の中央値が一致し、「数量で重み付けした」実装ミスを検出できない
+    /// (数量で重み付けすると単価10側(合計6件中5件)へ寄って11以下になる)。
+    /// </summary>
+    [Fact]
+    public void SettledMedianIsRoundedUpOnEvenCounts()
+    {
+        var definition = WorldDefinition.M0;
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: definition.ItemCount);
+
+        AddLedgerEntry(world, ownerHouseholdId: 0, LedgerDirection.Purchase, Item.Bread,
+            counterpartyId: 1, unitPrice: 10, quantity: 5, occurredAt: Tick.Zero);
+        AddLedgerEntry(world, ownerHouseholdId: 0, LedgerDirection.Purchase, Item.Bread,
+            counterpartyId: 1, unitPrice: 13, quantity: 1, occurredAt: Tick.Zero);
+
+        var sink = RunMetricsOnly(definition, world);
+
+        var row = sink.Days[0].Prices.Single(price => price.ItemId == Item.Bread);
+        Assert.Equal(12, row.SettledMedian);
+        Assert.Equal(6, row.SettledQuantity);
+        Assert.Equal(63, row.SettledValue); // 10×5 + 13×1。
+    }
+
+    /// <summary>#11。都市内の約定が1件(買い手・売り手の2行)ある日、settled_count が1(2ではない)。</summary>
+    [Fact]
+    public void SettledStatisticsCountBuyerRowsOnly()
+    {
+        var definition = WorldDefinition.M0;
+        var world = new World(npcCount: 2, householdCount: 2, itemCount: definition.ItemCount);
+
+        AddLedgerEntry(world, ownerHouseholdId: 0, LedgerDirection.Purchase, Item.Bread,
+            counterpartyId: 1, unitPrice: 50, quantity: 1, occurredAt: Tick.Zero);
+        AddLedgerEntry(world, ownerHouseholdId: 1, LedgerDirection.Sale, Item.Bread,
+            counterpartyId: 0, unitPrice: 50, quantity: 1, occurredAt: Tick.Zero);
+
+        var sink = RunMetricsOnly(definition, world);
+
+        var row = sink.Days[0].Prices.Single(price => price.ItemId == Item.Bread);
+        Assert.Equal(1, row.SettledCount);
+    }
+
+    /// <summary>#12。全日・全品目で window_settled_count <= settled_count。窓口からの輸入しか無い日は一致する。</summary>
+    /// <remarks>
+    /// <b><c>mutator</c> による実測(2026-09-24、07da3de、ベースライン571件全緑)。</b>
+    /// <c>MetricsSystem</c> の <c>isWindowCounterparty</c> の <c>==</c> を <c>!=</c> へ反転すると、
+    /// 期待どおり赤になった(4件、本テストを含む。詳細は
+    /// <see cref="MoneyTotalMovesOnlyByExportsAndImports"/> の remarks)。
+    /// </remarks>
+    [Fact]
+    public void WindowPurchasesAreASubsetOfSettlements()
+    {
+        var definition = WorldDefinition.M0;
+        var world = WorldGenerator.Generate(definition, new RandomSource(1));
+        var sink = new FakeMetricsSink();
+        var scheduler = new SimScheduler(FullPipeline(definition, sink), new RandomSource(1));
+        scheduler.Advance(world, ticks: 2 * 24);
+
+        foreach (var day in sink.Days)
+        {
+            foreach (var price in day.Prices)
+            {
+                Assert.True(price.WindowSettledCount <= price.SettledCount);
+            }
+        }
+
+        // 初日の1次産品(穀物)は窓口からしか買えない ── 両者が一致する。
+        var grainDay0 = sink.Days[0].Prices.Single(price => price.ItemId == Item.Grain);
+        Assert.True(grainDay0.SettledCount >= 1);
+        Assert.Equal(grainDay0.SettledCount, grainDay0.WindowSettledCount);
+    }
+
+    /// <summary>#13(核心)。区画Aの買い手が区画Bの売り手から買った日、districts.csv の行の district_id がA。</summary>
+    /// <remarks>
+    /// <b><c>mutator</c> による実測(2026-09-24、07da3de、ベースライン571件全緑)。</b>
+    /// <c>districts.csv</c> の集計キーを買い手の <c>DistrictId</c> から売り手のそれへ差し替えると、
+    /// 期待どおり赤になった(13件)。<b>ただしその多くは値のズレではなく
+    /// <see cref="IndexOutOfRangeException"/> で落ちた</b> ── 窓口(輸入元)の
+    /// <c>CounterpartyId</c> は <see cref="HouseholdState.ExternalMarketSellerId"/>
+    /// (<c>int.MaxValue</c>)であり、<c>world.Households</c> の添字として使えないためである。
+    /// 買い手の区画で集計する実装上の理由(窓口には区画もHouseholdもない)が、値の食い違いを
+    /// 待たずに実行時例外として先に露出した形になる。
+    /// </remarks>
+    [Fact]
+    public void DistrictRowsUseTheBuyerDistrict()
+    {
+        var definition = WorldDefinition.M0;
+        var world = new World(npcCount: 2, householdCount: 2, itemCount: definition.ItemCount);
+        world.Households[0] = new HouseholdState(
+            id: 0, districtId: 0, headNpcId: 0, memberNpcIds: new[] { 0 }, itemCount: definition.ItemCount);
+        world.Households[1] = new HouseholdState(
+            id: 1, districtId: 5, headNpcId: 1, memberNpcIds: new[] { 1 }, itemCount: definition.ItemCount);
+
+        AddLedgerEntry(world, ownerHouseholdId: 0, LedgerDirection.Purchase, Item.Bread,
+            counterpartyId: 1, unitPrice: 50, quantity: 1, occurredAt: Tick.Zero);
+
+        var sink = RunMetricsOnly(definition, world);
+
+        var row = sink.Days[0].Districts.Single(district => district.ItemId == Item.Bread);
+        Assert.Equal(0, row.DistrictId);
+    }
+
+    /// <summary>
+    /// #14(核心)。パン屋(出力2個/回)が6回実行した日、run_cost × 6 が引かれる(× 12ではない)。
+    /// </summary>
+    /// <remarks>
+    /// <b><c>mutator</c> による実測(2026-09-24、07da3de、ベースライン571件全緑)。</b>
+    /// <c>profit</c> の式に <c>recipe.Outputs[0].Quantity</c> を掛けると、期待どおり赤(1件、
+    /// 本テストのみ)になった。
+    /// </remarks>
+    [Fact]
+    public void ProfitUsesRunsNotOutputUnits()
+    {
+        var definition = WorldDefinition.M0;
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: definition.ItemCount);
+
+        var household = world.Households[0];
+        household.Occupation = Occupation.Baker; // 出力2個/回(GDD02d §4.4)。
+        household.ProductionRuns = 6;
+        household.PurchaseUnitCostAverage[Item.Flour] = 50;
+        household.PurchaseUnitCostAverage[Item.Firewood] = 10;
+        household.PurchaseUnitCostAverage[Item.Tools] = 300;
+
+        var recipe = definition.Recipes[(int)Occupation.Baker];
+        int wearCostPerRun = BuyerBudget.WearCostPerRun(300, recipe.LaborPermille, definition.ToolLifeLaborDays);
+        int expectedRunCost = 50 + 10 + wearCostPerRun; // Flour×1 + Firewood×1 + 摩耗費。
+        int expectedProfit = -expectedRunCost * 6; // 売上0。× 6 であって × 12(出力個数)ではない。
+
+        var sink = RunMetricsOnly(definition, world);
+
+        var row = sink.Days[0].Households.Single(h => h.HouseholdId == 0);
+        Assert.Equal(expectedRunCost, row.RunCost);
+        Assert.Equal(expectedProfit, row.Profit);
+    }
+
+    /// <summary>#15。工具の移動平均単価を上げると run_cost が上がる。</summary>
+    [Fact]
+    public void ProfitIncludesWearCost()
+    {
+        int RunCostFor(int toolUnitCostAverage)
+        {
+            var definition = WorldDefinition.M0;
+            var world = new World(npcCount: 1, householdCount: 1, itemCount: definition.ItemCount);
+            var household = world.Households[0];
+            household.Occupation = Occupation.Baker;
+            household.ProductionRuns = 1;
+            household.PurchaseUnitCostAverage[Item.Tools] = toolUnitCostAverage;
+
+            var sink = RunMetricsOnly(definition, world);
+
+            return sink.Days[0].Households.Single(h => h.HouseholdId == 0).RunCost;
+        }
+
+        Assert.True(RunCostFor(1000) > RunCostFor(100));
+    }
+
+    /// <summary>#16。予想在庫が目標在庫以上の行は demand_lines に入らない。</summary>
+    [Fact]
+    public void DemandLinesCountOnlyShortfallLines()
+    {
+        var definition = WorldDefinition.M0;
+        var world = WorldGenerator.Generate(definition, new RandomSource(1));
+
+        // 全世帯の在庫を目標をはるかに超えるまで積み増す(需要が構造的に無い状態を作る)。
+        foreach (var household in world.Households)
+        {
+            for (int itemId = 0; itemId < definition.ItemCount; itemId++)
+            {
+                household.HouseholdInventory[itemId] += 1_000_000;
+                household.WorkshopInventory[itemId] += 1_000_000;
+            }
+        }
+
+        var sink = new FakeMetricsSink();
+        var scheduler = new SimScheduler(
+            new ISimSystem[] { new TradeSystem(definition), new MetricsSystem(definition, sink) },
+            new RandomSource(1));
+        scheduler.Advance(world, ticks: 24);
+
+        // 前提: BuyerDemand.Build 自体は在庫の過不足に関係なく行を立てる(規則8の表)。
+        var buyerDemand = new BuyerDemand(definition);
+        bool anyLinesBuilt = world.Households.Any(household =>
+            buyerDemand.Build(world, household, hasPreviousOutputOfferPrice: false, previousOutputOfferPrice: 0)
+                .Lines.Count > 0);
+
+        Assert.True(anyLinesBuilt, "BuyerDemand.Build が1行も作らなかった(前提条件が崩れている)。");
+        Assert.Equal(0, sink.Days[0].Economy.DemandLines);
+    }
+
+    /// <summary>#17。前日も当日も同じ品目を買った (世帯,品目) が0件の日、partner_switch_permille が-1。</summary>
+    [Fact]
+    public void PartnerSwitchIsUndefinedWithoutABase()
+    {
+        var definition = WorldDefinition.M0;
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: definition.ItemCount);
+
+        var sink = RunMetricsOnly(definition, world);
+
+        Assert.Equal(-1, sink.Days[0].Trades.PartnerSwitchPermille);
+    }
+
+    /// <summary>#18。都市内の約定が0件の日、hhi_permille_squared が-1。</summary>
+    [Fact]
+    public void HhiIsUndefinedWithoutInternalSettlements()
+    {
+        var definition = WorldDefinition.M0;
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: definition.ItemCount);
+
+        var sink = RunMetricsOnly(definition, world);
+
+        Assert.Equal(-1, sink.Days[0].Trades.HhiPermilleSquared);
+    }
+
+    /// <summary>
+    /// #26'(上の#26の入力を訂正。3巡目 I-a)。都市内の約定を2人の売り手ぶん立てた日、
+    /// hhi_permille_squared が手計算した二乗和に一致し、<b>窓口を相手にした約定(輸出)</b>は
+    /// その母数に入らない。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// HHI の母数は <c>Sale</c> 行から積む(<c>MetricsSystem.Step</c>)。初稿は窓口の行を
+    /// <c>Purchase</c> で置いていたため、分子にも分母にも到達せず、「窓口を母数に入れた」
+    /// (窓口除外の <c>else</c> を外す)変異が緑のまま通っていた。ここでは <c>Sale</c> かつ
+    /// 相手=予約Id(= 輸出)の行を都市内の売り手(household1)に1本足す ── 除外を外すと
+    /// household1 の内部シェアが跳ね上がり、下記の期待値(都市内合計100だけを母数にした
+    /// 520000)と食い違う。<b>この食い違いが除外の証拠になる。</b>
+    /// </para>
+    /// <para>
+    /// <b><c>mutator</c> による実測(2026-09-24、07da3de、ベースライン571件全緑)。</b>
+    /// <c>MetricsSystem</c> の <c>isWindowCounterparty</c> の <c>==</c> を <c>!=</c> へ反転すると、
+    /// 期待どおり赤になった(4件、本テストを含む。詳細は
+    /// <see cref="MoneyTotalMovesOnlyByExportsAndImports"/> の remarks)。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void HhiReflectsInternalSettlementConcentration()
+    {
+        var definition = WorldDefinition.M0;
+        var world = new World(npcCount: 3, householdCount: 3, itemCount: definition.ItemCount);
+
+        // 都市内の売り手2人(household1・household2)。household0が両方から買う。
+        AddLedgerEntry(world, ownerHouseholdId: 1, LedgerDirection.Sale, Item.Bread,
+            counterpartyId: 0, unitPrice: 30, quantity: 2, occurredAt: Tick.Zero); // 60
+        AddLedgerEntry(world, ownerHouseholdId: 2, LedgerDirection.Sale, Item.Bread,
+            counterpartyId: 0, unitPrice: 20, quantity: 2, occurredAt: Tick.Zero); // 40
+        AddLedgerEntry(world, ownerHouseholdId: 0, LedgerDirection.Purchase, Item.Bread,
+            counterpartyId: 1, unitPrice: 30, quantity: 2, occurredAt: Tick.Zero);
+        AddLedgerEntry(world, ownerHouseholdId: 0, LedgerDirection.Purchase, Item.Bread,
+            counterpartyId: 2, unitPrice: 20, quantity: 2, occurredAt: Tick.Zero);
+
+        // household1の輸出(Sale、相手=予約Id)。母数に入れると household1 の内部シェアが
+        // (60+500)/(100+500)へ跳ね上がり、下の期待値(520000)と食い違う。
+        AddLedgerEntry(world, ownerHouseholdId: 1, LedgerDirection.Sale, Item.Bread,
+            counterpartyId: HouseholdState.ExternalMarketSellerId, unitPrice: 100, quantity: 5,
+            occurredAt: Tick.Zero);
+
+        var sink = RunMetricsOnly(definition, world);
+
+        // 都市内約定合計=100(輸出500は除く)。household1のshare=CeilDiv(1000×60,100)=600、
+        // household2のshare=CeilDiv(1000×40,100)=400。二乗和=600^2+400^2=520000。
+        Assert.Equal(520000, sink.Days[0].Trades.HhiPermilleSquared);
+    }
+
+    /// <summary>
+    /// #29(別表)。どのテストからも1度も読まれていない欄に assert を足す。<c>active_seller_count</c>
+    /// / <c>active_buyer_count</c>(<c>Sale</c> / <c>Purchase</c> の向き)、
+    /// <c>internal_settlement_count</c> / <c>window_settlement_count</c> /
+    /// <c>internal_settlement_value</c>(内数と外数)、<c>settled_min</c> / <c>settled_max</c>
+    /// (最小最大)、<c>export_quantity</c> / <c>import_quantity</c>(既存の #3 は
+    /// <c>*_value</c> しか読んでいない)を、<b>それぞれ入れ替えたら違う値になる</b>入力で検査する
+    /// (3巡目 I-a)。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 売り手 = household1・household2(ともに <c>Sale</c> 行を持つ)、買い手 = household0
+    /// (唯一 <c>Purchase</c> 行を持つ)なので active_seller_count(2)≠active_buyer_count(1)。
+    /// </para>
+    /// <para>
+    /// household0 のPurchase行は、household1からの内部購入2本(単価10・数量2、単価90・数量1、
+    /// 計110)と、窓口からの輸入1本(単価5・数量3)。よって
+    /// internal_settlement_count(2)≠window_settlement_count(1)、
+    /// internal_settlement_value=110。settled_min=5(輸入)、settled_max=90(内部)で
+    /// settled_min≠settled_max。household1の輸出(単価7・数量4)で
+    /// export_quantity(4)≠import_quantity(3)。
+    /// </para>
+    /// <para>
+    /// <b><c>mutator</c> による実測(2026-09-24、07da3de、ベースライン571件全緑)。</b>
+    /// <c>MetricsSystem</c> の <c>isWindowCounterparty</c> の <c>==</c> を <c>!=</c> へ反転すると、
+    /// 期待どおり赤になった(4件、本テストを含む。詳細は
+    /// <see cref="MoneyTotalMovesOnlyByExportsAndImports"/> の remarks)。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void TradesAndCountColumnsAreNotSwapped()
+    {
+        var definition = WorldDefinition.M0;
+        var world = new World(npcCount: 3, householdCount: 3, itemCount: definition.ItemCount);
+
+        // 内部購入その1: household0 が household1 から買う(単価10・数量2 → 20)。
+        AddLedgerEntry(world, ownerHouseholdId: 0, LedgerDirection.Purchase, Item.Bread,
+            counterpartyId: 1, unitPrice: 10, quantity: 2, occurredAt: Tick.Zero);
+        AddLedgerEntry(world, ownerHouseholdId: 1, LedgerDirection.Sale, Item.Bread,
+            counterpartyId: 0, unitPrice: 10, quantity: 2, occurredAt: Tick.Zero);
+
+        // 内部購入その2: household0 が household2 から買う(単価90・数量1 → 90)。
+        AddLedgerEntry(world, ownerHouseholdId: 0, LedgerDirection.Purchase, Item.Bread,
+            counterpartyId: 2, unitPrice: 90, quantity: 1, occurredAt: Tick.Zero);
+        AddLedgerEntry(world, ownerHouseholdId: 2, LedgerDirection.Sale, Item.Bread,
+            counterpartyId: 0, unitPrice: 90, quantity: 1, occurredAt: Tick.Zero);
+
+        // 輸入: household0 が窓口から買う(単価5・数量3)。
+        AddLedgerEntry(world, ownerHouseholdId: 0, LedgerDirection.Purchase, Item.Bread,
+            counterpartyId: HouseholdState.ExternalMarketSellerId, unitPrice: 5, quantity: 3,
+            occurredAt: Tick.Zero);
+
+        // 輸出: household1 が窓口へ売る(単価7・数量4)。
+        AddLedgerEntry(world, ownerHouseholdId: 1, LedgerDirection.Sale, Item.Bread,
+            counterpartyId: HouseholdState.ExternalMarketSellerId, unitPrice: 7, quantity: 4,
+            occurredAt: Tick.Zero);
+
+        var sink = RunMetricsOnly(definition, world);
+
+        Assert.Equal(2, sink.Days[0].Trades.ActiveSellerCount);
+        Assert.Equal(1, sink.Days[0].Trades.ActiveBuyerCount);
+
+        Assert.Equal(2, sink.Days[0].Trades.InternalSettlementCount);
+        Assert.Equal(1, sink.Days[0].Trades.WindowSettlementCount);
+        Assert.Equal(110, sink.Days[0].Trades.InternalSettlementValue);
+
+        var priceRow = sink.Days[0].Prices.Single(price => price.ItemId == Item.Bread);
+        Assert.Equal(5, priceRow.SettledMin);
+        Assert.Equal(90, priceRow.SettledMax);
+
+        Assert.Equal(4, sink.Days[0].Economy.ExportQuantity);
+        Assert.Equal(3, sink.Days[0].Economy.ImportQuantity);
+    }
+
+    /// <summary>
+    /// #27(核心)。ある日にinput_blockedが立った世帯が、翌日その条件を満たさないなら0に戻る。
+    /// <see cref="InputBlockedCountsTheDayWithNoStore"/>と同じ初日の世界(流動資金0)を使い、
+    /// 2日目に流動資金を増やして段4のCashCap==0を外す。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>TradeSystem.Step</c> 先頭の <c>world.Metrics.BeginDay()</c> を削ると、
+    /// <c>InputBlockedByFunds</c> は <c>= 1</c> としてしか書かれないため初日の値が2日目も残り、
+    /// 本テストの2日目の assert(0を期待)が赤になる。この列を読む #4・#5・#24・#16 はすべて
+    /// 1日しか走らせないため latch を検出できない(2巡目 I-b)。
+    /// </para>
+    /// <para>
+    /// <b><c>mutator</c> による実測(2026-09-24、07da3de、ベースライン571件全緑)。</b>
+    /// 上記の <c>BeginDay()</c> 削除は期待どおり赤(2件: 本テスト /
+    /// <see cref="PartnerSwitchReflectsChangedSellers"/>)。段4(<c>CashCap == 0</c>)の
+    /// <c>InputBlockedByFunds</c> 代入を削る変異も期待どおり赤(2件: 本テスト /
+    /// <see cref="InputBlockedCountsTheDayWithNoStore"/>)。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void InputBlockedDoesNotLatchAcrossDays()
+    {
+        var definition = BuildDefinition(breadFloor: 10);
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+        AddHousehold(world, id: 0, districtId: 0, Occupation.Miller, liquidFunds: 0);
+
+        var sink = new FakeMetricsSink();
+        var scheduler = new SimScheduler(
+            new ISimSystem[] { new TradeSystem(definition), new MetricsSystem(definition, sink) },
+            new RandomSource(1));
+
+        scheduler.Advance(world, ticks: 24); // 1日目: 流動資金0 → input_blocked。
+
+        Assert.Equal(1, sink.Days[0].Economy.InputBlockedHouseholds);
+
+        world.Households[0].LiquidFunds = 1_000_000; // 2日目: 段4のCashCap==0が外れる。
+
+        scheduler.Advance(world, ticks: 24); // 2日目。
+
+        Assert.Equal(2, sink.Days.Count);
+        Assert.Equal(0, sink.Days[1].Economy.InputBlockedHouseholds);
+    }
+
+    /// <summary>
+    /// #28(別表)。SellerHasNoReference は「相場基準が立たない売り手日」であって「前日の約定が
+    /// 無い売り手日」ではない。#8'(<see cref="UnsoldCapIsCountedOnlyWhenItBites"/>)と同じ世界
+    /// (初日は相場基準なし、2日目に他の売り手の観測を注入)を使う ── この世界は買い手が存在
+    /// しないので2日目も hasSettled=false のままであり、hasReference(2日目=true)と
+    /// hasSettled(2日目もfalse)が食い違う。段1の配線を
+    /// <c>SellerHasNoReference[id] = hasSettled ? 0 : 1;</c> に取り違えると、2日目も
+    /// seller_days_without_reference が1のままになる(実際は0であるべき)。#7 は初日1日だけを
+    /// 見ており、初日は全売り手について hasReference == hasSettled == false と縮退するため
+    /// この取り違えを検出できない(2巡目 I-a)。
+    /// </summary>
+    [Fact]
+    public void SellerWithoutReferenceIsDistinctFromNoSettlement()
+    {
+        var definition = BuildDefinition(breadFloor: 10, shipmentDays: 5);
+
+        var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
+        AddHousehold(world, id: 0, districtId: 0, Occupation.Miller);
+        world.Households[0].WorkshopInventory[Item.Bread] = 1;
+
+        // 他の売り手の観測を直接Knowledgeへ注入する(初日ぶん、Tick.Zero)。day0はまだ無効、
+        // day1になって初めて有効になる(#8'と同じ足場)。
+        world.Knowledge[0].Add(new PriceObservation
+        {
+            ItemId = Item.Bread,
+            LocationId = 0,
+            Price = 10,
+            SellerId = 1,
+            ObservedAt = Tick.Zero,
+            Source = ObservationSource.Direct,
+        });
+
+        var sink = new FakeMetricsSink();
+        var scheduler = new SimScheduler(
+            new ISimSystem[] { new TradeSystem(definition), new MetricsSystem(definition, sink) },
+            new RandomSource(1));
+        scheduler.Advance(world, ticks: 2 * 24);
+
+        Assert.Equal(2, sink.Days.Count);
+
+        // 前提: この世界には買い手が存在せず、2日目もhasSettled=falseのまま
+        // (world.Ledgers[0]にSaleが1件も無い) ── hasReferenceとhasSettledが食い違う条件。
+        Assert.Empty(world.Ledgers[0]);
+
+        Assert.Equal(1, sink.Days[0].Economy.SellerDaysWithoutReference); // day0: 相場基準なし。
+        Assert.Equal(0, sink.Days[1].Economy.SellerDaysWithoutReference); // day1: 相場基準あり。
+    }
+
+    /// <summary>
+    /// Millerの入力を穀物(Grain、都市生産品)にした定義。#25専用。<see cref="MillerRecipe"/>は
+    /// 入力が木材(1次産品、窓口専用)であり取引相手が窓口に固定されるため、相手の切り替えを
+    /// 作れない。穀物は Baker/Brewer/Woodworker/Smith の UnusedRecipe が出力する都市生産品
+    /// なので、複数の世帯から買える(相手を切り替えられる)。
+    /// </summary>
+    private static WorldDefinition BuildGrainInputDefinition(int grainFloor = 10, int breadFloor = 10)
+    {
+        var externalBuyPrice = new int[Item.Count];
+        externalBuyPrice[Item.Bread] = breadFloor;
+        externalBuyPrice[Item.Grain] = grainFloor;
+
+        return EconomySystemTestFixtures.BuildDefinition(
+            new Recipe(
+                Occupation.Miller,
+                outputs: new[] { new ItemQuantity { ItemId = Item.Bread, Quantity = 1 } },
+                inputs: new[] { new ItemQuantity { ItemId = Item.Grain, Quantity = 1 } },
+                laborPermille: 1000),
+            opportunityCostBaseByOccupation: new[] { 1, 1, 1, 1, 1 },
+            rankCoefficientPermille: new[] { 1000, 1000, 1000 },
+            travelHoursPerDistrict: 1,
+            shipmentDays: 1,
+            inputBufferDays: 1,
+            externalBuyPriceOverride: externalBuyPrice);
+    }
+
+    /// <summary>
+    /// #25(核心)。2日以上走らせ、前日と当日で同じ品目を別の売り手から買った(世帯,品目)がある日、
+    /// partner_switch_permille が定義された値(全部変わった→1000、同じ相手→0)になる。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>相手を切り替える経路は生産の入力(穀物)である。</b>この定義は必需・嗜好の目標在庫日数を
+    /// 0にしてある(<see cref="BuildGrainInputDefinition"/> は必需・嗜好を渡さないので既定の
+    /// 全品目0になる)ため、唯一の需要行は生産の入力(穀物)だけである。<c>ProductionSystem</c>を
+    /// 登録していないので実際の消費は起きない ── 1日目に買った分をテスト側で0へ戻すことで、
+    /// 2日目にも「1単位買う」需要を作り直す。これは <c>TradeSystem</c> の外で世界を直接書き換える
+    /// 操作だが、<c>TryPurchaseLine</c> 内の <c>CurrentCounterpartyId</c> の代入(W2-20 タスク仕様
+    /// 「呼び出し側を持たないコード」表)は両日ともシステムのコードが実際に書く。<c>CurrentCounterpartyId</c>
+    /// の代入か <c>BeginDay()</c> の Current→Previous の移し替えのどちらを削っても、
+    /// switchDenominator が0のまま(<c>PartnerSwitchPermille == -1</c>)になり、下の
+    /// <c>Assert.Equal(1000, …)</c> / <c>Assert.Equal(0, …)</c> のいずれも赤になる。
+    /// </para>
+    /// <para>
+    /// <b><c>mutator</c> による実測(2026-09-24、07da3de、ベースライン571件全緑)。</b>
+    /// 上記3つの変異はいずれも期待どおり赤になった ──
+    /// <c>MetricsSystem.Step</c> の世帯ループ先頭への <c>household.LiquidFunds = 0;</c> の追加
+    /// (3件、本テストを含む)、<c>TryPurchaseLine</c> の約定成立直後の
+    /// <c>CurrentCounterpartyId</c> 代入の削除(1件、本テストのみ)、
+    /// <c>TradeSystem.Step</c> 先頭の <c>world.Metrics.BeginDay();</c> の削除
+    /// (2件: 本テスト / <see cref="InputBlockedDoesNotLatchAcrossDays"/>)。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void PartnerSwitchReflectsChangedSellers()
+    {
+        // ケースA: 前日と当日で異なる売り手から買う → 1000(全部変わった)。
+        {
+            var definition = BuildGrainInputDefinition();
+            var world = new World(npcCount: 3, householdCount: 3, itemCount: Item.Count);
+            AddHousehold(world, id: 0, districtId: 0, Occupation.Miller, liquidFunds: 1000); // 買い手
+            AddHousehold(world, id: 1, districtId: 0, Occupation.Baker); // 売り手A
+            AddHousehold(world, id: 2, districtId: 0, Occupation.Brewer); // 売り手B
+            world.Households[0].WorkshopInventory[Item.Tools] = 1000; // 耐久の需要を無効化。
+            world.Households[1].WorkshopInventory[Item.Grain] = 1;
+
+            var sink = new FakeMetricsSink();
+            var scheduler = new SimScheduler(
+                new ISimSystem[] { new TradeSystem(definition), new MetricsSystem(definition, sink) },
+                new RandomSource(1));
+
+            scheduler.Advance(world, ticks: 24); // 1日目: 売り手Aから1単位買う。
+
+            Assert.Contains(
+                world.Ledgers[0],
+                entry => entry.Direction == LedgerDirection.Purchase && entry.ItemId == Item.Grain
+                    && entry.CounterpartyId == 1);
+            Assert.Equal(0, world.Households[1].WorkshopInventory[Item.Grain]); // 売り手Aは在庫切れ。
+
+            // 2日目: 買った分を手で戻し(ProductionSystem不在の代わり)、売り手Aは在庫切れのまま、
+            // 売り手Bに新しい在庫を持たせる。
+            world.Households[0].WorkshopInventory[Item.Grain] = 0;
+            world.Households[2].WorkshopInventory[Item.Grain] = 1;
+
+            scheduler.Advance(world, ticks: 24); // 2日目: 売り手Bから買う(相手が変わる)。
+
+            Assert.Contains(
+                world.Ledgers[0],
+                entry => entry.Direction == LedgerDirection.Purchase && entry.ItemId == Item.Grain
+                    && entry.CounterpartyId == 2);
+
+            Assert.Equal(2, sink.Days.Count);
+            Assert.Equal(1000, sink.Days[1].Trades.PartnerSwitchPermille);
+        }
+
+        // ケースB: 前日と当日で同じ売り手から買う → 0(同じ相手)。
+        {
+            var definition = BuildGrainInputDefinition();
+            var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
+            AddHousehold(world, id: 0, districtId: 0, Occupation.Miller, liquidFunds: 1000); // 買い手
+            AddHousehold(world, id: 1, districtId: 0, Occupation.Baker); // 唯一の売り手
+            world.Households[0].WorkshopInventory[Item.Tools] = 1000; // 耐久の需要を無効化。
+            world.Households[1].WorkshopInventory[Item.Grain] = 1;
+
+            var sink = new FakeMetricsSink();
+            var scheduler = new SimScheduler(
+                new ISimSystem[] { new TradeSystem(definition), new MetricsSystem(definition, sink) },
+                new RandomSource(1));
+
+            scheduler.Advance(world, ticks: 24); // 1日目。
+
+            Assert.Equal(0, world.Households[1].WorkshopInventory[Item.Grain]);
+
+            world.Households[0].WorkshopInventory[Item.Grain] = 0;
+            world.Households[1].WorkshopInventory[Item.Grain] = 1; // 同じ売り手が再入荷する。
+
+            scheduler.Advance(world, ticks: 24); // 2日目: 同じ売り手から買う(相手は変わらない)。
+
+            Assert.Contains(
+                world.Ledgers[0],
+                entry => entry.Direction == LedgerDirection.Purchase && entry.ItemId == Item.Grain
+                    && entry.OccurredAt.DayIndex == 1 && entry.CounterpartyId == 1);
+
+            Assert.Equal(2, sink.Days.Count);
+            Assert.Equal(0, sink.Days[1].Trades.PartnerSwitchPermille);
+        }
+    }
+}

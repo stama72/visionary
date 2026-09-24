@@ -138,6 +138,12 @@ public static class MarketReference
     /// 資金の増減と一致する規約(GDD02b §3)なので輸出も約定である。前日の売りが1件も
     /// 無ければ false(0を返さない)。
     /// </summary>
+    /// <remarks>
+    /// <b>末尾から走査し、前日より前に達したら打ち切る</b>(W2-20 タスク仕様「性能 ── 帳簿の
+    /// 全走査を消す」)。帳簿は追記専用で <see cref="LedgerEntry.OccurredAt"/> が非減少なので、
+    /// この打ち切りは結果を変えない。段1 が毎日・全世帯について呼ぶため、先頭からの全走査だと
+    /// 帳簿の行数に比例した仕事が毎日発生し、36,000日 では日数の2乗になる。
+    /// </remarks>
     public static bool TryPreviousDaySettledPrice(
         IReadOnlyList<LedgerEntry> ledger, int itemId, Tick now, out int settledPrice)
     {
@@ -147,13 +153,25 @@ public static class MarketReference
         long totalPayment = 0;
         long totalQuantity = 0;
 
-        for (int i = 0; i < ledger.Count; i++)
+        for (int i = ledger.Count - 1; i >= 0; i--)
         {
             var entry = ledger[i];
+            long entryDayIndex = entry.OccurredAt.DayIndex;
 
-            if (entry.Direction != LedgerDirection.Sale
-                || entry.ItemId != itemId
-                || entry.OccurredAt.DayIndex != previousDayIndex)
+            if (entryDayIndex < previousDayIndex)
+            {
+                // 帳簿は非減少なので、これより前の行はすべて前日より古い(打ち切ってよい)。
+                break;
+            }
+
+            if (entryDayIndex != previousDayIndex)
+            {
+                // 当日ぶん(呼び出し時点でまだ無いはずだが、将来コマンドが割り込む経路に
+                // 備えて安全側に倒す)。打ち切らずスキップする。
+                continue;
+            }
+
+            if (entry.Direction != LedgerDirection.Sale || entry.ItemId != itemId)
             {
                 continue;
             }

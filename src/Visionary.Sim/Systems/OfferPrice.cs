@@ -122,6 +122,48 @@ public static class OfferPrice
     }
 
     /// <summary>
+    /// その日、§1.1 の「売れなかった日は値上げしない」が実際に効いたか(W2-20 タスク仕様)。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b><see cref="UnsoldCapPermille"/> を再定義しない。</b>同じクラスに置くのは、1000 を
+    /// 呼び出し側へ写すと片方だけ動かせてしまうためである(GDD02c §1.1 の値は調整対象)。
+    /// </para>
+    /// <para>
+    /// <b>相場基準が立たない日(<paramref name="hasReference"/> == false)は false</b>
+    /// (レビュー1巡目 I-b の訂正)。その日、段1 は <see cref="Calculate"/> を呼ばずに床を
+    /// そのまま提示価格にするので、価格係数‰ はそもそも算出されておらず頭打ちは評価すら
+    /// されていない。在庫比から係数を再計算して1を立てると、「盲目(相場基準なし)」の
+    /// 売り手日が「ラチェットの停止(頭打ち)」に混入する(W2-20 タスク仕様)。
+    /// </para>
+    /// <para>
+    /// <b>破産中(<paramref name="isBankrupt"/> != 0)は false。</b>500‰の固定が先に効くので
+    /// 頭打ちは何もしない(<see cref="Calculate"/> の既存の分岐と同じ順序)。
+    /// <b><paramref name="hasSettledYesterday"/> が真なら false。</b>
+    /// <b>在庫比から出した価格係数‰ が 1000 以下なら false</b>(<c>min</c> が実際には切っていない)。
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="isBankrupt"/> が0/1以外。</exception>
+    public static bool WasUnsoldCapApplied(
+        bool hasReference, int sellableStock, int shipmentTargetStock, int isBankrupt, bool hasSettledYesterday)
+    {
+        if (isBankrupt is not (0 or 1))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(isBankrupt), isBankrupt, "破産中フラグは 0 / 1(GDD02c §1.4)。");
+        }
+
+        if (!hasReference || isBankrupt == 1 || hasSettledYesterday)
+        {
+            return false;
+        }
+
+        int coefficientPermille = PriceCoefficientPermille(StockRatioPermille(sellableStock, shipmentTargetStock));
+
+        return coefficientPermille > UnsoldCapPermille;
+    }
+
+    /// <summary>
     /// 仕入れ移動平均単価の更新(GDD02a §5.1「仕入れ移動平均単価の更新」)。
     /// <c>CeilDiv(旧移動平均 × (1000 − β‰) + 約定単価 × β‰, 1000)</c>。
     /// </summary>

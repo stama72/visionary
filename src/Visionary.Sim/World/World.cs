@@ -1,3 +1,4 @@
+using Visionary.Sim.Metrics;
 using Visionary.Sim.Time;
 
 namespace Visionary.Sim;
@@ -74,6 +75,10 @@ public sealed class World
         NextNeedId = 0;
         Promises = new List<Promise>();
         EventLog = new List<DomainEvent>();
+
+        // 順5(Trade)の当日ぶんの計数(TDD01 §4.2)。ハッシュ対象外(§3.8) ──
+        // StateHasher.Compute はこの区分を読まない(W2-20 タスク仕様)。
+        Metrics = new MetricsScratch(householdCount, itemCount);
     }
 
     /// <summary>現在tick。暦(年・季節)は <see cref="GameDate"/> による読み替えで、状態としては持たない(ADR-0003)。</summary>
@@ -129,4 +134,11 @@ public sealed class World
 
     /// <summary>ドメインイベントの追記専用列。ハッシュ対象外(TDD01 §3.4 / §3.8)。</summary>
     public List<DomainEvent> EventLog { get; }
+
+    /// <summary>
+    /// 順5(Trade)の当日ぶんの計数(TDD01 §4.2)。<b>ハッシュ対象外</b>(§3.8。
+    /// <see cref="Determinism.StateHasher.Compute"/> はこの区分を読まない)。
+    /// シムの意思決定には一切関与しない(<see cref="Systems.MetricsSystem"/> だけが読む)。
+    /// </summary>
+    public MetricsScratch Metrics { get; }
 }

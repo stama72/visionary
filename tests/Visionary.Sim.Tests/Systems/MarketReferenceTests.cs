@@ -194,8 +194,12 @@ public sealed class MarketReferenceTests
         var yesterday = Tick.FromDays(9);
         var twoDaysAgo = Tick.FromDays(8);
 
+        // W2-20: OccurredAt が非減少(帳簿は追記専用)であることが前提になった
+        // (MarketReference.TryPreviousDaySettledPrice が末尾からの走査+打ち切りに変わったため)。
+        // 前々日の行を先頭に置く。
         var ledger = new List<LedgerEntry>
         {
+            SaleEntry(ItemA, counterpartyId: 8, unitPrice: 999, quantity: 100, occurredAt: twoDaysAgo), // 前々日
             SaleEntry(ItemA, counterpartyId: 5, unitPrice: 10, quantity: 2, occurredAt: yesterday),
             SaleEntry(ItemA, counterpartyId: 6, unitPrice: 21, quantity: 1, occurredAt: yesterday),
             new LedgerEntry
@@ -208,7 +212,6 @@ public sealed class MarketReferenceTests
                 Terms = LedgerTerms.Cash,
                 Direction = LedgerDirection.Purchase, // Purchaseは数えない
             },
-            SaleEntry(ItemA, counterpartyId: 8, unitPrice: 999, quantity: 100, occurredAt: twoDaysAgo), // 前々日
             SaleEntry(ItemB, counterpartyId: 9, unitPrice: 999, quantity: 100, occurredAt: yesterday), // 品目違い
         };
 
@@ -252,5 +255,70 @@ public sealed class MarketReferenceTests
 
         Assert.False(foundToday);
         Assert.Equal(0, settledPriceToday);
+    }
+
+    /// <summary>
+    /// 【核心】W2-20 タスク仕様テスト表 #19。10万行の古い帳簿(前日より前・別品目)+
+    /// 直近2日の3行(前々日1件・前日2件)で1000回呼び、結果が正しく、かつ経過時間が閾値内。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>閾値50ミリ秒の根拠(実測、2026-09-24、開発機)。</b>末尾からの走査+打ち切り(本実装)は
+    /// 1000回で0ミリ秒。参考実装(先頭からの全走査、打ち切り無し)は同条件で133ミリ秒。
+    /// 50ミリ秒は前者に十分な余裕を持たせつつ後者を安全に超える値として選んだ
+    /// (CLAUDE.mdの規律どおり、これは実装内部の閾値であり調整対象)。
+    /// </para>
+    /// <para>
+    /// <b><c>mutator</c> による実測(2026-09-24、07da3de、ベースライン571件全緑)。</b>
+    /// <c>MarketReference.TryPreviousDaySettledPrice</c> を先頭からの全走査(打ち切りなし・
+    /// 結果は不変)へ戻す変異を実際に当てたところ、期待どおり赤になった(1件、本テストのみ)。
+    /// 2回の実測で所要時間は 236ミリ秒 → 173ミリ秒(いずれも閾値50ミリ秒を大幅に超過)と
+    /// 安定して赤だった ── 上記の参考実装の初期測定(133ミリ秒)と桁は一致するが、実行のたび
+    /// 数値は変動する(実行環境のノイズ)。閾値超過という結論自体は2回とも変わらない。
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void PreviousDaySettledPriceStopsAtTheSecondDay()
+    {
+        const long PreviousDayIndex = 100_001;
+        var now = Tick.FromDays(100_002);
+
+        var ledger = new List<LedgerEntry>(100_003);
+
+        // 古い帳簿10万行。前日より前(day0)・別品目(ItemB)── 打ち切りより後ろに置かれる、
+        // かつ品目でも除外されるべき行(二重の安全策)。
+        for (int i = 0; i < 100_000; i++)
+        {
+            ledger.Add(SaleEntry(
+                ItemB, counterpartyId: 9, unitPrice: 999, quantity: 1, occurredAt: Tick.FromDays(0)));
+        }
+
+        // 前々日(打ち切りの境界のすぐ外)。含めると結果が変わる値をわざと置く。
+        ledger.Add(SaleEntry(
+            ItemA, counterpartyId: 9, unitPrice: 999, quantity: 100,
+            occurredAt: Tick.FromDays(PreviousDayIndex - 1)));
+
+        // 前日(対象)。CeilDiv(10*2 + 21*1, 3) = 14。
+        ledger.Add(SaleEntry(ItemA, counterpartyId: 5, unitPrice: 10, quantity: 2, occurredAt: Tick.FromDays(PreviousDayIndex)));
+        ledger.Add(SaleEntry(ItemA, counterpartyId: 6, unitPrice: 21, quantity: 1, occurredAt: Tick.FromDays(PreviousDayIndex)));
+
+        bool found = MarketReference.TryPreviousDaySettledPrice(ledger, ItemA, now, out int settledPrice);
+
+        Assert.True(found);
+        Assert.Equal(14, settledPrice);
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+        for (int i = 0; i < 1000; i++)
+        {
+            MarketReference.TryPreviousDaySettledPrice(ledger, ItemA, now, out _);
+        }
+
+        stopwatch.Stop();
+
+        Assert.True(
+            stopwatch.ElapsedMilliseconds < 50,
+            $"1000回の呼び出しに{stopwatch.ElapsedMilliseconds}ミリ秒かかった"
+                + "(先頭からの全走査に戻った可能性。TDD01 §3.8「帳簿の全走査を消す」)。");
     }
 }
