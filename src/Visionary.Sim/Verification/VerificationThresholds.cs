@@ -5,7 +5,7 @@ namespace Visionary.Sim.Verification;
 /// (GDD02 §9.2)。単位をコメントに書く(ADR-0002)。
 /// </summary>
 /// <remarks>
-/// <b>この20個以外の定数を判定の中に書かない。</b>書いた瞬間、TDD01 §5.2 の表に無い閾値が
+/// <b>この21個以外の定数を判定の中に書かない。</b>書いた瞬間、TDD01 §5.2 の表に無い閾値が
 /// 生まれ、調整対象の所在(GDD02 §9.2)から外れる(W2-21 タスク仕様)。
 /// </remarks>
 public static class VerificationThresholds
@@ -13,11 +13,14 @@ public static class VerificationThresholds
     public const int WindowDays = 120;                        // 単位: 日。ADR-0003 で1年 = 120日
     public const int TransientDays = 30;                      // 単位: 日。窓は day 30 から切る
     public const int MinValidDaysPerWindow = 30;              // 単位: 日。下回る窓は判定不能
-    public const int MinWindowsForDispersion = 3;             // 単位: 窓。下回れば偏差の枝は判定不能
+    public const int MinWindowsForDispersion = 3;             // 単位: 窓。基準窓から最後の窓までがこれを
+                                                              // 下回れば偏差の枝は判定不能(TDD01 §5.2)
 
     public const int DivergenceLowerDivisor = 10;             // 床 ÷ 10 を下回れば発散(×0.1)
     public const int DivergenceUpperMultiplier = 10;          // 床 × 10 を上回れば発散(×10)
-    public const int DispersionGrowthMultiplier = 2;          // 最後の窓 ≥ 最初の窓 × 2 で発散
+    public const int DispersionGrowthMultiplier = 2;          // 最後の窓 ≥ 基準窓 × 2 で発散
+    public const int DispersionFloorPermille = 100;           // 単位: ‰(窓平均に対する比)。最後の窓の
+                                                              // 偏差‰ がこれを下回れば発散と呼ばない
 
     public const int RigidityRangePermille = 40;              // 単位: ‰(床に対する比)。±2% の幅
     public const int PartnerSwitchFloorPermille = 50;         // 単位: ‰。下回り続ければ硬直

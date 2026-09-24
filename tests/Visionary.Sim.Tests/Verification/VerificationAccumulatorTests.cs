@@ -5,12 +5,20 @@ using Visionary.Sim.Verification;
 namespace Visionary.Sim.Tests.Verification;
 
 /// <summary>
-/// <see cref="VerificationAccumulator"/> の検査(W2-21 タスク仕様「落ちるべき条件」#1〜#29・#36・#37)。
+/// <see cref="VerificationAccumulator"/> の検査(W2-21 タスク仕様「落ちるべき条件」#1〜#29・#36・#37・
+/// 別表(フェーズ1 の訂正)#44〜#48・6'・1'・4'・5')。
 /// </summary>
 public sealed class VerificationAccumulatorTests
 {
     private const int TransientDays = VerificationThresholds.TransientDays; // 30
     private const int WindowDays = VerificationThresholds.WindowDays;      // 120
+
+    /// <summary>
+    /// 過渡期30日 + 窓3つ(TDD01 §5.2「390日に満たない走行では8-1aが恒久的に判定不能」)。
+    /// 8-1aを読む #1・#4・#5 はこの長さ以上でないと、偏差の枝が「基準窓から3窓未満」で
+    /// 判定不能になり、項目の判定不能が帯の枝の結果を隠してしまう(別表(フェーズ1の訂正)#1'・4'・5')。
+    /// </summary>
+    private const int ThreeWindowDays = TransientDays + (WindowDays * 3); // 390
 
     private static SeedVerification Run(IReadOnlyList<DailySnapshot> days, long seed = 1)
     {
@@ -30,11 +38,14 @@ public sealed class VerificationAccumulatorTests
     private static Evidence FindEvidence(VerificationItemResult item, string name) =>
         item.Evidence.Single(e => e.Name == name);
 
-    /// <summary>#1(前半)。過渡期の帯超えは8-1aに影響しない(緑)。窓内の帯超えは赤になる。</summary>
+    /// <summary>
+    /// #1(前半。別表(フェーズ1の訂正)#1' により390日以上へ訂正。検証内容は変えない)。
+    /// 過渡期の帯超えは8-1aに影響しない(緑)。窓内の帯超えは赤になる。
+    /// </summary>
     [Fact]
     public void WindowsStartAfterTheTransient_TransientViolationIsIgnored()
     {
-        var days = DailySnapshotTestBuilder.Sequence(150).ToList();
+        var days = DailySnapshotTestBuilder.Sequence(ThreeWindowDays).ToList();
 
         // day5(過渡期)にBreadの帯を大きく超える値を置く。
         var badPrice = days[5].Prices[Item.Bread] with { SettledMedian = 10000, SettledCount = 4 };
@@ -45,11 +56,14 @@ public sealed class VerificationAccumulatorTests
         Assert.Equal(Verdict.Green, GetItem(result, "8-1a").Verdict);
     }
 
-    /// <summary>#1(後半)。窓の中(day30以降)に置くと赤になる。</summary>
+    /// <summary>
+    /// #1(後半。別表(フェーズ1の訂正)#1' により390日以上へ訂正。検証内容は変えない)。
+    /// 窓の中(day30以降)に置くと赤になる。
+    /// </summary>
     [Fact]
     public void WindowsStartAfterTheTransient_WindowViolationIsRed()
     {
-        var days = DailySnapshotTestBuilder.Sequence(150).ToList();
+        var days = DailySnapshotTestBuilder.Sequence(ThreeWindowDays).ToList();
 
         var badPrice = days[100].Prices[Item.Bread] with { SettledMedian = 10000, SettledCount = 4 };
         days[100] = DailySnapshotTestBuilder.WithPrice(days[100], Item.Bread, badPrice);
@@ -132,14 +146,17 @@ public sealed class VerificationAccumulatorTests
         Assert.Equal(Verdict.Indeterminate, GetItem(result, "8-5b").Verdict);
     }
 
-    /// <summary>#4。有効日が29日の窓は判定不能、30日なら判定が出る。</summary>
+    /// <summary>
+    /// #4(別表(フェーズ1の訂正)#4' により390日以上へ訂正。検証内容は変えない)。
+    /// 有効日が29日の窓は判定不能、30日なら判定が出る。
+    /// </summary>
     [Fact]
     public void ValidDayFloorIsEnforced()
     {
-        var days29 = DailySnapshotTestBuilder.Sequence(150).ToList();
+        var days29 = DailySnapshotTestBuilder.Sequence(ThreeWindowDays).ToList();
         ZeroOutSettledCount(days29, Item.Beer, TransientDays, TransientDays + 90); // 91日を殺す→29日だけ有効
 
-        var days30 = DailySnapshotTestBuilder.Sequence(150).ToList();
+        var days30 = DailySnapshotTestBuilder.Sequence(ThreeWindowDays).ToList();
         ZeroOutSettledCount(days30, Item.Beer, TransientDays, TransientDays + 89); // 90日を殺す→30日だけ有効
 
         var result29 = Run(days29);
@@ -165,7 +182,8 @@ public sealed class VerificationAccumulatorTests
     }
 
     /// <summary>
-    /// #5。核心。基準は <see cref="WorldDefinition.ExternalBuyPrice"/> であり、<see cref="PriceRow.ExternalBuyPrice"/>
+    /// #5(別表(フェーズ1の訂正)#5' により390日以上へ訂正。検証内容は変えない)。核心。基準は
+    /// <see cref="WorldDefinition.ExternalBuyPrice"/> であり、<see cref="PriceRow.ExternalBuyPrice"/>
     /// を読むと同じ定数どうしの比較になる ── テストは <see cref="PriceRow"/> 側に誤った床を入れる。
     /// </summary>
     [Fact]
@@ -173,12 +191,12 @@ public sealed class VerificationAccumulatorTests
     {
         int floor = DailySnapshotTestBuilder.Floor(Item.Bread); // 54。帯の上限は540。
 
-        var daysRed = DailySnapshotTestBuilder.Sequence(150).ToList();
+        var daysRed = DailySnapshotTestBuilder.Sequence(ThreeWindowDays).ToList();
         daysRed[100] = DailySnapshotTestBuilder.WithPrice(
             daysRed[100], Item.Bread,
             daysRed[100].Prices[Item.Bread] with { SettledMedian = 541, SettledCount = 4, ExternalBuyPrice = 999_999 });
 
-        var daysGreen = DailySnapshotTestBuilder.Sequence(150).ToList();
+        var daysGreen = DailySnapshotTestBuilder.Sequence(ThreeWindowDays).ToList();
         daysGreen[100] = DailySnapshotTestBuilder.WithPrice(
             daysGreen[100], Item.Bread,
             daysGreen[100].Prices[Item.Bread] with { SettledMedian = 540, SettledCount = 4, ExternalBuyPrice = 999_999 });
@@ -188,20 +206,162 @@ public sealed class VerificationAccumulatorTests
         Assert.Equal(54, floor);
     }
 
-    /// <summary>#6。核心。2窓では偏差の枝が赤にならず、3窓で単調増加×2倍になったときだけ赤。</summary>
+    /// <summary>
+    /// 6'(別表(フェーズ1の訂正)。上の #6 を訂正)。「3窓」は走行の窓数ではなく基準窓(偏差‰ が
+    /// 0でない最初の窓)から最後の窓までの窓数である(TDD01 §5.2)。
+    /// </summary>
+    /// <remarks>
+    /// <b>タスク仕様 別表(フェーズ1の訂正)#6' の具体的な数値列(4窓の例 <c>0, 0, 300, 700</c>)は
+    /// TDD01 §5.2 の一般規則と矛盾する ── 報告事項(止まって報告)。</b>
+    /// <c>0, 0, 300, 700</c> は最初の非ゼロが3番目の窓(値300)なので、基準窓から最後の窓(4番目)
+    /// までは2窓しかない(TDD01 §5.2「基準窓から最後の窓まで」は基準窓を含む区間の窓数)。
+    /// これは「基準窓以降2窓」の5窓ケース(<c>0, 0, 0, 300, 700</c>)と全く同じ形であり、
+    /// タスク仕様が主張する「基準窓以降3窓」にはならない(判定不能になるはずで、「判定でき」とは
+    /// 矛盾する)。§5.2 自身にはこの具体例が無く、一般規則(基準窓から最後の窓までの窓数 ≥ 3)は
+    /// 一意で計算可能なので、このテストは一般規則に忠実な数値列(基準窓の直後に2窓を足して
+    /// ちょうど3窓にする)で書く。判定不能側(5窓・基準窓以降2窓)はタスク仕様の数値列のまま
+    /// (こちらは一般規則と矛盾しない)。
+    /// </remarks>
     [Fact]
     public void DispersionGrowthNeedsThreeWindows()
     {
-        var twoWindows = DailySnapshotTestBuilder.Sequence(TransientDays + (WindowDays * 2)).ToList();
-        ApplyAlternatingMedian(twoWindows, Item.Bread, TransientDays, TransientDays + (WindowDays * 2) - 1, 80, 120);
+        // 決定できる側: 窓の偏差‰ が [0, 300, 300, 600] (4窓・基準窓=2番目・基準窓から最後まで3窓)。
+        // 基準窓(300)から最後の窓(600)まで単調非減少、600 >= 100(下限)、600 >= 300×2 → 赤。
+        var determinable = DailySnapshotTestBuilder.Sequence(TransientDays + (WindowDays * 4)).ToList();
+        ApplyDispersionWindow(determinable, Item.Bread, windowIndex: 0, targetPermille: 0);
+        ApplyDispersionWindow(determinable, Item.Bread, windowIndex: 1, targetPermille: 300);
+        ApplyDispersionWindow(determinable, Item.Bread, windowIndex: 2, targetPermille: 300);
+        ApplyDispersionWindow(determinable, Item.Bread, windowIndex: 3, targetPermille: 600);
 
-        var threeWindows = DailySnapshotTestBuilder.Sequence(TransientDays + (WindowDays * 3)).ToList();
-        ApplyAlternatingMedian(threeWindows, Item.Bread, TransientDays, TransientDays + (WindowDays * 2) - 1, 80, 120);
-        ApplyAlternatingMedian(
-            threeWindows, Item.Bread, TransientDays + (WindowDays * 2), TransientDays + (WindowDays * 3) - 1, 60, 140);
+        // 判定不能側: 窓の偏差‰ が [0, 0, 0, 300, 700] (5窓・基準窓=4番目・基準窓から最後まで2窓 < 3)。
+        var indeterminate = DailySnapshotTestBuilder.Sequence(TransientDays + (WindowDays * 5)).ToList();
+        ApplyDispersionWindow(indeterminate, Item.Bread, windowIndex: 0, targetPermille: 0);
+        ApplyDispersionWindow(indeterminate, Item.Bread, windowIndex: 1, targetPermille: 0);
+        ApplyDispersionWindow(indeterminate, Item.Bread, windowIndex: 2, targetPermille: 0);
+        ApplyDispersionWindow(indeterminate, Item.Bread, windowIndex: 3, targetPermille: 300);
+        ApplyDispersionWindow(indeterminate, Item.Bread, windowIndex: 4, targetPermille: 700);
 
-        Assert.Equal(Verdict.Green, GetItem(Run(twoWindows), "8-1a").Verdict);
-        Assert.Equal(Verdict.Red, GetItem(Run(threeWindows), "8-1a").Verdict);
+        Assert.Equal(Verdict.Red, GetItem(Run(determinable), "8-1a").Verdict);
+        Assert.Equal(Verdict.Indeterminate, GetItem(Run(indeterminate), "8-1a").Verdict);
+    }
+
+    /// <summary>
+    /// 44(別表(フェーズ1の訂正))。核心。全窓で偏差‰ = 0 の390日以上の走行は8-1aが緑
+    /// (基準窓が一度も立たない。TDD01 §5.2「基準窓が存在しない → 緑」)。
+    /// </summary>
+    [Fact]
+    public void DispersionIsGreenWhenDispersionNeverAppears()
+    {
+        var days = DailySnapshotTestBuilder.Sequence(ThreeWindowDays).ToList();
+
+        Assert.Equal(Verdict.Green, GetItem(Run(days), "8-1a").Verdict);
+    }
+
+    /// <summary>
+    /// 45(別表(フェーズ1の訂正))。核心。偏差‰ が窓ごとに 0, 0, 300, 700, 1500 と並ぶ走行(5窓)で
+    /// 8-1aが赤、FirstRedDayが最後の窓の末日になる(床への張り付きから離脱して発散する経路を
+    /// 検出できる ── 「最初の窓が0なら以後この枝を諦める」実装だと黙って見逃す)。
+    /// </summary>
+    [Fact]
+    public void DispersionFiresAfterLeavingTheFloor()
+    {
+        int totalDays = TransientDays + (WindowDays * 5);
+        var days = DailySnapshotTestBuilder.Sequence(totalDays).ToList();
+        ApplyDispersionWindow(days, Item.Bread, windowIndex: 0, targetPermille: 0);
+        ApplyDispersionWindow(days, Item.Bread, windowIndex: 1, targetPermille: 0);
+        ApplyDispersionWindow(days, Item.Bread, windowIndex: 2, targetPermille: 300);
+        ApplyDispersionWindow(days, Item.Bread, windowIndex: 3, targetPermille: 700);
+        ApplyDispersionWindow(days, Item.Bread, windowIndex: 4, targetPermille: 900);
+
+        var item = GetItem(Run(days), "8-1a");
+        int lastWindowEndDay = totalDays - 1;
+
+        Assert.Equal(Verdict.Red, item.Verdict);
+        Assert.Equal(lastWindowEndDay, item.FirstRedDay);
+    }
+
+    /// <summary>
+    /// 46(別表(フェーズ1の訂正))。偏差‰ が 1, 2, 99 の走行(3窓)は緑(単調・3窓・最後≥基準×2だが
+    /// 100‰未満)、1, 2, 100 は赤(散らばりの下限 <see cref="VerificationThresholds.DispersionFloorPermille"/>
+    /// = 100)。
+    /// </summary>
+    [Fact]
+    public void DispersionNeedsAbsoluteDispersionToo()
+    {
+        var green = DailySnapshotTestBuilder.Sequence(TransientDays + (WindowDays * 3)).ToList();
+        ApplyDispersionWindow(green, Item.Bread, windowIndex: 0, targetPermille: 10);
+        ApplyDispersionWindow(green, Item.Bread, windowIndex: 1, targetPermille: 20);
+        ApplyDispersionWindow(green, Item.Bread, windowIndex: 2, targetPermille: 90);
+
+        var red = DailySnapshotTestBuilder.Sequence(TransientDays + (WindowDays * 3)).ToList();
+        ApplyDispersionWindow(red, Item.Bread, windowIndex: 0, targetPermille: 10);
+        ApplyDispersionWindow(red, Item.Bread, windowIndex: 1, targetPermille: 20);
+        ApplyDispersionWindow(red, Item.Bread, windowIndex: 2, targetPermille: 100);
+
+        Assert.Equal(Verdict.Green, GetItem(Run(green), "8-1a").Verdict);
+        Assert.Equal(Verdict.Red, GetItem(Run(red), "8-1a").Verdict);
+    }
+
+    /// <summary>
+    /// 47(別表(フェーズ1の訂正))。核心。帯の枝が緑・偏差の枝が判定不能(基準窓以降が2窓)の
+    /// 走行で、8-1aが判定不能になる(判定不能を緑へ倒さない。TDD01 §5.2「畳み方はどの階層でも
+    /// 赤 &gt; 判定不能 &gt; 緑」)。
+    /// </summary>
+    [Fact]
+    public void IndeterminateBranchDoesNotFoldToGreen()
+    {
+        var days = DailySnapshotTestBuilder.Sequence(TransientDays + (WindowDays * 5)).ToList();
+        ApplyDispersionWindow(days, Item.Bread, windowIndex: 0, targetPermille: 0);
+        ApplyDispersionWindow(days, Item.Bread, windowIndex: 1, targetPermille: 0);
+        ApplyDispersionWindow(days, Item.Bread, windowIndex: 2, targetPermille: 0);
+        ApplyDispersionWindow(days, Item.Bread, windowIndex: 3, targetPermille: 300);
+        ApplyDispersionWindow(days, Item.Bread, windowIndex: 4, targetPermille: 700);
+
+        Assert.Equal(Verdict.Indeterminate, GetItem(Run(days), "8-1a").Verdict);
+    }
+
+    /// <summary>
+    /// 48(別表(フェーズ1の訂正))。5品目のうち1品目だけが赤の窓で8-1aが赤。1品目だけが
+    /// 判定不能で残りが緑なら判定不能(品目間の畳み込み。TDD01 §5.2「畳む階層は3つ」)。
+    /// </summary>
+    [Fact]
+    public void ItemsFoldAcrossGoodsWithinAWindow()
+    {
+        var withOneRedItem = DailySnapshotTestBuilder.Sequence(150).ToList();
+        var badBreadPrice = withOneRedItem[100].Prices[Item.Bread] with { SettledMedian = 10000, SettledCount = 4 };
+        withOneRedItem[100] = DailySnapshotTestBuilder.WithPrice(withOneRedItem[100], Item.Bread, badBreadPrice);
+
+        Assert.Equal(Verdict.Red, GetItem(Run(withOneRedItem), "8-1a").Verdict);
+
+        // 他の品目(・Beerの2窓目以降)は健全な3窓ぶんを持たせ、確実に緑になるようにする
+        // (偏差の枝は基準窓から3窓無いと判定不能になるため。1窓だけの走行では健全な品目すら
+        // 判定不能になり、「残りが緑」を検査できない)。
+        var withOneIndeterminateItem = DailySnapshotTestBuilder.Sequence(ThreeWindowDays).ToList();
+        ZeroOutSettledCount(withOneIndeterminateItem, Item.Beer, TransientDays, TransientDays + 90); // 窓1のみ29日有効
+
+        Assert.Equal(Verdict.Indeterminate, GetItem(Run(withOneIndeterminateItem), "8-1a").Verdict);
+    }
+
+    /// <summary>
+    /// <paramref name="targetPermille"/> の相対平均絶対偏差‰ を持つ窓を作る(avg=100 を基準にした
+    /// 対称パターン。avg=100・低=100-d・高=100+dの60/60交互で dispersion‰ = 10d = targetPermille に
+    /// 厳密に一致する。<paramref name="targetPermille"/> は10の倍数、かつ 0〜900 の範囲で使うこと
+    /// ── 低が0を割らず、帯 [床÷10, 床×10] の内側に収まる範囲)。<paramref name="targetPermille"/> = 0
+    /// のときは <see cref="ApplyConstantMedian"/>(基準窓が立たない)と同義。
+    /// </summary>
+    private static void ApplyDispersionWindow(List<DailySnapshot> days, int itemId, int windowIndex, int targetPermille)
+    {
+        int windowStart = TransientDays + (windowIndex * WindowDays);
+        int windowEnd = windowStart + WindowDays - 1;
+
+        if (targetPermille == 0)
+        {
+            ApplyConstantMedian(days, itemId, windowStart, windowEnd, 100);
+            return;
+        }
+
+        int half = targetPermille / 10;
+        ApplyAlternatingMedian(days, itemId, windowStart, windowEnd, 100 - half, 100 + half);
     }
 
     /// <summary>#7。核心。相対平均絶対偏差‰は分母に窓の平均を含む(絶対平均偏差にしない)。</summary>

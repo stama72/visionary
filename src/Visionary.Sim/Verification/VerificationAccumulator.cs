@@ -15,17 +15,16 @@ namespace Visionary.Sim.Verification;
 /// <see cref="WorldDefinition"/> だけである(<see cref="WorldDefinition"/> は不変)。
 /// </para>
 /// <para>
-/// <b>窓の畳み込みは2段である。</b>(1) 窓の中で複数の品目・職業を持つ項目
-/// (8-1a・8-1b・8-3・8-4・8-5b)は、品目・職業ごとの判定を「赤が1つでもあれば赤、
-/// それ以外に判定不能が1つでもあれば判定不能、それ以外は緑」で1つの窓判定へ畳む
-/// (<see cref="Pool"/>)。(2) 窓をまたぐ畳み込みは TDD01 §5.2 の明示規則
-/// (「1つでも赤い窓があれば赤、すべて判定不能なら判定不能、それ以外は緑」)をそのまま使う
-/// (<see cref="Merge"/> / <see cref="Resolve"/>)。
-/// <b>段(1)は仕様に明示が無い(決めて報告)。</b> §5.2 が明示するのは窓をまたぐ畳み込みだけで、
-/// 窓の中で品目間をどう畳むかは書かれていない。「赤 &gt; 判定不能 &gt; 緑」の優先順位
-/// (03-corrections 規則1「狭い側に倒す」)を段(1)にも適用する ── そうしないと、1品目だけが
-/// 判定不能でも他の健全な品目に埋もれて窓全体が緑になり、判定不能が存在する目的
-/// (「母数が消えた状態を緑と読ませない」)がまさにその場面で壊れる(テスト #3 が実測する形)。
+/// <b>畳む階層は3つで、どの階層でも「赤 &gt; 判定不能 &gt; 緑」で畳む</b>(TDD01 §5.2)。
+/// (1) <b>枝</b>: 8-1a の「帯」と「偏差」など、1項目の中の独立した条件。
+/// (2) <b>品目・職業</b>: 8-1a/8-1b/8-4/8-5b は品目ごと、8-3 は職業ごとに判定してから畳む
+/// (<see cref="Pool"/>)。(3) <b>窓</b>: 窓ごとに判定してから畳む(<see cref="Merge"/> /
+/// <see cref="ResolveFold"/>)。
+/// <b>枝が窓の中にあるとは限らない。</b>8-1a の「帯」の枝は窓×品目の判定を持つが、
+/// 「偏差」の枝は窓の列そのものを見るので品目にしか割れない(窓ごとの判定を持たない)。
+/// この枝は <see cref="DispersionState"/> で走行全体の状態を追跡し、<see cref="ResolveDispersion"/>
+/// で品目レベルの判定を1回だけ出す(窓をまたいで「一度赤くなったら固定」しない ── 基準窓から
+/// 最後の窓までの単調性を、最後の窓の時点でまとめて評価する)。
 /// </para>
 /// </remarks>
 public sealed class VerificationAccumulator : IDailyMetricsSink
@@ -43,7 +42,8 @@ public sealed class VerificationAccumulator : IDailyMetricsSink
 
     // 窓をまたぐ小さな状態 ── 保持するのは (i) 前の窓の偏差‰・(ii) 連続日数・(iii) 連続窓数・
     // (iv) FirstRedDay 相当の値だけである(タスク仕様「保証と、残る穴」)。
-    private readonly DispersionState[] _dispersionState; // 8-1a。添字 = itemId
+    private readonly IdFoldState[] _bandFoldState; // 8-1a「帯」の枝(窓×品目)。添字 = itemId
+    private readonly DispersionState[] _dispersionState; // 8-1a「偏差」の枝(品目。窓ごとの判定を持たない)。添字 = itemId
     private readonly long[] _streakDays; // 8-5b。添字 = itemId。走行を通した1本のカウンタ
 
     // 8-6: 窓末の貨幣総量の連続下降。
@@ -53,7 +53,8 @@ public sealed class VerificationAccumulator : IDailyMetricsSink
 
     // 12項目のうち、窓を使う10項目の畳み込み状態(TDD01 §5.2 の窓の畳み込み規則)。
     // 8-5a と 8-6 は「全日」を見る特別扱いなので、この一般化には乗らない(下記専用フィールド)。
-    private readonly IdFoldState _divergenceState = new();       // 8-1a
+    // 8-1a は「帯」(_bandFoldState、品目ごと)と「偏差」(_dispersionState)を別々に持ち、
+    // Resolve8_1a が2つの枝と5品目を畳んで1つの VerificationItemResult にする。
     private readonly IdFoldState _rigidityState = new();         // 8-1b
     private readonly IdFoldState _importCostState = new();       // 8-1c
     private readonly IdFoldState _bankruptState = new();         // 8-2a
@@ -148,7 +149,15 @@ public sealed class VerificationAccumulator : IDailyMetricsSink
         _importContentCost = new long[_itemCount];
         _importContentCostViolated = ComputeImportContentCost(definition, _importContentCost);
 
+        _bandFoldState = new IdFoldState[_itemCount];
         _dispersionState = new DispersionState[_itemCount];
+
+        for (int i = 0; i < _itemCount; i++)
+        {
+            _bandFoldState[i] = new IdFoldState();
+            _dispersionState[i].LastDispersionPermille = -1; // -1 は「未計算」。0‰は正当な値なので区別する
+        }
+
         _streakDays = new long[_itemCount];
 
         _windowMedians1a = new List<int>[_itemCount];
@@ -231,7 +240,7 @@ public sealed class VerificationAccumulator : IDailyMetricsSink
 
         var items = new List<VerificationItemResult>(VerificationItemIds.All.Length)
         {
-            Resolve(VerificationItemIds.Divergence, _divergenceState),
+            Resolve8_1a(),
             Resolve(VerificationItemIds.Rigidity, _rigidityState),
             Resolve(VerificationItemIds.ImportContentCost, _importCostState),
             Resolve(VerificationItemIds.BankruptHouseholds, _bankruptState),
@@ -532,8 +541,7 @@ public sealed class VerificationAccumulator : IDailyMetricsSink
     {
         _windowCount++;
 
-        var (verdict1a, evidence1a) = Evaluate8_1a();
-        Merge(_divergenceState, verdict1a, windowEndDay, evidence1a);
+        AccumulateWindow8_1a(windowEndDay);
 
         var (verdict1b, evidence1b) = Evaluate8_1b();
         Merge(_rigidityState, verdict1b, windowEndDay, evidence1b);
@@ -570,11 +578,14 @@ public sealed class VerificationAccumulator : IDailyMetricsSink
         ResetWindowScratch();
     }
 
-    private (Verdict Verdict, List<Evidence> Evidence) Evaluate8_1a()
+    /// <summary>
+    /// 8-1a の1窓ぶんの蓄積。「帯」の枝は品目ごとに窓判定を作って <see cref="_bandFoldState"/>
+    /// (窓をまたぐ畳み込み。<see cref="Merge"/>)へ渡す。「偏差」の枝は窓ごとの判定を持たない
+    /// (TDD01 §5.2)ので、<see cref="_dispersionState"/> の走行全体の状態を更新するだけに留め、
+    /// 判定は <see cref="ResolveDispersion"/> で最後にまとめて1回だけ出す。
+    /// </summary>
+    private void AccumulateWindow8_1a(long windowEndDay)
     {
-        var parts = new List<Verdict>();
-        var evidence = new List<Evidence>();
-
         for (int item = 0; item < _itemCount; item++)
         {
             if (_definition.IsPrimaryItem(item))
@@ -584,118 +595,223 @@ public sealed class VerificationAccumulator : IDailyMetricsSink
 
             var medians = _windowMedians1a[item];
             int validDays = medians.Count;
+            Verdict bandVerdict;
+            var bandEvidence = new List<Evidence>();
 
             if (validDays < VerificationThresholds.MinValidDaysPerWindow)
             {
-                parts.Add(Verdict.Indeterminate);
-                evidence.Add(new Evidence($"validDays:{item}", validDays, VerificationThresholds.MinValidDaysPerWindow, -1));
-                continue;
+                // 有効日数が足りない窓は、帯の枝を判定不能にする。偏差の枝もこの窓のデータを
+                // 使わない(窓そのものが判定材料にならないため。タスク仕様「4.」)。
+                bandVerdict = Verdict.Indeterminate;
+                bandEvidence.Add(new Evidence($"validDays:{item}", validDays, VerificationThresholds.MinValidDaysPerWindow, -1));
             }
-
-            int floor = _definition.ExternalBuyPrice(item);
-            int max = int.MinValue;
-            int min = int.MaxValue;
-            long sum = 0;
-
-            foreach (int median in medians)
+            else
             {
-                if (median > max)
-                {
-                    max = median;
-                }
-
-                if (median < min)
-                {
-                    min = median;
-                }
-
-                sum += median;
-            }
-
-            bool bandBreach = (long)max > (long)floor * VerificationThresholds.DivergenceUpperMultiplier
-                || (long)min * VerificationThresholds.DivergenceLowerDivisor < floor;
-
-            long average = IntegerMath.CeilDiv(sum, validDays);
-            long dispersionPermille = -1;
-            Verdict dispersionVerdict;
-
-            if (average > 0)
-            {
-                long sumAbsoluteDeviation = 0;
+                int floor = _definition.ExternalBuyPrice(item);
+                int max = int.MinValue;
+                int min = int.MaxValue;
+                long sum = 0;
 
                 foreach (int median in medians)
                 {
-                    sumAbsoluteDeviation += Math.Abs(median - average);
-                }
-
-                dispersionPermille = IntegerMath.CeilDiv(1000L * sumAbsoluteDeviation, validDays * average);
-
-                ref var dispersion = ref _dispersionState[item];
-
-                if (dispersion.Count == 0)
-                {
-                    dispersion.First = dispersionPermille;
-                    dispersion.Previous = dispersionPermille;
-                    dispersion.MonotonicSoFar = true;
-                    dispersion.Count = 1;
-                }
-                else
-                {
-                    if (dispersionPermille < dispersion.Previous)
+                    if (median > max)
                     {
-                        dispersion.MonotonicSoFar = false;
+                        max = median;
                     }
 
-                    dispersion.Previous = dispersionPermille;
-                    dispersion.Count++;
+                    if (median < min)
+                    {
+                        min = median;
+                    }
+
+                    sum += median;
                 }
 
-                // First == 0 は「最初の窓から偏差ゼロ」であり、0 × 2 = 0 という自明な不等式が
-                // 常に成り立ってしまう(平坦なゼロを発散と誤読する)。First > 0 を必ず要求する。
-                dispersionVerdict = dispersion.Count >= VerificationThresholds.MinWindowsForDispersion
-                    && dispersion.MonotonicSoFar
-                    && dispersion.First > 0
-                    && dispersion.Previous >= dispersion.First * VerificationThresholds.DispersionGrowthMultiplier
-                        ? Verdict.Red
-                        : Verdict.Green;
-            }
-            else
-            {
-                // 窓の平均が0(ゼロ除算)。偏差の枝だけ判定不能にする(タスク仕様「4.」)。
-                dispersionVerdict = Verdict.Indeterminate;
+                bool bandBreach = (long)max > (long)floor * VerificationThresholds.DivergenceUpperMultiplier
+                    || (long)min * VerificationThresholds.DivergenceLowerDivisor < floor;
+                bandVerdict = bandBreach ? Verdict.Red : Verdict.Green;
+
+                bandEvidence.Add(new Evidence(
+                    $"settledMedianMax:{item}", max, (long)floor * VerificationThresholds.DivergenceUpperMultiplier, validDays));
+
+                // §5.2の帯は [床÷10, 床×10]。下側の閾値は床そのものではなく床÷10である
+                // (レビュー指摘。判定 min×10 < floor は除算を消した形のままで変えない)。
+                long lowerThreshold = IntegerMath.CeilDiv((long)floor, VerificationThresholds.DivergenceLowerDivisor);
+                bandEvidence.Add(new Evidence($"settledMedianMin:{item}", min, lowerThreshold, validDays));
+
+                UpdateDispersionState(item, IntegerMath.CeilDiv(sum, validDays), medians, validDays, windowEndDay);
             }
 
-            Verdict itemVerdict;
+            Merge(_bandFoldState[item], bandVerdict, windowEndDay, bandEvidence);
+        }
+    }
 
-            if (bandBreach)
-            {
-                itemVerdict = Verdict.Red;
-            }
-            else if (dispersionVerdict == Verdict.Red)
-            {
-                itemVerdict = Verdict.Red;
-            }
-            else if (dispersionVerdict == Verdict.Indeterminate)
-            {
-                itemVerdict = Verdict.Indeterminate;
-            }
-            else
-            {
-                itemVerdict = Verdict.Green;
-            }
+    /// <summary>
+    /// 偏差の枝(TDD01 §5.2「浮動小数点を呼び込む語を置き換える」)の走行全体の状態を1窓ぶん進める。
+    /// <b>窓ごとの判定は作らない</b> ── 基準窓(偏差‰ が0でない最初の窓)からの単調性と窓数だけを
+    /// 追跡し、最後に <see cref="ResolveDispersion"/> が1回だけ判定する。
+    /// </summary>
+    private void UpdateDispersionState(int item, long average, List<int> medians, int validDays, long windowEndDay)
+    {
+        ref var state = ref _dispersionState[item];
 
-            parts.Add(itemVerdict);
-            evidence.Add(new Evidence(
-                $"settledMedianMax:{item}", max, (long)floor * VerificationThresholds.DivergenceUpperMultiplier, validDays));
+        state.LastWindowEndDay = windowEndDay;
+        state.LastValidDays = validDays;
 
-            // §5.2の帯は [床÷10, 床×10]。下側の閾値は床そのものではなく床÷10である
-            // (レビュー指摘。判定 min×10 < floor は除算を消した形のままで変えない)。
-            long lowerThreshold = IntegerMath.CeilDiv((long)floor, VerificationThresholds.DivergenceLowerDivisor);
-            evidence.Add(new Evidence($"settledMedianMin:{item}", min, lowerThreshold, validDays));
-            evidence.Add(new Evidence($"dispersionPermille:{item}", dispersionPermille, -1, validDays));
+        if (average <= 0)
+        {
+            // 窓の平均が0(ゼロ除算)。母数が消えた状態なので、偏差の枝を恒久的に判定不能にする
+            // (タスク仕様「4.」。実際の経済では価格が0になることは無く、防御的な分岐である)。
+            state.HadZeroAverageWindow = true;
+            state.LastDispersionPermille = -1;
+            return;
         }
 
-        return (Pool(parts), evidence);
+        long sumAbsoluteDeviation = 0;
+
+        foreach (int median in medians)
+        {
+            sumAbsoluteDeviation += Math.Abs(median - average);
+        }
+
+        long dispersionPermille = IntegerMath.CeilDiv(1000L * sumAbsoluteDeviation, validDays * average);
+        state.LastDispersionPermille = dispersionPermille;
+
+        if (!state.ReferenceEstablished)
+        {
+            if (dispersionPermille > 0)
+            {
+                // 基準窓 = 偏差‰ が0でない最初の窓(TDD01 §5.2)。0のままなら基準はまだ立たない。
+                state.ReferenceEstablished = true;
+                state.ReferenceValue = dispersionPermille;
+                state.PreviousValue = dispersionPermille;
+                state.MonotonicSoFar = true;
+                state.WindowsSinceReference = 1;
+            }
+
+            return;
+        }
+
+        if (dispersionPermille < state.PreviousValue)
+        {
+            state.MonotonicSoFar = false;
+        }
+
+        state.PreviousValue = dispersionPermille;
+        state.WindowsSinceReference++;
+    }
+
+    /// <summary>
+    /// 偏差の枝の判定(TDD01 §5.2)。窓ごとの判定を持たないので、走行全体の状態から1回だけ判定する。
+    /// 赤の <see cref="Evidence.Name"/>付きFirstRedDay は「最後の窓の末日」になる ── 判定そのものが
+    /// 最後の窓の値で決まるため(基準窓から最後の窓までの単調性・最後の窓の水準・基準窓との比)。
+    /// </summary>
+    private (Verdict Verdict, long FirstRedDay, IReadOnlyList<Evidence> Evidence) ResolveDispersion(int item)
+    {
+        ref var state = ref _dispersionState[item];
+
+        Verdict verdict;
+        long firstRedDay = -1;
+
+        if (state.HadZeroAverageWindow)
+        {
+            verdict = Verdict.Indeterminate;
+        }
+        else if (!state.ReferenceEstablished)
+        {
+            // 基準窓が存在しない → 緑(散らばりが一度も生まれていない。TDD01 §5.2)。
+            verdict = Verdict.Green;
+        }
+        else if (state.WindowsSinceReference < VerificationThresholds.MinWindowsForDispersion)
+        {
+            verdict = Verdict.Indeterminate;
+        }
+        else if (state.MonotonicSoFar
+            && state.PreviousValue >= VerificationThresholds.DispersionFloorPermille
+            && state.PreviousValue >= state.ReferenceValue * VerificationThresholds.DispersionGrowthMultiplier)
+        {
+            verdict = Verdict.Red;
+            firstRedDay = state.LastWindowEndDay;
+        }
+        else
+        {
+            verdict = Verdict.Green;
+        }
+
+        var evidence = new[]
+        {
+            new Evidence($"dispersionPermille:{item}", state.LastDispersionPermille, -1, state.LastValidDays),
+        };
+
+        return (verdict, firstRedDay, evidence);
+    }
+
+    /// <summary>
+    /// 8-1a の項目判定。「帯」(品目ごとに窓をまたいで畳んだ結果)と「偏差」(品目ごとに1回だけ
+    /// 出た結果)を品目ごとに合成し、さらに5品目を畳む。合成・畳み込みとも「赤 &gt; 判定不能 &gt; 緑」
+    /// (TDD01 §5.2)。根拠は判定に使った枝だけでなく、品目ごとに帯・偏差の両方を常に出す
+    /// (常に読める根拠のほうが、判定を決めた枝だけを選び出すより人が追いやすい ── 既存の実装が
+    /// そうしていた形を踏襲する)。
+    /// </summary>
+    private VerificationItemResult Resolve8_1a()
+    {
+        var evidence = new List<Evidence>();
+        (Verdict Verdict, long FirstRedDay) folded = (Verdict.Green, -1);
+
+        for (int item = 0; item < _itemCount; item++)
+        {
+            if (_definition.IsPrimaryItem(item))
+            {
+                continue;
+            }
+
+            var (bandVerdict, bandFirstRedDay, bandEvidence) = ResolveFold(_bandFoldState[item]);
+            var (dispersionVerdict, dispersionFirstRedDay, dispersionEvidence) = ResolveDispersion(item);
+
+            var itemResult = FoldRedOverIndeterminateOverGreen(
+                (bandVerdict, bandFirstRedDay), (dispersionVerdict, dispersionFirstRedDay));
+            folded = FoldRedOverIndeterminateOverGreen(folded, itemResult);
+
+            evidence.AddRange(bandEvidence);
+            evidence.AddRange(dispersionEvidence);
+        }
+
+        long firstRedDay = folded.Verdict == Verdict.Red ? folded.FirstRedDay : -1;
+
+        return new VerificationItemResult(VerificationItemIds.Divergence, folded.Verdict, firstRedDay, evidence);
+    }
+
+    /// <summary>
+    /// TDD01 §5.2 の畳み方(「赤 &gt; 判定不能 &gt; 緑」)を2つの判定の合成に使う汎用ヘルパ。
+    /// 両方が赤なら、先に赤くなったほう(<see cref="FirstRedDay"/> が小さいほう)を残す。
+    /// </summary>
+    private static (Verdict Verdict, long FirstRedDay) FoldRedOverIndeterminateOverGreen(
+        (Verdict Verdict, long FirstRedDay) a, (Verdict Verdict, long FirstRedDay) b)
+    {
+        bool aRed = a.Verdict == Verdict.Red;
+        bool bRed = b.Verdict == Verdict.Red;
+
+        if (aRed && bRed)
+        {
+            return (Verdict.Red, Math.Min(a.FirstRedDay, b.FirstRedDay));
+        }
+
+        if (aRed)
+        {
+            return a;
+        }
+
+        if (bRed)
+        {
+            return b;
+        }
+
+        if (a.Verdict == Verdict.Indeterminate || b.Verdict == Verdict.Indeterminate)
+        {
+            return (Verdict.Indeterminate, -1);
+        }
+
+        return (Verdict.Green, -1);
     }
 
     private (Verdict Verdict, List<Evidence> Evidence) Evaluate8_1b()
@@ -1088,10 +1204,12 @@ public sealed class VerificationAccumulator : IDailyMetricsSink
     }
 
     // ------------------------------------------------------------------
-    // 窓の畳み込み(段2。TDD01 §5.2 の明示規則)
+    // 窓をまたぐ畳み込み(TDD01 §5.2 の明示規則。「赤 > 判定不能 > 緑」はどの階層でも同じ)
     // ------------------------------------------------------------------
 
-    /// <summary>窓の中の複数の判定を1つへ畳む(段1。決めて報告 — 上の doc コメントを参照)。</summary>
+    /// <summary>
+    /// 窓の中の複数の品目・職業の判定を1つへ畳む(TDD01 §5.2「畳む階層は3つ」の品目・職業の階層)。
+    /// </summary>
     private static Verdict Pool(IReadOnlyList<Verdict> parts)
     {
         bool anyIndeterminate = false;
@@ -1148,6 +1266,18 @@ public sealed class VerificationAccumulator : IDailyMetricsSink
 
     private static VerificationItemResult Resolve(string id, IdFoldState state)
     {
+        var (verdict, firstRedDay, evidence) = ResolveFold(state);
+
+        return new VerificationItemResult(id, verdict, firstRedDay, evidence);
+    }
+
+    /// <summary>
+    /// 窓をまたぐ畳み込み(TDD01 §5.2「1つでも赤い窓があれば赤、すべて判定不能なら判定不能、
+    /// それ以外は緑」)を、項目のIdを持たない形で返す。8-1a の「帯」の枝(品目ごとに畳んでから
+    /// さらに「偏差」の枝と合成する)が <see cref="Resolve"/> を経由できないため分離した。
+    /// </summary>
+    private static (Verdict Verdict, long FirstRedDay, IReadOnlyList<Evidence> Evidence) ResolveFold(IdFoldState state)
+    {
         Verdict verdict;
 
         if (state.RedLocked)
@@ -1165,7 +1295,7 @@ public sealed class VerificationAccumulator : IDailyMetricsSink
 
         long firstRedDay = verdict == Verdict.Red ? state.FirstRedDay : -1;
 
-        return new VerificationItemResult(id, verdict, firstRedDay, state.Evidence);
+        return (verdict, firstRedDay, state.Evidence);
     }
 
     private VerificationItemResult ResolveFloorBreach()
@@ -1375,16 +1505,44 @@ public sealed class VerificationAccumulator : IDailyMetricsSink
         throw new InvalidOperationException($"品目Id={itemId}を出力するレシピが無い(1次産品ではないはず)。");
     }
 
-    /// <summary>8-1aの偏差の枝が窓をまたいで持ち越す小さな状態。</summary>
+    /// <summary>
+    /// 8-1aの偏差の枝(TDD01 §5.2)が走行全体で持ち越す状態。窓ごとの判定を持たないので、
+    /// <see cref="ResolveDispersion"/> が最後に1回だけこの状態から判定を出す。
+    /// </summary>
     private struct DispersionState
     {
-        public int Count;
-        public long First;
-        public long Previous;
+        /// <summary>基準窓(偏差‰ が0でない最初の窓)が立ったか。</summary>
+        public bool ReferenceEstablished;
+
+        /// <summary>基準窓の偏差‰。</summary>
+        public long ReferenceValue;
+
+        /// <summary>直近の窓の偏差‰(単調性の比較に使う)。</summary>
+        public long PreviousValue;
+
+        /// <summary>基準窓から直近の窓まで、偏差‰ が単調非減少か。</summary>
         public bool MonotonicSoFar;
+
+        /// <summary>基準窓から直近の窓までの窓数(基準窓を1として数える)。</summary>
+        public int WindowsSinceReference;
+
+        /// <summary>窓の平均が0になった(ゼロ除算)窓が一度でもあったか。あれば恒久的に判定不能。</summary>
+        public bool HadZeroAverageWindow;
+
+        /// <summary>直近に処理した窓の末日(赤になったときの FirstRedDay に使う)。</summary>
+        public long LastWindowEndDay;
+
+        /// <summary>直近の窓の偏差‰(根拠用)。窓が一度も処理されていなければ -1。</summary>
+        public long LastDispersionPermille;
+
+        /// <summary>直近の窓の有効日数(根拠の母数用)。</summary>
+        public int LastValidDays;
     }
 
-    /// <summary>窓を使う10項目の畳み込み状態(TDD01 §5.2)。</summary>
+    /// <summary>
+    /// 窓をまたぐ畳み込み状態(TDD01 §5.2「1つでも赤い窓があれば赤」)。窓を使う9項目
+    /// (8-1a を除く)は項目1つにつき1個、8-1a は「帯」の枝を品目ごとに1個(<see cref="_bandFoldState"/>)持つ。
+    /// </summary>
     private sealed class IdFoldState
     {
         public bool RedLocked;
