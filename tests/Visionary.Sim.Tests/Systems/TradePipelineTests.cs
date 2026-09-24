@@ -2309,27 +2309,45 @@ public sealed class TradePipelineTests
     /// (<c>ProductionSystem.RunOneHousehold</c> の <c>household.ProductionRuns = runs;</c> を
     /// <c>household.ProductionRuns = Math.Max(1, runs);</c> へ変える変異)は、反転側だった当時
     /// 全5シードを赤にしていた(全世帯が毎日1以上を報告するので違反日が消える)。<b>正側では
-    /// この取り違えは核心に見えない見込みである</b> ── 全世帯が常に1以上を報告する世界は
-    /// 「違反日0」そのものであり、正側の核心(<c>ProductionStoppedDays.Count == 0</c>)は素の
-    /// 実装と区別が付かない(実測はV-2。下記「変異の実測」参照)。
+    /// この取り違えは核心に見えない(V-2の実測、2026-09-25、<c>mutator</c>が使い捨てworktreeで
+    /// 対象コミット<c>2c25b7a</c>に対して測定。条件1の正側は5/5緑、9失敗/622合格)。</b>
+    /// 全世帯が常に1以上を報告する世界は「違反日0」そのものであり、正側の核心
+    /// (<c>ProductionStoppedDays.Count == 0</c>)は素の実装と区別が付かない。<b>検出器は
+    /// 見ないが、suiteは見ている。</b>捕まえたのは<c>ProductionSystemTests</c>の
+    /// <c>EquipmentWithoutToolsZeroStopsProduction</c> /
+    /// <c>ToolWearIsDroppedOnDaysWithZeroProduction</c> /
+    /// <c>ProductionSubtractsPreviousDayErrandLaborLoss</c> /
+    /// <c>ProductionRecordsRunsEveryDayIncludingZero</c>の4本と、<b>予期外に</b>
+    /// <see cref="EveryOccupationKeepsAtLeastOneCarrierOverSixtyDays"/>(seed 1/2/3/7/42の
+    /// 全5件)の合計9本である ── 依頼側が予期していたのは<c>ProductionSystemTests</c>だけ
+    /// だった。
     /// <b>見えなくなったものはこれだけではない。</b>反転側(<c>Count &gt; 0</c>)が消えたので、
     /// <c>ScanThirtyDays</c>が違反日を記録する行(<c>scan.ProductionStoppedDays.Add(day)</c>)が
     /// 一度も走らなくなる書き換えは、どのassertにも触れない ── 6本の留め具はデータを1行も
     /// 読まず、条件別の空振り防止は別の変数(<c>TotalProductionRuns</c>)を見ており、核心は
-    /// 空のリストを見て緑になる。<b>構造的な留め具は足さない</b>(追補Aの理由)。実測はV-5
-    /// (下記「変異の実測」参照)。
+    /// 空のリストを見て緑になる。<b>構造的な留め具は足さない</b>(追補Aの理由)。V-5の実測
+    /// (2026-09-25、<c>mutator</c>、対象コミット<c>2c25b7a</c>)で確定した:
+    /// <b>全件緑(631/631)。捕まえたテストは1本も無い</b> ── 検出器は自分自身の空洞化を見ない。
     /// </remarks>
     /// <remarks>
     /// <b>向きが変わって見えるようになったもの(数え落とし方向)。</b>W2-16のM-10(条件1の合計を
     /// <c>world.Households[0]</c> の1戸だけにする変異)は、反転側だった当時は緑のまま(部分和が
     /// 0の日は全体和が0の日を含むので、違反日が増えるだけで反転側の核心は動じなかった)。
-    /// <b>正側ではこの取り違えが核心に見える見込みである</b> ── 1戸だけの部分和は全体和より
-    /// ゼロになりやすく、正側の核心(違反日0)を壊しうる(実測はV-3。下記「変異の実測」参照)。
+    /// <b>V-3の実測(2026-09-25、<c>mutator</c>が使い捨てworktreeで対象コミット<c>2c25b7a</c>に
+    /// 対して測定)は赤だが、5シード中3シード(seed 1・3・42)だけである。</b>seed 2・7は緑の
+    /// まま(3失敗/628合格)。<b>これは「数え落とし方向が構造的に見えるようになった」のでは
+    /// なく、データに乗った検出である。</b>本タスクの仕様「向きが変わると、検出器が見るものが
+    /// 変わる」の表は「数え落とし → 正側は見る」と書いたが、実測はその「見る」が5シード中3
+    /// シードにとどまることを示した ── 表の主張は部分的にしか成立しない。
     /// </remarks>
     /// <remarks>
     /// <b>M-4の予測外の巻き込み(W2-16から引き継ぐ)。</b>W2-16実測時、<c>ConsumptionSystem</c>の
     /// 世帯在庫の減算(条件3向けに選んだ変異)を削ると、条件3の核心だけでなく本条件(当時の
-    /// 反転側)も全5シードで落ちた。<b>原因は特定していない。</b>
+    /// 反転側)も全5シードで落ちた。<b>原因は特定していない。</b>正側での再測定(V-11、
+    /// 2026-09-25、<c>mutator</c>が使い捨てworktreeで対象コミット<c>2c25b7a</c>に対して測定)
+    /// では、本条件を含む#173の3検出器はすべて緑だった(23失敗/608合格)。かわりに他suiteの
+    /// 23件が赤になった。詳細は<see cref="SomeHouseholdAlwaysHoldsNecessitiesOverThirtyDays"/>の
+    /// docコメント(M-4)参照。
     /// </remarks>
     /// <remarks>
     /// <b>30日である理由。</b>プレイテストで使うのが1季 = 30日だから。60日にすると季節の切り替わりと
@@ -2359,7 +2377,22 @@ public sealed class TradePipelineTests
     /// </list>
     /// </remarks>
     /// <remarks>
-    /// <b>変異の実測。</b>(V-1〜V-3・V-5は<c>mutator</c>の実測待ち)
+    /// <b>変異の実測(<c>mutator</c>が使い捨てworktreeで2026-09-25、対象コミット<c>2c25b7a</c>に
+    /// 対して1件ずつ当てた。素の<c>2c25b7a</c>は631件全緑)。</b>
+    /// <list type="bullet">
+    /// <item><b>V-1</b>(<c>shipmentDays: 1</c> を <c>3</c> へ戻す)は<b>赤</b>
+    /// (11失敗/620合格)。条件1の正側が全5件、条件2の正側も全5件。条件3は5件とも緑のまま
+    /// (= 条件3は出荷日数を見ていない)。加えて<see cref="UnaffordableNecessityCountsOnlyTheFundsShortfall"/>
+    /// が巻き添えで赤(本タスクで選び直した(世帯, 日)が出荷日数3では成立しないため)。</item>
+    /// <item><b>V-2</b>(<c>household.ProductionRuns = Math.Max(1, runs);</c>)は
+    /// 条件1の正側が<b>5/5緑</b>(9失敗/622合格)。捕まえたのは<c>ProductionSystemTests</c>の4本
+    /// (上記remarks参照)と、予期外に
+    /// <see cref="EveryOccupationKeepsAtLeastOneCarrierOverSixtyDays"/>(全5件)。</item>
+    /// <item><b>V-3</b>(条件1の合計を<c>world.Households[0]</c>の1戸だけに)は<b>赤だが3/5シード
+    /// のみ</b>(3失敗/628合格。seed 1・3・42。seed 2・7は緑のまま)。詳細は上記remarks参照。</item>
+    /// <item><b>V-5</b>(条件1の違反日記録の分岐を偽に)は<b>全件緑</b>(631/631)。捕まえた
+    /// テストは1本も無い。</item>
+    /// </list>
     /// </remarks>
     [Theory]
     [InlineData(1)]
@@ -2420,7 +2453,9 @@ public sealed class TradePipelineTests
     /// 条件別の空振り防止は別の変数(<c>TotalInternalSettlements</c>)を見ており、下記の日付の検算
     /// (<c>TotalCityGoodInternalRowsIgnoringDate</c>との等値assert)も<c>NoInternalSettlementDays</c>を
     /// 参照しないので、核心は空のリストを見て緑になる。<b>構造的な留め具は足さない</b>
-    /// (追補Aの理由)。実測はV-6(下記「変異の実測」参照)。
+    /// (追補Aの理由)。V-6の実測(2026-09-25、<c>mutator</c>が使い捨てworktreeで対象コミット
+    /// <c>2c25b7a</c>に対して測定)で確定した: <b>全件緑(631/631)。捕まえたテストは1本も無い</b>
+    /// ── 検出器は自分自身の空洞化を見ない。
     /// </remarks>
     /// <remarks>
     /// <b>都市内の判定。</b><c>CounterpartyId != HouseholdState.ExternalMarketSellerId</c>が
@@ -2443,14 +2478,26 @@ public sealed class TradePipelineTests
     /// 緑であることが前提である。<b>この改善は6.4の留め具(<c>FirstDayLabel</c> /
     /// <c>LastDayLabel</c> / <c>FirstScannedLedgerDayIndex</c> /
     /// <c>LastScannedLedgerDayIndex</c>)を置き換えない。</b>4本はデータを1行も参照せずにループの
-    /// 形そのものを留めており、向きに依らない。両方残す。
+    /// 形そのものを留めており、向きに依らない。両方残す。<b>V-12の実測(2026-09-25、
+    /// <c>mutator</c>が使い捨てworktreeで対象コミット<c>2c25b7a</c>に対して測定。帳簿の
+    /// 絞り込みを<c>== dayIndex</c>から<c>== dayIndex - 1</c>へ変える)は赤を確定させた</b>
+    /// (5失敗/626合格、条件2の正側が全5件)。<b>ただし落ちたのは核心ではなく下記の6.2の等値
+    /// assertである</b>(例: seed=42でExpected 388 / Actual 379)。核心
+    /// <c>NoInternalSettlementDays.Count == 0</c>には到達していない。本仕様が「日付の±1は、
+    /// 正の向きでは核心が見る」と書いた改善は、検出自体は実在するが、報告するのは核心ではなく
+    /// 6.2の等値assertである。
     /// </remarks>
     /// <remarks>
     /// <b>母数を「都市内の約定だけ」にした決定を守るassertの有無(相手軸)。</b>W2-16は「無い」と
     /// 実測で確定させた(M-5: 本テスト側で相手条件<c>!=</c>を<c>==</c>へ変える/M-3: <c>src</c>側で
     /// <c>ExecuteImport</c>の<c>CounterpartyId</c>を0にする。いずれも当時の反転側で緑のまま)。
-    /// <b>正側でこれを測り直す(V-4)結果は下記「変異の実測」に転記する ── 相手軸が正側でも
-    /// 守られていないままかは、この実測が出るまで分からない。</b>
+    /// <b>V-4の実測(2026-09-25、<c>mutator</c>が使い捨てworktreeで対象コミット<c>2c25b7a</c>に
+    /// 対して測定。M-5と同じ変異)は赤</b>(5失敗/626合格、条件2の正側が全5件)。<b>ただし落ちた
+    /// のは核心ではなく下記の6.2の等値assert</b>
+    /// (<c>Assert.Equal(scan.TotalCityGoodInternalRowsIgnoringDate, scan.TotalInternalSettlements)</c>。
+    /// 例: seed=42でExpected 388 / Actual 62)。<b>W2-16が「母数を都市内だけにした決定を守る
+    /// assertは無い」と確定させた結論は、正側では偽になった</b> ── 相手軸は機械に守られている。
+    /// ただし守っているのは核心ではなく6.2の等値assertである。
     /// </remarks>
     /// <remarks>
     /// <b>向き・品目の絞り込みは恒等変換なので、向きに依らず機械に守られない
@@ -2460,12 +2507,15 @@ public sealed class TradePipelineTests
     /// 売り手<c>Sale</c>が1本ずつ立つので件数が完全に一致し、M-7は都市内で売買される品目が必ず
     /// 4〜8なので恒等変換になる。<b>この2つは恒等変換であることの理屈が向きに依らないので、
     /// 正側でも緑のままと現在形で書ける</b>(測定自体は当時の反転側のものである)。
-    /// <b>絞り込みの4軸(日付・向き・相手・品目)は軸ごとに扱いが分かれる。</b>日付は核心が見る
-    /// (上の「日付の±1が核心に見えるようになったこと」)。向き・品目は上のとおり恒等変換なので
-    /// 機械に守られない。<b>相手軸は上のとおりV-4の実測待ちであり、守られているかどうかは
-    /// まだ分からない。</b>6.4の留め具(M-13/M-14)はループの形そのものを守るだけで、絞り込みの
-    /// 中身(向き・相手・品目)は読まない。<b>相手軸の結果が出るまでは、この絞り込みを書き換える
-    /// ときに機械に頼れるのは向き・品目が恒等変換であることの理屈だけである。</b>
+    /// <b>絞り込みの4軸(日付・向き・相手・品目)は軸ごとに扱いが分かれる。</b>
+    /// <b>日付</b>: 守られている(V-12で実測。報告するのは核心ではなく下記の6.2の等値
+    /// assertであり、核心が緑であることが前提である)。<b>相手</b>: 守られている(V-4で実測。
+    /// 報告するのは同じく6.2の等値assertであり、核心ではない)。<b>向き(M-6)・品目を広げる
+    /// 方向(M-7)</b>: 恒等変換なので守られない(向きに依らない)。<b>日付軸と相手軸のどちらも、
+    /// 赤を報告するのは6.2の等値assertである</b> ──「核心が見る」ではない。6.4の留め具
+    /// (M-13/M-14)はループの形そのものを守るだけで、絞り込みの中身(向き・相手・品目)は読まない。
+    /// この絞り込みを書き換えるときに機械に頼れるのは、日付・相手軸については6.2の等値assert
+    /// (ただし核心が緑であることが前提)、向き・品目については恒等変換であることの理屈だけである。
     /// </remarks>
     /// <remarks>
     /// <b>30日である理由。</b><see cref="ProductionNeverStopsForAWholeDayOverThirtyDays"/>と同じ
@@ -2477,7 +2527,23 @@ public sealed class TradePipelineTests
     /// 実測行と同一(1回の走行で3条件をまとめて採るため)。5シードとも条件2の違反日が0日になった。
     /// </remarks>
     /// <remarks>
-    /// <b>変異の実測。</b>(V-1・V-4・V-6は<c>mutator</c>の実測待ち)
+    /// <b>変異の実測(<c>mutator</c>が使い捨てworktreeで2026-09-25、対象コミット<c>2c25b7a</c>に
+    /// 対して1件ずつ当てた。素の<c>2c25b7a</c>は631件全緑)。</b>
+    /// <list type="bullet">
+    /// <item><b>V-1</b>(<c>shipmentDays: 1</c> を <c>3</c> へ戻す)は<b>赤</b>
+    /// (11失敗/620合格)。条件2の正側が全5件(条件1の正側も全5件。詳細は
+    /// <see cref="ProductionNeverStopsForAWholeDayOverThirtyDays"/>のdocコメント参照)。条件3は
+    /// 5件とも緑のまま(= 条件3は出荷日数を見ていない)。</item>
+    /// <item><b>V-4</b>(相手条件<c>!=</c>を<c>==</c>へ)は<b>赤</b>(5失敗/626合格)。条件2の
+    /// 正側が全5件。落ちたのは核心ではなく下記の6.2の等値assert(例: seed=42でExpected 388 /
+    /// Actual 62)。詳細は上記remarks(相手軸)参照。</item>
+    /// <item><b>V-6</b>(条件2の違反日記録の分岐を偽に)は<b>全件緑</b>(631/631)。捕まえた
+    /// テストは1本も無い。</item>
+    /// <item><b>V-12</b>(帳簿日照合を<c>== dayIndex</c>から<c>== dayIndex - 1</c>へ)は
+    /// <b>赤</b>(5失敗/626合格)。条件2の正側が全5件。落ちたのは6.2の等値assert(例: seed=42で
+    /// Expected 388 / Actual 379)。核心<c>NoInternalSettlementDays.Count == 0</c>には到達して
+    /// いない。</item>
+    /// </list>
     /// </remarks>
     [Theory]
     [InlineData(1)]
@@ -2574,9 +2640,26 @@ public sealed class TradePipelineTests
     /// 減らないので全戸空の日が来ない)が落ちた。同じ変異は条件1の当時の反転側
     /// (現在は削除され、正側 <see cref="ProductionNeverStopsForAWholeDayOverThirtyDays"/> に
     /// 置き換わっている)も全5シードで落としている(予測外の巻き込み、原因は特定していない)。
-    /// <b>正側では論理的に緑のはずである</b>(反転側〈違反日 &gt; 0〉が赤になった = 条件1の
-    /// 違反日が0になった、ということなので、正側〈違反日 == 0〉は成立する。これは推論であって
-    /// 実測ではない)(V-11は<c>mutator</c>の実測待ち)。</item>
+    /// <b>正側は実測で緑と確定した</b>(V-11の実測、2026-09-25、<c>mutator</c>が使い捨て
+    /// worktreeで対象コミット<c>2c25b7a</c>に対して測定)。#173の3検出器(条件1・条件2・
+    /// 条件3)はすべて緑だった(23失敗/608合格)。追補Cの訂正(「反転側を赤にした変異は
+    /// 正側では緑」)が実測で裏づけられた。<b>かわりに他suiteの23件が赤になった</b> ──
+    /// <c>ConsumptionSystemTests</c>の<c>FirewoodConsumptionFollowsTheSeason</c> /
+    /// <c>ConsumptionDiffersByRank</c> / <c>ConsumptionScalesWithHouseholdSize</c> /
+    /// <c>ConsumptionStopsAtZeroAndDoesNotGoNegative</c> /
+    /// <c>ConsumptionTouchesOnlyTheHouseholdInventory</c> / <c>SeasonalItemIsOnlyFirewood</c> /
+    /// <c>SeasonCoefficientIsRoundedPerMember</c>の7本、
+    /// <c>DailyConsumptionTests.LookaheadMatchesWhatConsumptionActuallyEatsForOneDay</c>、
+    /// <c>ProductionAndConsumptionPipelineTests.ProductionAndConsumptionRunInPipelineOrder</c>、
+    /// <c>SelfConsumptionTests</c>の4本、
+    /// <see cref="TradePipelineTests.EveryOccupationKeepsAtLeastOneCarrierOverSixtyDays"/>
+    /// (5件)、<c>MetricsSystemTests.SellerDaysCountOnlyPostedOffers</c>、
+    /// <see cref="TradePipelineTests.UnaffordableNecessityCountsOnlyTheFundsShortfall"/> /
+    /// <see cref="TradePipelineTests.PreferenceIsActuallyBought"/> /
+    /// <see cref="TradePipelineTests.NecessityIsSettledBeforePreference"/> /
+    /// <see cref="TradePipelineTests.PipelineIsDeterministicWithNeedGeneration"/>。
+    /// 詳細は<see cref="ProductionNeverStopsForAWholeDayOverThirtyDays"/>のdocコメント(M-4)にも
+    /// 転記済み。</item>
     /// <item><b>M-8</b>(判定を <c>HouseholdInventory</c> から <c>WorkshopInventory</c> へ変える)は、
     /// 当時の本テスト(正側4シード)では<b>緑のまま</b>。落ちたのは当時の反転側(seed7)の核心
     /// だった。<b>この記録は出荷日数3の経済でのものである。</b>出荷日数1(#216)での再実測は
@@ -2605,11 +2688,27 @@ public sealed class TradePipelineTests
     /// (<c>scan.AllHouseholdsEmptyDays.Add(day)</c>)が一度も走らなくなる書き換えは、どのassertにも
     /// 触れない ── 6本の留め具はデータを1行も読まず、条件別の空振り防止(<c>Count &lt; 30</c>)は
     /// 記録が空でも成立し、核心(<c>Count == 0</c>)は空のリストを見て緑になる。他のテストもこの
-    /// リストを読んでいない。<b>構造的な留め具は足さない</b>(追補Aの理由と同じ)。実測はV-10
-    /// (下記「変異の実測(V-7〜V-10)」参照)。
+    /// リストを読んでいない。<b>構造的な留め具は足さない</b>(追補Aの理由と同じ)。V-10の実測
+    /// (下記「変異の実測(V-7〜V-10)」参照)で確定した: 全件緑、捕まえたテストは1本も無い。
     /// </remarks>
     /// <remarks>
-    /// <b>変異の実測(V-7〜V-10)。</b>(V-7〜V-10は<c>mutator</c>の実測待ち)
+    /// <b>変異の実測(V-7〜V-10)</b>(<c>mutator</c>が使い捨てworktreeで2026-09-25、対象コミット
+    /// <c>2c25b7a</c>に対して1件ずつ当てた。素の<c>2c25b7a</c>は631件全緑)。
+    /// <list type="bullet">
+    /// <item><b>V-7</b>(条件3の判定を<c>HouseholdInventory</c>→<c>WorkshopInventory</c>へ。
+    /// W2-16のM-8と同じ変異)は<b>全件緑</b>(631/631)。出荷日数1でも緑 ──
+    /// 2026-09-22(出荷日数3)の結果と同じ。上のM-8の記録「いまの5シードの組では判別する力を
+    /// 持たない」は出荷日数1でも当たる。鮮度切れは解消。</item>
+    /// <item><b>V-8</b>(3品目の判定の<c>&amp;&amp;</c>を<c>||</c>へ。W2-16のM-9と同じ変異)は
+    /// <b>赤</b>(5失敗/626合格)。条件3が全5件。落ちたのは<b>核心</b>
+    /// <c>AllHouseholdsEmptyDays.Count == 0</c>。上のM-9の記録は出荷日数1でも当たる。</item>
+    /// <item><b>V-9</b>(3品目を<c>Grain</c>/<c>Timber</c>/<c>IronOre</c>へ。W2-16のM-12と同じ
+    /// 変異)は<b>赤</b>(5失敗/626合格)。条件3が全5件。ただし落ちたのは<b>空振り防止</b>
+    /// <c>AllHouseholdsEmptyDays.Count &lt; 30</c>(30日すべてが「全戸空」と判定されたため)で
+    /// あり、<b>核心ではない</b>。</item>
+    /// <item><b>V-10</b>(条件3の違反日記録の分岐を偽に。V-5/V-6の条件3版)は<b>全件緑</b>
+    /// (631/631)。捕まえたテストは1本も無い ── 検出器は自分自身の空洞化を見ない。</item>
+    /// </list>
     /// </remarks>
     [Theory]
     [InlineData(1)]
