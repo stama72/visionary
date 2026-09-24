@@ -516,6 +516,13 @@ public sealed class VerificationAccumulatorTests
     /// したがって8-3で検査できるのは「0戸で除外された職業がPoolの結果を薄めない」ことであり、
     /// 他の3項目の「partsにIndeterminateが混じっても赤が勝つ」とは別の経路である
     /// (どちらも「Poolが赤を取りこぼさない」という同じ性質の別の現れ方)。
+    /// <see cref="VerificationAccumulator.Pool"/> はIdの若い順(<c>for (int item = 0; ...)</c>)に
+    /// 走査し、赤を見つけた時点で <c>return Verdict.Red;</c> する。8-1b / 8-4 / 8-5b の下の3つの
+    /// サブケースは、赤の品目のIdが判定不能の品目のIdより若い(赤を先に踏む)。<b>この向きだけでは、
+    /// 「判定不能を先に見ても、最後まで走査して赤を拾う」という Pool の振る舞いを検査できない</b>
+    /// ── 赤が常に先に踏まれる入力では、判定不能を見つけた時点で早期returnする変異でも同じ結果に
+    /// なる。そのため各項目に「判定不能の品目のIdが赤の品目のIdより若い」向きのサブケースを
+    /// 追加する(下の3つの「Idの向きを逆にする」ブロック)。
     /// </remarks>
     [Fact]
     public void PoolKeepsRedOverIndeterminateWithinAWindow()
@@ -533,6 +540,22 @@ public sealed class VerificationAccumulatorTests
         ZeroOutSettledCount(rigidityDays, Item.Beer, TransientDays, 149);
 
         Assert.Equal(Verdict.Red, GetItem(Run(rigidityDays), "8-1b").Verdict);
+
+        // 8-1b(Idの向きを逆にする): Flour(id=4)を判定不能(約定なし)にし、Bread(id=6)を硬直で
+        // 赤にする。上のBread(id=6)/Beer(id=7)は赤が先に来る向きなので、判定不能のIdが赤のId
+        // より若い向きをここで足す。
+        var rigidityReversedDays = DailySnapshotTestBuilder.Sequence(150).ToList();
+
+        for (int day = 0; day < rigidityReversedDays.Count; day++)
+        {
+            rigidityReversedDays[day] = DailySnapshotTestBuilder.WithPrice(
+                rigidityReversedDays[day], Item.Bread,
+                rigidityReversedDays[day].Prices[Item.Bread] with { SettledMedian = breadFloor * 2, SettledCount = 4 });
+        }
+
+        ZeroOutSettledCount(rigidityReversedDays, Item.Flour, TransientDays, 149);
+
+        Assert.Equal(Verdict.Red, GetItem(Run(rigidityReversedDays), "8-1b").Verdict);
 
         // 8-3: 醸造を窓の全日停止(赤)。木材加工の世帯を全日居なくす(その職業を除外。0戸)。
         var productionDays = DailySnapshotTestBuilder.Sequence(150).ToList();
@@ -565,6 +588,15 @@ public sealed class VerificationAccumulatorTests
 
         Assert.Equal(Verdict.Red, GetItem(Run(spreadDays), "8-4").Verdict);
 
+        // 8-4(Idの向きを逆にする): Flour(id=4)は窓内で区画を1つに減らして判定不能にし、
+        // Bread(id=6)は区画差0(収束)で赤にする。上のFlour(id=4)/Beer(id=7)は赤が先に来る
+        // 向きなので、判定不能のIdが赤のIdより若い向きをここで足す。
+        var spreadReversedDays = DailySnapshotTestBuilder.Sequence(150).ToList();
+        RemoveSecondDistrict(spreadReversedDays, Item.Flour, TransientDays, 149);
+        ConvergeDistricts(spreadReversedDays, Item.Bread, TransientDays, 149, DailySnapshotTestBuilder.Floor(Item.Bread) * 2);
+
+        Assert.Equal(Verdict.Red, GetItem(Run(spreadReversedDays), "8-4").Verdict);
+
         // 8-5b: Flourは窓内で30日連続天井超え(赤)。Beerは窓の約定を全日殺す(判定不能)。
         var bandDays = DailySnapshotTestBuilder.Sequence(150).ToList();
         int flourCeiling = DailySnapshotTestBuilder.Ceiling(Item.Flour);
@@ -579,6 +611,23 @@ public sealed class VerificationAccumulatorTests
         ZeroOutSettledCount(bandDays, Item.Beer, TransientDays, 149);
 
         Assert.Equal(Verdict.Red, GetItem(Run(bandDays), "8-5b").Verdict);
+
+        // 8-5b(Idの向きを逆にする): Flour(id=4)は窓の約定を全日殺して判定不能にし、
+        // Bread(id=6)は窓内で30日連続天井超えで赤にする。上のFlour(id=4)/Beer(id=7)は赤が
+        // 先に来る向きなので、判定不能のIdが赤のIdより若い向きをここで足す。
+        var bandReversedDays = DailySnapshotTestBuilder.Sequence(150).ToList();
+        int breadCeiling = DailySnapshotTestBuilder.Ceiling(Item.Bread);
+        NormalizeBelowCeiling(bandReversedDays, Item.Bread, breadCeiling);
+
+        for (int day = TransientDays; day < TransientDays + 30; day++)
+        {
+            bandReversedDays[day] = DailySnapshotTestBuilder.WithPrice(
+                bandReversedDays[day], Item.Bread, bandReversedDays[day].Prices[Item.Bread] with { SettledMedian = breadCeiling + 1, SettledCount = 4 });
+        }
+
+        ZeroOutSettledCount(bandReversedDays, Item.Flour, TransientDays, 149);
+
+        Assert.Equal(Verdict.Red, GetItem(Run(bandReversedDays), "8-5b").Verdict);
     }
 
     /// <summary>
