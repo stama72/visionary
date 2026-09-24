@@ -6,7 +6,8 @@ namespace Visionary.Sim.Tests.Verification;
 
 /// <summary>
 /// <see cref="VerificationAccumulator"/> の検査(W2-21 タスク仕様「落ちるべき条件」#1〜#29・#36・#37・
-/// 別表(フェーズ1 の訂正)#44〜#48・6'・1'・4'・5')。
+/// 別表(フェーズ1 の訂正)#44〜#48・6'・1'・4'・5'・別表(レビューで追加)#40〜#43・
+/// 別表(レビュー2巡目で追加)#49・#50・別表(レビュー3巡目で追加)#51〜#54・#56)。
 /// </summary>
 public sealed class VerificationAccumulatorTests
 {
@@ -119,6 +120,34 @@ public sealed class VerificationAccumulatorTests
 
         Assert.Equal(1, full.WindowCount);
         Assert.Equal(Verdict.Green, GetItem(full, "8-2a").Verdict);
+    }
+
+    /// <summary>
+    /// 51(別表(レビュー3巡目で追加)#51)。149日の走行(窓が1つも取れない)では、
+    /// 日次の帯(8-6)が一度も破れていなくても「連続3窓」の枝を一度も評価できていないので
+    /// 8-6は判定不能になる(緑にならない。TDD01 §5.2「窓が1つも取れない走行では、窓を使う
+    /// 項目はすべて判定不能」。#2 が8-2aで確かめている規則を8-6にも適用する)。day0に帯を
+    /// 割る走行なら149日でも赤になる(赤 &gt; 判定不能。全日の帯チェックは窓を使わない)。
+    /// <i>この実装ミスで落ちる</i>: <see cref="VerificationAccumulator.ResolveMoneyBounded"/> が
+    /// <c>firstRedDay == -1</c> だけを見て緑を返していた(窓が0でも緑になっていた)。
+    /// </summary>
+    [Fact]
+    public void MoneyBoundedIsIndeterminateWithoutWindows()
+    {
+        var healthy = DailySnapshotTestBuilder.Sequence(TransientDays + WindowDays - 1); // 149日
+        var healthyResult = Run(healthy);
+
+        Assert.Equal(0, healthyResult.WindowCount);
+        Assert.Equal(Verdict.Indeterminate, GetItem(healthyResult, "8-6").Verdict);
+
+        var days = DailySnapshotTestBuilder.Sequence(TransientDays + WindowDays - 1).ToList();
+        int initial = DailySnapshotTestBuilder.InitialTotalMoney;
+        days[0] = DailySnapshotTestBuilder.WithEconomy(days[0], days[0].Economy with { MoneyTotal = initial / 10 });
+
+        var redItem = GetItem(Run(days), "8-6");
+
+        Assert.Equal(Verdict.Red, redItem.Verdict);
+        Assert.Equal(0, redItem.FirstRedDay);
     }
 
     /// <summary>#3。有効日0の品目は判定不能になり、緑にならない(8-1a/8-1b/8-5b)。</summary>
@@ -359,6 +388,32 @@ public sealed class VerificationAccumulatorTests
     }
 
     /// <summary>
+    /// 52(別表(レビュー3巡目で追加)#52)。帯の枝の窓の階層だけを分離して観察できることを確かめる。
+    /// 510日(過渡期30 + 窓4つ)で、Breadの窓1だけ有効日29(帯の枝が判定不能)、窓2〜4は
+    /// 同じ偏差‰(200)を持つ健全な窓にする。偏差の枝は基準窓(窓2)から3窓そろい、単調非減少
+    /// だが成長条件(基準窓×2)を満たさないので緑になる ── 8-1aの判定不能が「偏差の枝の判定不能
+    /// との合成」からではなく、帯の枝そのものの窓の畳み込みから出ていることを分離して確かめる
+    /// (どのテストも2つの枝が両方とも判定不能な入力しか作っていなかった。レビュー3巡目指摘A)。
+    /// </summary>
+    [Fact]
+    public void BandBranchWindowFoldIsObservable()
+    {
+        int totalDays = TransientDays + (WindowDays * 4); // 510日
+        var days = DailySnapshotTestBuilder.Sequence(totalDays).ToList();
+
+        // 窓1(day30〜149)のBreadだけ有効日を29日にする(帯の枝が判定不能)。
+        ZeroOutSettledCount(days, Item.Bread, TransientDays, TransientDays + 90);
+
+        // 窓2〜4(day150〜509)のBreadは同じ偏差‰(200)を持つ ── 基準窓(窓2)以降3窓そろって
+        // 単調非減少・同値なので、成長条件(最後 >= 基準×2)が偽になり偏差の枝は緑になる。
+        ApplyDispersionWindow(days, Item.Bread, windowIndex: 1, targetPermille: 200);
+        ApplyDispersionWindow(days, Item.Bread, windowIndex: 2, targetPermille: 200);
+        ApplyDispersionWindow(days, Item.Bread, windowIndex: 3, targetPermille: 200);
+
+        Assert.Equal(Verdict.Indeterminate, GetItem(Run(days), "8-1a").Verdict);
+    }
+
+    /// <summary>
     /// 49(レビュー2巡目指摘1)。窓の階層を持つ4項目(8-1b/8-4/8-5b/8-5c)は、緑の窓と判定不能の
     /// 窓が混在する走行で判定不能になる(緑にならない。TDD01 §5.2「赤 &gt; 判定不能 &gt; 緑」は
     /// 窓の階層でも同じ)。<i>この実装ミスで落ちる</i>: 窓の階層だけ「すべて判定不能なら判定不能」
@@ -444,6 +499,123 @@ public sealed class VerificationAccumulatorTests
         var purchaseItem = GetItem(Run(purchaseDays), "8-5c");
         Assert.Equal(Verdict.Red, purchaseItem.Verdict);
         Assert.Equal(window2End, purchaseItem.FirstRedDay);
+    }
+
+    /// <summary>
+    /// 53(別表(レビュー3巡目で追加)#53)。同じ窓の中で、ある品目/職業が赤・別の品目/職業が
+    /// 判定不能になる入力で、8-1b / 8-3 / 8-4 / 8-5b が赤になる(<see cref="VerificationAccumulator.Pool"/> の階層。
+    /// 「赤 &gt; 判定不能」)。#50 は判定不能を窓1・赤を窓2に置いて<b>窓の階層</b>だけを試して
+    /// いた ── このテストは<b>品目・職業の階層</b>を試す(レビュー3巡目指摘B)。
+    /// </summary>
+    /// <remarks>
+    /// <b>8-3の「判定不能」は、他の3項目と形が異なる</b>(決めて報告)。TDD01 §5.2「8-3」の列は
+    /// 「その職業の世帯が0戸の窓はその職業を外す。全職業が0戸なら判定不能」と定めており、
+    /// 0戸の職業は<see cref="Verdict.Indeterminate"/>として<c>parts</c>へ積まれるのではなく、
+    /// そもそも<c>parts</c>から除外される(<see cref="VerificationAccumulator.Evaluate8_3"/>)。
+    /// 1つの職業だけが0戸でも、他の職業が生きていれば項目レベルの判定不能にはならない。
+    /// したがって8-3で検査できるのは「0戸で除外された職業がPoolの結果を薄めない」ことであり、
+    /// 他の3項目の「partsにIndeterminateが混じっても赤が勝つ」とは別の経路である
+    /// (どちらも「Poolが赤を取りこぼさない」という同じ性質の別の現れ方)。
+    /// </remarks>
+    [Fact]
+    public void PoolKeepsRedOverIndeterminateWithinAWindow()
+    {
+        // 8-1b: Breadは全日同一値(レンジ0、硬直で赤)。Beerは窓の約定を全日殺す(判定不能)。
+        var rigidityDays = DailySnapshotTestBuilder.Sequence(150).ToList();
+        int breadFloor = DailySnapshotTestBuilder.Floor(Item.Bread);
+
+        for (int day = 0; day < rigidityDays.Count; day++)
+        {
+            rigidityDays[day] = DailySnapshotTestBuilder.WithPrice(
+                rigidityDays[day], Item.Bread, rigidityDays[day].Prices[Item.Bread] with { SettledMedian = breadFloor * 2, SettledCount = 4 });
+        }
+
+        ZeroOutSettledCount(rigidityDays, Item.Beer, TransientDays, 149);
+
+        Assert.Equal(Verdict.Red, GetItem(Run(rigidityDays), "8-1b").Verdict);
+
+        // 8-3: 醸造を窓の全日停止(赤)。木材加工の世帯を全日居なくす(その職業を除外。0戸)。
+        var productionDays = DailySnapshotTestBuilder.Sequence(150).ToList();
+
+        for (int day = 0; day < productionDays.Count; day++)
+        {
+            var households = productionDays[day].Households
+                .Where(h => (int)h.Occupation != (int)Occupation.Woodworker)
+                .Select(h => (int)h.Occupation == (int)Occupation.Brewer ? h with { ProductionRuns = 0 } : h)
+                .ToList();
+            productionDays[day] = DailySnapshotTestBuilder.WithHouseholds(productionDays[day], households);
+        }
+
+        Assert.Equal(Verdict.Red, GetItem(Run(productionDays), "8-3").Verdict);
+
+        // 8-4: Flourは区画差0(収束、赤)。醸造(Beer)の担い手2戸のうち1戸をFlourへ付け替えて
+        // Beerの担い手を1戸に減らす(判定不能。#18と同じ形)。
+        var spreadDays = DailySnapshotTestBuilder.Sequence(150).ToList();
+        ConvergeDistricts(spreadDays, Item.Flour, TransientDays, 149, DailySnapshotTestBuilder.Floor(Item.Flour) * 2);
+
+        for (int day = 0; day < spreadDays.Count; day++)
+        {
+            var households = spreadDays[day].Households.ToList();
+            var brewerHouseholds = households.Where(h => (int)h.Occupation == (int)Occupation.Brewer).ToList();
+            var reassigned = brewerHouseholds[1];
+            int index = households.IndexOf(reassigned);
+            households[index] = reassigned with { OutputItemId = Item.Flour };
+            spreadDays[day] = DailySnapshotTestBuilder.WithHouseholds(spreadDays[day], households);
+        }
+
+        Assert.Equal(Verdict.Red, GetItem(Run(spreadDays), "8-4").Verdict);
+
+        // 8-5b: Flourは窓内で30日連続天井超え(赤)。Beerは窓の約定を全日殺す(判定不能)。
+        var bandDays = DailySnapshotTestBuilder.Sequence(150).ToList();
+        int flourCeiling = DailySnapshotTestBuilder.Ceiling(Item.Flour);
+        NormalizeBelowCeiling(bandDays, Item.Flour, flourCeiling);
+
+        for (int day = TransientDays; day < TransientDays + 30; day++)
+        {
+            bandDays[day] = DailySnapshotTestBuilder.WithPrice(
+                bandDays[day], Item.Flour, bandDays[day].Prices[Item.Flour] with { SettledMedian = flourCeiling + 1, SettledCount = 4 });
+        }
+
+        ZeroOutSettledCount(bandDays, Item.Beer, TransientDays, 149);
+
+        Assert.Equal(Verdict.Red, GetItem(Run(bandDays), "8-5b").Verdict);
+    }
+
+    /// <summary>
+    /// 54(別表(レビュー3巡目で追加)#54)。窓の全日で <see cref="DailySnapshot.Households"/> が
+    /// 空の走行は、8-3が判定不能になる(TDD01 §5.2「全職業が0戸なら判定不能」。#13は世帯行を
+    /// 5件に減らすだけで、職業が1つも残らない走行を試していなかった)。
+    /// </summary>
+    [Fact]
+    public void ProductionStopIsIndeterminateWithoutAnyHousehold()
+    {
+        var days = DailySnapshotTestBuilder.Sequence(150).ToList();
+
+        for (int day = 0; day < days.Count; day++)
+        {
+            days[day] = DailySnapshotTestBuilder.WithHouseholds(days[day], Array.Empty<HouseholdRow>());
+        }
+
+        Assert.Equal(Verdict.Indeterminate, GetItem(Run(days), "8-3").Verdict);
+    }
+
+    /// <summary>
+    /// 56(別表(レビュー3巡目で追加)#56)。窓の全日で需要行(<c>demand_lines</c>)が0の走行は、
+    /// 8-7が判定不能になる(TDD01 §5.2 L466 の唯一の判定不能条件。#27は day 100/101 に需要行を
+    /// 残しており、分母が0になる走行を試していなかった)。
+    /// </summary>
+    [Fact]
+    public void UnknownPriceRatioIsIndeterminateWithoutDemandLines()
+    {
+        var days = DailySnapshotTestBuilder.Sequence(150).ToList();
+
+        for (int day = TransientDays; day < 150; day++)
+        {
+            days[day] = DailySnapshotTestBuilder.WithEconomy(
+                days[day], days[day].Economy with { DemandLines = 0, DemandLinesWithoutKnownPrice = 0 });
+        }
+
+        Assert.Equal(Verdict.Indeterminate, GetItem(Run(days), "8-7").Verdict);
     }
 
     /// <summary><paramref name="itemId"/> の <c>DistrictId == 1</c> の行を除いて1区画だけにする(8-4の有効日数を0にする)。</summary>

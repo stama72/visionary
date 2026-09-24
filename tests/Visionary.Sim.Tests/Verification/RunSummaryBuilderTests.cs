@@ -3,7 +3,8 @@ using Visionary.Sim.Verification;
 namespace Visionary.Sim.Tests.Verification;
 
 /// <summary>
-/// <see cref="RunSummaryBuilder"/> の検査(W2-21 タスク仕様「落ちるべき条件」#30・#31)。
+/// <see cref="RunSummaryBuilder"/> の検査(W2-21 タスク仕様「落ちるべき条件」#30・#31・
+/// 別表(レビュー3巡目で追加)#55)。
 /// </summary>
 public sealed class RunSummaryBuilderTests
 {
@@ -69,6 +70,29 @@ public sealed class RunSummaryBuilderTests
         Assert.Equal(Verdict.Green, greenOverall.Verdict);
         Assert.Empty(greenOverall.RedSeeds);
         Assert.Empty(greenOverall.IndeterminateSeeds);
+    }
+
+    /// <summary>
+    /// 55(別表(レビュー3巡目で追加)#55)。(赤, 判定不能, 緑) のシードの組で <c>overall</c> が
+    /// 赤になり、<c>redSeeds</c> / <c>indeterminateSeeds</c> の双方が正しく埋まる。#30 の赤ケースは
+    /// (赤, 緑, 緑) で判定不能のシードを含んでおらず、判定不能を含む赤の組を試していなかった。
+    /// </summary>
+    [Fact]
+    public void OverallKeepsRedOverIndeterminateAcrossSeeds()
+    {
+        var seeds = new[]
+        {
+            MakeSeed(1, "8-2a", Verdict.Red),
+            MakeSeed(2, "8-2a", Verdict.Indeterminate),
+            MakeSeed(3, "8-2a", Verdict.Green),
+        };
+
+        var summary = RunSummaryBuilder.Build(150, seeds);
+        var overall = summary.Overall.Single(o => o.Id == "8-2a");
+
+        Assert.Equal(Verdict.Red, overall.Verdict);
+        Assert.Equal(new long[] { 1 }, overall.RedSeeds);
+        Assert.Equal(new long[] { 2 }, overall.IndeterminateSeeds);
     }
 
     /// <summary>#31。<c>masterSeeds</c> が [3, 1, 2] のとき <c>seeds</c> 配列もその順。</summary>

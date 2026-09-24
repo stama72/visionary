@@ -1329,7 +1329,25 @@ public sealed class VerificationAccumulator : IDailyMetricsSink
             firstRedDay = -1;
         }
 
-        Verdict verdict = firstRedDay == -1 ? Verdict.Green : Verdict.Red;
+        Verdict verdict;
+
+        if (firstRedDay != -1)
+        {
+            verdict = Verdict.Red;
+        }
+        else if (_windowCount == 0)
+        {
+            // 窓が1つも取れない走行(過渡期の後に1窓も閉じない)では、連続3窓の枝が一度も
+            // 評価されていない。日次の帯(過渡期を含む全日)が緑でも、窓を使う枝が判定不能な
+            // 以上は項目そのものを判定不能にする(赤 &gt; 判定不能 &gt; 緑。TDD01 §5.2「窓が
+            // 1つも取れない走行では、窓を使う項目はすべて判定不能」。8-1c/8-2a/8-2b と同じ
+            // 「窓を使う項目」であり、レビュー3巡目の指摘 ── 149日以下の走行で緑を返していた)。
+            verdict = Verdict.Indeterminate;
+        }
+        else
+        {
+            verdict = Verdict.Green;
+        }
 
         IReadOnlyList<Evidence> evidence;
 
