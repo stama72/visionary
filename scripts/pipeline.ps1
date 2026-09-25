@@ -145,6 +145,15 @@ $AllowedTools = @(
     # 任意のスクリプトが無人で走るので広げない。W2-09(#112)は完了条件がこの
     # スクリプトの実行結果そのものなので、許さないとフェーズ2 が構造的に完走できない。
     'Bash(bash scripts/check-doc-citations.sh:*)',
+    # **同じスクリプトを使い捨て worktree の側から叩く形**(#233 / W2-23)。上の1行は
+    # `bash scripts/...` で始まる綴りしか許さないので、`mutator` が
+    # `.pipeline/mutation/<issue>/` に切った worktree のスクリプトは弾かれる。
+    # **検出器そのものが完了条件で、変異を当てて測る相手でもある**タスクでは、
+    # ここを許さないと [ADR-0013](../docs/adr/0013-mutation-measurement-separated.md) の
+    # 測定が構造的にできない(本体で当てるのは禁止、worktree は叩けない、の板挟みになる)。
+    # **`.pipeline/mutation` 配下に限る** — そこに在るのは Git 管理下のファイルを
+    # `git worktree add` で展開したものだけである。
+    'Bash(bash .pipeline/mutation:*)',
     'PowerShell(dotnet:*)', 'PowerShell(git:*)', 'PowerShell(gh:*)',
     'mcp__github__issue_read', 'mcp__github-ro__issue_read'
 )
