@@ -49,10 +49,16 @@ public sealed class StateHasherCoverageTests
         "Market",
         "TrustLedger",
         "Needs",
+        "NextNeedId",
         "Promises",
         "Knowledge",
         "Ledgers",
         "EventLog",
+
+        // W2-20: 順5(Trade)の当日ぶんの計数(MetricsScratch)。ハッシュ対象外(TDD01 §3.8) ──
+        // StateHasher.Compute は意図的にこの区分を読まない。区分タグ(Section enum)は
+        // 増やさない(ハッシュしないため)。
+        "Metrics",
     };
 
     /// <summary>
@@ -144,7 +150,7 @@ public sealed class StateHasherCoverageTests
         {
             "Id", "DistrictId", "Occupation", "HeadNpcId", "MemberNpcIds",
             "LiquidFunds", "HouseholdInventory", "WorkshopInventory", "IsBankrupt",
-            "PurchaseUnitCostAverage", "ToolWear", "UnmetConsumption",
+            "PurchaseUnitCostAverage", "ToolWear", "UnmetConsumption", "UnfilledPurchase",
             "UnaffordableNecessityCount", "ErrandLaborLossPermille", "ProductionRuns",
         }),
         (typeof(MarketKey), new[] { "ItemId", "SellerId" }),
@@ -152,9 +158,9 @@ public sealed class StateHasherCoverageTests
         (typeof(TrustScore), new[] { "Value", "LastMet" }),
         (typeof(Need), new[]
         {
-            "TypeCode", "TargetHouseholdId", "ItemId", "Quantity", "Deadline", "Urgency", "ReasonCode",
+            "Id", "TypeCode", "TargetHouseholdId", "ItemId", "Quantity", "Deadline", "Urgency", "ReasonCode",
         }),
-        (typeof(Promise), new[] { "NeedIndex", "T0", "T1", "B", "State" }),
+        (typeof(Promise), new[] { "NeedId", "T0", "T1", "B", "State" }),
         (typeof(PriceObservation), new[]
         {
             "ItemId", "LocationId", "Price", "SellerId", "ObservedAt", "Source",

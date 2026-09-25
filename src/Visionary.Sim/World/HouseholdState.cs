@@ -81,8 +81,8 @@ public sealed class HouseholdState
     /// </summary>
     /// <remarks>
     /// <b>0 / 1 以外を setter で拒む。</b>bool の代わりに int を使う以上、値域は型では守れない。
-    /// 2 や -1 が入ると、GDD02b §3.3 の②(値付けで原価下限を 500‰ へ下げる)と④のゲートを
-    /// <c>== 1</c> で書いた実装と <c>!= 0</c> で書いた実装が食い違う。
+    /// 2 や -1 が入ると、GDD02c §1.4 の②(価格係数‰ を 500 に固定する。床は破らない)と
+    /// GDD02b §4.1 の④のゲートを <c>== 1</c> で書いた実装と <c>!= 0</c> で書いた実装が食い違う。
     /// </remarks>
     public int IsBankrupt
     {
@@ -203,6 +203,17 @@ public sealed class HouseholdState
     public int[] UnmetConsumption { get; }
 
     /// <summary>
+    /// 当日、1個も買えず、かつ予想在庫が目標在庫を下回っていた量。添字 = itemId。単位: 個
+    /// (耐久(工具)も耐久値ではなく個数で入る。GDD06 §3.1)。
+    /// </summary>
+    /// <remarks>
+    /// 書き手は <see cref="Systems.TradeSystem"/> 段5b だけである(<see cref="UnaffordableNecessityCount"/>
+    /// と同じく毎日0クリアしてから書く)。読み手は翌日の <see cref="Systems.NeedGenerationSystem"/>
+    /// (理由 <see cref="NeedReason.DistantStock"/>)。
+    /// </remarks>
+    public int[] UnfilledPurchase { get; }
+
+    /// <summary>
     /// 当日、必需品を「資金不足で買えなかった」購入の件数(GDD02b §3.2 / §3.3)。0以上。
     /// </summary>
     /// <remarks>
@@ -294,6 +305,7 @@ public sealed class HouseholdState
         WorkshopInventory = new int[itemCount];
         PurchaseUnitCostAverage = new int[itemCount];
         UnmetConsumption = new int[itemCount];
+        UnfilledPurchase = new int[itemCount];
         IsBankrupt = 0;
         ToolWear = 0;
         UnaffordableNecessityCount = 0;

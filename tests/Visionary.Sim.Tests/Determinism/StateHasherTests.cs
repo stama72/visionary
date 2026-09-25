@@ -3,6 +3,7 @@ using System.Reflection;
 using Visionary.Sim.Determinism;
 using Visionary.Sim.Randomness;
 using Visionary.Sim.Systems;
+using Visionary.Sim.Tests.Systems;
 using Visionary.Sim.Time;
 
 namespace Visionary.Sim.Tests.Determinism;
@@ -307,9 +308,9 @@ public sealed class StateHasherTests
     /// 破産中フラグがハッシュに乗ること(テスト5)。
     /// </summary>
     /// <remarks>
-    /// GDD02b §3.3 の②(順5 の値付けで原価下限を 500‰ へ下げる)と ④のゲートを駆動する状態
-    /// なので、意思決定に直接関与する(TDD01 §3.8)。書き忘れると、投げ売り中の世帯と
-    /// そうでない世帯が同じハッシュになる。
+    /// GDD02c §1.4 の②(順5 の値付けで価格係数‰ を 500 に固定する。床は破らない)と
+    /// GDD02b §4.1 の④のゲートを駆動する状態なので、意思決定に直接関与する(TDD01 §3.8)。
+    /// 書き忘れると、投げ売り中の世帯とそうでない世帯が同じハッシュになる。
     /// </remarks>
     [Fact]
     public void HashChangesWhenBankruptFlagChanges()
@@ -386,6 +387,19 @@ public sealed class StateHasherTests
         ulong before = StateHasher.Compute(world);
 
         world.Households[0].UnmetConsumption[3] = 2;
+        ulong after = StateHasher.Compute(world);
+
+        Assert.NotEqual(before, after);
+    }
+
+    /// <summary>テスト表 #28(#40)。UnfilledPurchaseの1要素だけを変えると状態ハッシュが変わる。</summary>
+    [Fact]
+    public void HashChangesWhenUnfilledPurchaseChanges()
+    {
+        var world = OneHouseholdWorld(itemCount: 9);
+        ulong before = StateHasher.Compute(world);
+
+        world.Households[0].UnfilledPurchase[3] = 2;
         ulong after = StateHasher.Compute(world);
 
         Assert.NotEqual(before, after);
@@ -510,13 +524,14 @@ public sealed class StateHasherTests
 
         world.Needs.Add(new Need
         {
-            TypeCode = 1,
+            Id = 0,
+            TypeCode = NeedType.StockShortage,
             TargetHouseholdId = 0,
             ItemId = 0,
             Quantity = 1,
             Deadline = Tick.Zero,
             Urgency = 50,
-            ReasonCode = 0,
+            ReasonCode = NeedReason.ProductionStopped,
         });
         ulong after = StateHasher.Compute(world);
 
@@ -530,13 +545,14 @@ public sealed class StateHasherTests
         var world = new World(npcCount: 0, householdCount: 0, itemCount: 0);
         world.Needs.Add(new Need
         {
-            TypeCode = 1,
+            Id = 0,
+            TypeCode = NeedType.StockShortage,
             TargetHouseholdId = 0,
             ItemId = 0,
             Quantity = 1,
             Deadline = Tick.Zero,
             Urgency = 50,
-            ReasonCode = 0,
+            ReasonCode = NeedReason.ProductionStopped,
         });
         ulong before = StateHasher.Compute(world);
 
@@ -546,6 +562,72 @@ public sealed class StateHasherTests
         Assert.NotEqual(before, after);
     }
 
+    /// <summary>テスト表 #28(#40)。Need.Id だけを変えるとハッシュが変わる。</summary>
+    [Fact]
+    public void HashChangesWhenNeedIdChanges()
+    {
+        var world = new World(npcCount: 0, householdCount: 0, itemCount: 0);
+        world.Needs.Add(new Need
+        {
+            Id = 0,
+            TypeCode = NeedType.StockShortage,
+            TargetHouseholdId = 0,
+            ItemId = 0,
+            Quantity = 1,
+            Deadline = Tick.Zero,
+            Urgency = 50,
+            ReasonCode = NeedReason.ProductionStopped,
+        });
+        ulong before = StateHasher.Compute(world);
+
+        world.Needs[0] = world.Needs[0] with { Id = 1 };
+        ulong after = StateHasher.Compute(world);
+
+        Assert.NotEqual(before, after);
+    }
+
+    /// <summary>
+    /// テスト表 #28(#40)。<c>World.NextNeedId</c> は <c>internal set</c> なので直接は書けない ──
+    /// <see cref="NeedGenerationSystem"/> を回して間接的に動かす。1日目に工具切れを立てて
+    /// <c>NextNeedId</c> を進め、2日目に条件を消して失効させる(<c>Needs</c> は最終的に両世界とも
+    /// 空)。<b>Needs も Now も両世界で揃えたうえで、NextNeedId(失効しても巻き戻らない)だけを
+    /// 違えることで、この欄の書き忘れだけを検出する。</b>
+    /// </summary>
+    [Fact]
+    public void HashChangesWhenNextNeedIdChanges()
+    {
+        var recipe = new Recipe(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = 2, Quantity = 1 } },
+            inputs: Array.Empty<ItemQuantity>(),
+            laborPermille: 1000);
+
+        // equipmentPermilleWithoutToolsを1000にして、工具切れでもCannotExpandProduction(理由3)が
+        // 同時に立たないようにする ── 動かしたいのはToolsExhausted(理由4)1件だけ。
+        var definition = EconomySystemTestFixtures.BuildDefinition(recipe, equipmentPermilleWithoutTools: 1000);
+
+        // freshWorld: 工具は常に1個。Needは一度も立たず、NextNeedIdは0のまま。
+        var freshWorld = EconomySystemTestFixtures.BuildWorldWithOneHousehold(new[] { NpcRank.Master });
+        freshWorld.Households[0].WorkshopInventory[Item.Tools] = 1;
+        var freshSystem = new NeedGenerationSystem(definition);
+        EconomySystemTestFixtures.RunDays(freshWorld, freshSystem, days: 2);
+
+        // advancedWorld: 1日目に工具0でToolsExhaustedを立て、2日目に工具を戻して失効させる。
+        var advancedWorld = EconomySystemTestFixtures.BuildWorldWithOneHousehold(new[] { NpcRank.Master });
+        advancedWorld.Households[0].WorkshopInventory[Item.Tools] = 0;
+        var advancedSystem = new NeedGenerationSystem(definition);
+        EconomySystemTestFixtures.RunDays(advancedWorld, advancedSystem, days: 1);
+        advancedWorld.Households[0].WorkshopInventory[Item.Tools] = 1;
+        EconomySystemTestFixtures.RunDays(advancedWorld, advancedSystem, days: 1);
+
+        // 前提の確認(空 vs 空。Needsの差ではなくNextNeedIdの差だけを見ていること)。
+        Assert.Empty(freshWorld.Needs);
+        Assert.Empty(advancedWorld.Needs);
+        Assert.Equal(freshWorld.Now, advancedWorld.Now);
+
+        Assert.NotEqual(StateHasher.Compute(freshWorld), StateHasher.Compute(advancedWorld));
+    }
+
     /// <summary>Promise.State を書き忘れると Active と Completed が同じハッシュになる。</summary>
     [Fact]
     public void HashChangesWhenPromiseStateChanges()
@@ -553,7 +635,7 @@ public sealed class StateHasherTests
         var world = new World(npcCount: 0, householdCount: 0, itemCount: 0);
         world.Promises.Add(new Promise
         {
-            NeedIndex = 0,
+            NeedId = 0,
             T0 = Tick.Zero,
             T1 = Tick.Zero,
             B = 10,

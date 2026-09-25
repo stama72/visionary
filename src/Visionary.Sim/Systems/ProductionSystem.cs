@@ -67,20 +67,14 @@ public sealed class ProductionSystem : ISimSystem
         // 設備係数‰は二値(GDD02a §3。連続化はv1.0)。旧仕様の「工具が無ければ停止」は消えた
         // (#96)が、「半分の能力で続く」は生産能力2以上の職業に限る話であり、鍛冶(生産能力1)には
         // 成り立たない(工具在庫0で能力0になり詰む。W2-14。クラスdocコメント参照)。
-        int equipmentPermille = household.WorkshopInventory[Item.Tools] >= EquipmentThresholdStock
-            ? IntegerMath.PermilleScale
-            : _definition.EquipmentPermilleWithoutTools;
-
-        // 構成員は先頭から(MemberNpcIdsの昇順は構築時に検証済み。並べ替え直さない)。
-        int totalLaborPermille = 0;
-        foreach (int npcId in household.MemberNpcIds)
-        {
-            totalLaborPermille += _definition.LaborPermilleByRank[(int)world.Npcs[npcId].Rank];
-        }
+        // 求め方は LaborCapacity(#40)へ寄せた ── NeedGenerationSystem が同じ2つの値を
+        // 必要とするため(値も順序も変えない)。
+        int equipmentPermille = LaborCapacity.EquipmentPermille(_definition, household);
 
         // 前日の外出の労働損失‰を引く(GDD02a §2)。max(0, …)を落とすと、損失が労働力合計を
-        // 超えたときに負のまま CapacityRuns へ渡ってしまう(テスト#16)。
-        int laborPermille = Math.Max(0, totalLaborPermille - household.ErrandLaborLossPermille);
+        // 超えたときに負のまま CapacityRuns へ渡ってしまう(テスト#16)。構成員は
+        // MemberNpcIdsの昇順のまま(LaborCapacity.LaborPermilleが並べ替えない)。
+        int laborPermille = LaborCapacity.LaborPermille(_definition, world, household);
 
         int capacity = recipe.CapacityRuns(laborPermille, equipmentPermille);
 

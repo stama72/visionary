@@ -180,6 +180,46 @@ $cases = @(
        cmd = 'git -C ../../.. checkout .'; expect = 0 }
     @{ g = '基本'; n = 'パイプライン自身のセッション(VISIONARY_PIPELINE_ISSUE)は通る'; tool = 'Bash'; cwd = $MainWin
        cmd = 'cat > docs/x.md'; expect = 0; pipelineIssue = '999' }
+
+    # --- 引用符の中は書き込み判定に当てない(#166)---------------------------------
+    # **ホスト非依存**(綴り替えを使わない)ので CI でも走る。
+    @{ g = '引用符'; n = '実測された偽陽性: grep -n "Remove-Item|…" は通る'; tool = 'Bash'; cwd = $MainWin
+       cmd = 'grep -n "Remove-Item|prune|retention" scripts/pipeline.ps1'; expect = 0 }
+    @{ g = '引用符'; n = 'Select-String -Pattern "Set-Content" は通る'; tool = 'PowerShell'; cwd = $MainWin
+       cmd = 'Select-String -Pattern "Set-Content" scripts/pipeline.ps1'; expect = 0 }
+    @{ g = '引用符'; n = "単引用符の中の二重引用符も剥がれる(状態は 1 つ)"; tool = 'Bash'; cwd = $MainWin
+       cmd = 'grep -n ''Remove-Item "x"'' scripts/pipeline.ps1'; expect = 0 }
+    @{ g = '引用符'; n = '引用符の外に動詞があれば止まる'; tool = 'PowerShell'; cwd = $MainWin
+       cmd = 'Remove-Item "docs/x.md" -Force'; expect = 2 }
+    @{ g = '引用符'; n = 'リダイレクト先が引用符でも止まる'; tool = 'Bash'; cwd = $MainWin
+       cmd = 'echo x > "docs/x.md"'; expect = 2 }
+    # **潰す先が空白だと落ちるケース。** `(-C\s+\S+\s+)*` が満たせなくなり、
+    # 偽陽性を消すつもりで書き込み判定ごと外れる(プレースホルダを 1 文字にした理由)。
+    @{ g = '引用符'; n = '引用符でくるんだ git -C <本体> checkout は止まる'; tool = 'Bash'; cwd = $Worktree
+       cmd = "git -C `"$MainWin`" checkout ."; expect = 2 }
+    # 剥がした文字列の行き先は `$writeish` だけ。絶対パスの照合は元の文字列に当てている。
+    @{ g = '引用符'; n = '引用符でくるんだ本体の絶対パスへの rm は止まる'; tool = 'Bash'; cwd = $Worktree
+       cmd = "rm `"$MainWin/docs/x.md`""; expect = 2 }
+    # 対応が取れなければ現状動作に落とす(素通しではない)。
+    @{ g = '引用符'; n = '閉じていない引用符は現状動作に落ちる(止まる)'; tool = 'Bash'; cwd = $MainWin
+       cmd = 'grep -n "Remove-Item scripts/pipeline.ps1'; expect = 2 }
+    # `.pipeline` の回収路判定も剥がす前に当てている(**極性は逆で、素通しを広げる側**)。
+    # **引用符つきでなければ差が出ない。**
+    @{ g = '引用符'; n = '引用符でくるんだ .pipeline/*.lock の回収路は通る'; tool = 'Bash'; cwd = $MainWin
+       cmd = 'rm ".pipeline/999.lock"'; expect = 0 }
+    # --- #166 が開けた偽陰性を機械に固定する(expect = 0)---------------------------
+    # **緑であること自体が「止まらない」の実測である。** ここが落ちたら、#166 決定3 が
+    # **塞がないと決めたものを塞いだ**ということで、05「何が止まらないか」と #166 の
+    # 決定ログを直す必要がある(`dotnet fsi` の行と同じ形)。**「テストが古い」ではない。**
+    # 原因は順序の入れ替えとは限らない — 却下したもう一方(`bash -c` の頭だけ止める)を
+    # 後から採っても赤くなる。**却下案が黙って入る経路をここで閉じている。**
+    #
+    # **2 件が固定しているものは違う。** 1 件目は「**cwd が本体でも止まらない**」(#109 の
+    # 実害と同じ形で、開いた穴の主たる面)、2 件目は「**絶対パスの照合にも届かない**」。
+    @{ g = '引用符'; n = '意図した境界: cwd が本体でも動詞が引用符の中なら止まらない'; tool = 'Bash'; cwd = $MainWin
+       cmd = 'bash -c "rm docs/x.md"'; expect = 0 }
+    @{ g = '引用符'; n = '意図した境界: 動詞ごと引用符の中だと絶対パスの照合に届かない'; tool = 'Bash'; cwd = $Worktree
+       cmd = "bash -c `"rm $MainWin/docs/x.md`""; expect = 0 }
 )
 
 # ---- 実行 --------------------------------------------------------------------

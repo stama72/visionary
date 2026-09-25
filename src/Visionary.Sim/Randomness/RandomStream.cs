@@ -20,4 +20,14 @@ public enum RandomStream
     UnfairPrice = 9,
     Rumor = 10,
     Dialogue = 11,
+
+    // 12(OpportunityCost)は v1.0 まで予約(TDD01 §3.3)。M0はOpportunityCostのシステムを
+    // 持たないので飛ばす ── 値は末尾に足すのであって、パイプラインの順(順0)に合わせて
+    // 振り直さない。
+
+    /// <summary>
+    /// 順10 Metrics(TDD01 §3.3 / §4.2)。乱数は引かないが、登録(<see cref="Systems.SimScheduler"/>
+    /// の系統の重複登録の検査)に一意な識別子が要る(W2-20 タスク仕様)。
+    /// </summary>
+    Metrics = 13,
 }

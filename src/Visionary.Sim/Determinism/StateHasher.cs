@@ -94,19 +94,26 @@ public static class StateHasher
         WriteSectionHeader(hasher, buffer, Section.Needs, world.Needs.Count);
         foreach (var need in world.Needs)
         {
-            WriteInt32(hasher, buffer, need.TypeCode);
+            WriteInt32(hasher, buffer, (int)need.TypeCode);
             WriteInt32(hasher, buffer, need.TargetHouseholdId);
             WriteInt32(hasher, buffer, need.ItemId);
             WriteInt32(hasher, buffer, need.Quantity);
             WriteInt64(hasher, buffer, need.Deadline.Value);
             WriteInt32(hasher, buffer, need.Urgency);
-            WriteInt32(hasher, buffer, need.ReasonCode);
+            WriteInt32(hasher, buffer, (int)need.ReasonCode);
+
+            // #40が足した欄。既存の値は動かさず要素の末尾へ足す(同じ規律)。
+            WriteInt32(hasher, buffer, need.Id);
         }
+
+        // #40が足した欄。区分の末尾(ループの後)へ足す(同じ規律)。
+        WriteInt32(hasher, buffer, world.NextNeedId);
 
         WriteSectionHeader(hasher, buffer, Section.Promises, world.Promises.Count);
         foreach (var promise in world.Promises)
         {
-            WriteInt32(hasher, buffer, promise.NeedIndex);
+            // #40: NeedIndex(World.Needsの添字)からNeedId(Need.Id)へ改名。位置・型は変えない。
+            WriteInt32(hasher, buffer, promise.NeedId);
             WriteInt64(hasher, buffer, promise.T0.Value);
             WriteInt64(hasher, buffer, promise.T1.Value);
             WriteInt32(hasher, buffer, promise.B);
@@ -161,7 +168,8 @@ public static class StateHasher
 
         // 配列の添字順 = 世帯Id 昇順(ADR-0002)。区画Id を含めるのは、不変だが初期配置の一部で
         // あり、シードから決まる世界の同一性に属するため(§3.8)。破産中フラグを含めるのは、
-        // GDD02b §3.3 の②(値付けで原価下限を 500‰ へ下げる)と④のゲートを駆動するため。
+        // GDD02c §1.4 の②(価格係数‰ を 500 に固定する。床は破らない)と GDD02b §4.1 の④の
+        // ゲートを駆動するため。
         WriteSectionHeader(hasher, buffer, Section.Households, world.Households.Length);
         foreach (var household in world.Households)
         {
@@ -200,6 +208,9 @@ public static class StateHasher
             // #96が足した2欄。既存の値は動かさず末尾へ足す(同じ規律)。
             WriteInt32(hasher, buffer, household.ErrandLaborLossPermille);
             WriteInt32(hasher, buffer, household.ProductionRuns);
+
+            // #40が足した欄。既存の値は動かさず末尾へ足す(同じ規律)。
+            WriteInt32Array(hasher, buffer, household.UnfilledPurchase);
         }
 
         // EventLog は含めない(§3.8 の除外表)。意思決定に関与せず、追記専用で巨大。

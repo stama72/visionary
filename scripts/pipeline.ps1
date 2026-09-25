@@ -21,6 +21,14 @@
     **起動時に 5 時間枠の残りを読み、足りなければ起動しない**(終了コード 4。#132)。
     途中で枠が切れたパイプラインはその場で死に、使った分が消える(#36 で $16、#37 で $30)。
 
+    **`-From impl` のときは、本体が origin/master を含むかも見る**(終了コード 5。#146)。
+    設計をラップトップ、実装パイプラインをデスクトップで回すため、pull を忘れると
+    フェーズ2 が一世代前のタスク仕様を実装する — 出来上がりを読んでも気付けない形になる。
+
+    **Windows の Session 0 では起動しない**(終了コード 6。#146 決定15)。そこでは `gh` の
+    トークン(keyring)が開けず、フェーズ3 が PR を作れずに終わる。ssh のログオンは
+    Session 0 に入るので、**デーモンは机の前の console で立てておく**(#146 決定14)。
+
 .EXAMPLE
     pwsh scripts/pipeline.ps1 -Issue 35
     pwsh scripts/pipeline.ps1 -Issue 35 -From wrap   # フェーズ3 だけやり直す
@@ -192,7 +200,24 @@ function Get-DirtyWorkTree {
         ForEach-Object { $_.Substring(3).Trim('"') }
 }
 
-function Send-DesktopNotification {
+function Send-Notification {
+    <#
+        **2経路に出す。デスクトップ通知と、issue へのコメントである。**
+
+        デスクトップ通知だけだと、**誰も見ていないマシンの画面に出る。** 実装タスクは
+        デスクトップで走らせる([#146](https://github.com/stama72/visionary/issues/146) 決定5)ので、開発者は出先にいる。そのままだと
+        「出先から起動 -> 数分で `IMPL-BLOCKED` -> 気付くのは帰宅後」になり、
+        [ADR-0010](../docs/adr/0010-phase-pipeline-and-halt-conditions.md) が消した待ちが形を変えて戻る。
+
+        **issue コメントが出先へ届くのは、GitHub の「自分の更新」メール通知に乗るからである**
+        (実測 2026-09-22)。GitHub Mobile のプッシュ通知は直接メンション / アサイン /
+        レビュー依頼 / デプロイ承認依頼の4種だけで、**issue コメント自体は対象外**である。
+        経路はメールであって、GitHub のプッシュではない。
+
+        **`claude -p` の外側で打つので、Remote Control の可否に依存しない。**
+
+        **どちらの経路も、出せなくてもパイプラインの判定は変えない。** 通知は補助である。
+    #>
     param([string]$Title, [string]$Text, [string]$Level = 'Info')
     try {
         Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
@@ -212,6 +237,22 @@ function Send-DesktopNotification {
     } catch {
         # 通知はあくまで補助。出せなくてもパイプラインの判定は変えない。
         Write-Warning "デスクトップ通知を出せませんでした: $_"
+    }
+
+    # **出先へ届く経路。** `gh` は本体ツリーの origin から repo を解決するので、
+    # cwd を本体に寄せてから打つ。`-Status` では $Issue が束縛されないが、
+    # そちらからはこの関数を呼ばない。
+    if (-not $Issue) { return }
+    $tmp = Join-Path ([IO.Path]::GetTempPath()) ("visionary-notify-{0}.md" -f [guid]::NewGuid())
+    try {
+        [IO.File]::WriteAllText($tmp, ("**{0}**{1}{1}{2}" -f $Title, [Environment]::NewLine, $Text), [Text.UTF8Encoding]::new($false))
+        Push-Location $RepoRoot
+        try { & gh issue comment $Issue --body-file $tmp 2>&1 | Out-Null } finally { Pop-Location }
+        if ($LASTEXITCODE -ne 0) { Write-Warning "issue コメントを出せませんでした(gh 終了コード $LASTEXITCODE)。" }
+    } catch {
+        Write-Warning "issue コメントを出せませんでした: $_"
+    } finally {
+        Remove-Item $tmp -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -460,7 +501,7 @@ function Test-BudgetGate {
     if (-not $w) {
         Write-Host "!!! 枠の残りを読めませんでした。起動しません(fail-closed)。" -ForegroundColor Red
         Write-Host "    検査を外して打つなら -MinRemaining 0 です。"
-        Send-DesktopNotification -Title "Visionary #$Issue — 起動しませんでした" `
+        Send-Notification -Title "Visionary #$Issue — 起動しませんでした" `
             -Text "5 時間枠の残りを読めませんでした(fail-closed)。" -Level 'Warning'
         return $false
     }
@@ -485,13 +526,174 @@ function Test-BudgetGate {
         Write-Host ""
         Write-Host "!!! 枠が足りないので起動しません。$text" -ForegroundColor Yellow
         Write-Host "    リセットを待つか、-MinRemaining で閾値を変えてください。"
-        Send-DesktopNotification -Title "Visionary #$Issue — 枠が足りず起動しませんでした" `
+        Send-Notification -Title "Visionary #$Issue — 枠が足りず起動しませんでした" `
             -Text $text -Level 'Warning'
         return $false
     }
 
     Write-Host "    起動します。" -ForegroundColor Green
     return $true
+}
+
+function Test-FreshnessGate {
+    <#
+        **本体が origin/master を含んでいるかを見る。** 含んでいれば `$true`、遅れて
+        いれば `$false`。
+
+        本体ツリーを2台に置く([#146](https://github.com/stama72/visionary/issues/146) 決定1)と、
+        **ラップトップの `/design` が入れた GDD / TDD / process が master に積まれ、
+        デスクトップがそれを pull していない**状態が起こる。そのままフェーズ2 を回すと、
+        **一世代前の上位文書と既存コードを正確に前提にした実装**が出来上がり、
+        読んでも正しく見える。束1 の作業中に実際に 18 コミット遅れていた。
+
+        **守るのは本体の世代であって、ブランチ上のタスク仕様の新しさではない。** 仕様は
+        フェーズ1 がブランチに積むので(05「差分で見えるものは機械が見ている」)、ここの
+        述語には入らない。**タスク仕様を凍らせるフェーズ1 もデスクトップで開く**(決定5)
+        ので、仕様がマシンをまたぐ経路は**規律の上では**無い — 機械は見ていない。
+
+        決定1 が開いたもう一方の穴(コミットし忘れた作業が片方のマシンに取り残される)は
+        機械では塞げないが、**こちらは塞げるので塞ぐ。**
+
+        **`impl` から始めるときだけ見る。** タスク仕様を読むのはフェーズ2 の入口だけで
+        ある。`-From wrap` は停止則の後の再開路で、ここを塞ぐと「走っている間に master が
+        動いた」だけで再開が止まる。枠の閾値が `wrap` だけ別の値を持つのと同じ理由である。
+
+        **fetch できなければ拒否する。逃げ口は置かない。** フェーズ本体は `claude -p` で
+        あり、**ネットワークが無ければどのみち走らない。** 「オフラインでも回したい」が
+        存在しない以上、ここに口を開けても偽陰性が増えるだけである。
+
+        比較対象に `origin/master` ではなく `FETCH_HEAD` を使うのは、リモート追跡ブランチの
+        設定に依存しないためである。
+    #>
+
+    Write-Host ""
+    Write-Host "=== 本体が origin/master を含むかの確認 ===" -ForegroundColor Cyan
+
+    try {
+        & git -C $RepoRoot fetch --quiet origin master 2>&1 | Out-Null
+        $fetched = ($LASTEXITCODE -eq 0)
+    } catch { $fetched = $false }
+
+    if (-not $fetched) {
+        Write-Host "!!! origin から fetch できませんでした。起動しません(fail-closed)。" -ForegroundColor Red
+        Write-Host "    フェーズ本体は claude -p なので、ネットワークが無ければどのみち走りません。"
+        Send-Notification -Title "Visionary #$Issue — 起動しませんでした" `
+            -Text "origin から fetch できませんでした(fail-closed)。" -Level 'Warning'
+        return $false
+    }
+
+    try {
+        & git -C $RepoRoot merge-base --is-ancestor FETCH_HEAD HEAD 2>&1 | Out-Null
+        $contains = ($LASTEXITCODE -eq 0)
+    } catch { $contains = $false }
+
+    if (-not $contains) {
+        $behind = (@(& git -C $RepoRoot rev-list --count "HEAD..FETCH_HEAD") | Select-Object -First 1)
+        $text = "本体が origin/master より $behind コミット遅れています。git pull してから打ってください。"
+        Write-Host ""
+        Write-Host "!!! $text" -ForegroundColor Yellow
+        Write-Host "    そのまま打つと、フェーズ2 が一世代前のタスク仕様を実装します(#146 決定4)。"
+        Send-Notification -Title "Visionary #$Issue — 本体が古いので起動しませんでした" `
+            -Text $text -Level 'Warning'
+        return $false
+    }
+
+    Write-Host "    origin/master を含んでいます。" -ForegroundColor Green
+    return $true
+}
+
+function Test-SessionGate {
+    <#
+        **自分が Windows の Session 0(サービス側)に居たら `$false` を返す。**
+
+        Session 0 に居ると **`gh` が通らない**。トークンは keyring(Windows 資格情報
+        マネージャ)にあり、**ssh のログオンからは開けない**(実測 2026-09-23。
+        `gh auth status` が `The token in default is invalid` を返す)。失うのは停止通知
+        だけではない — **フェーズ3 は `gh` で PR を作るので、成果物が出ない。**
+
+        **そこへ落ちるのは、デーモンの居場所を取り違えたときである**([#146](https://github.com/stama72/visionary/issues/146) 決定14)。
+        `--bg` のセッションは**先に立ったデーモンの側に生える。** console から立てれば
+        Session 1 で、そこへは ssh からも足せる(実測)。**Session 1 のデーモンが無い
+        まま ssh から打つと、Session 0 に立つ。**
+
+        **拒否にするのは、判定が2値だからである**(決定15)。祖先歩き
+        (`Write-DetachedLaunchWarning`)は「不明」を返すので警告どまりにしてあるが、
+        `SessionId` は不明を返さない。**枠を使い切ってからフェーズ3 で PR を作れずに
+        終わるより、起動時に落とすほうが安い。**
+
+        **通知は標準出力だけである。** `gh` もデスクトップ通知も、まさにこの場面で
+        死んでいる経路である。打った本人がその端末を見ている場面なので、それで足りる。
+    #>
+    $sid = try { (Get-Process -Id $PID -ErrorAction Stop).SessionId } catch { $null }
+    if ($sid -ne 0) { return $true }
+
+    Write-Host ""
+    Write-Host "!!! Windows の Session 0 で走っています(#146 決定15)。起動しません。" -ForegroundColor Red
+    Write-Host "    ここでは gh が通らない(トークンが keyring にあり、ssh のログオンからは開けない)ので、" -ForegroundColor Red
+    Write-Host "    フェーズ3 が PR を作れずに終わります。" -ForegroundColor Red
+    Write-Host ""
+    Write-Host '    直し方: 机の前の console で一度 claude --bg を立ててから、ssh で入り直してください。' -ForegroundColor Yellow
+    Write-Host "    デーモンが Session 1 に居れば、ssh から開いたセッションもそちらに生えます。" -ForegroundColor Yellow
+    return $false
+}
+
+function Write-DetachedLaunchWarning {
+    <#
+        **`--bg` のセッションから打たれたかを見て、違えば警告を1行出す。拒否はしない。**
+
+        フェーズ1 は `claude --bg` で開き、手で回すときも `--bg` のセッションの中から
+        打つ([#146](https://github.com/stama72/visionary/issues/146) 決定8・決定11)。**どちらも機械では守れない** —
+        開発者が打つ場所の話だからである。**守れないが、破ったことは後から分かる。**
+
+        前景(pty に繋がった形)で打つと、ssh の切断でパイプラインごと死ぬ。これは
+        実測してある(2026-09-23。[05](../docs/process/05-phase-sessions.md)「フェーズ1 は背景セッションで開く」)。
+
+        **拒否にしないのは、この判定が「不明」を返すからである**(決定12)。非昇格から
+        SYSTEM 持ちのプロセス(`sshd.exe` / `services.exe` / `WmiPrvSE.exe`)を見ると
+        `CommandLine` が空で返り、**そこから上は辿れない。** 拒否にすると、正しく打った回が
+        止まる。**A-1 を解消して判定が2値になれば、拒否にするかを再検討してよい。**
+
+        **判定は3値である。** `inside`(マーカーが見つかった)/ `outside`(根まで辿って
+        見つからなかった)/ `unknown`(読めない祖先に当たった・深さを使い切った)。
+        **`unknown` は黙らない。** 黙ると「警告が出なかった = `--bg` の下だった」と読まれるが、
+        **ssh の前景はその `unknown` を必ず通る**(祖先鎖が SYSTEM の `sshd` を通るため)。
+        つまり**いちばん守りたい形が、沈黙で「合格」に見える。**
+    #>
+    $verdict = 'outside'
+    $blockedBy = ''
+    try {
+        $seen = @{}
+        $pid_ = $PID
+        for ($depth = 0; $depth -lt 12; $depth++) {
+            if ($seen.ContainsKey($pid_)) { $verdict = 'unknown'; $blockedBy = '祖先が輪になっている(PID の再利用)'; break }
+            $seen[$pid_] = $true
+            $p = Get-CimInstance Win32_Process -Filter "ProcessId=$pid_" -ErrorAction Stop
+            # **親が既に終わっている = `--bg` の下ではない。** マーカーを持つプロセスは、
+            # セッションが生きている限り生きているからである(2巡目 B-3)。
+            if (-not $p) { break }
+            if ([string]::IsNullOrWhiteSpace($p.CommandLine)) {
+                # SYSTEM 持ちのプロセスは非昇格から CommandLine が空で返る。ここから上は辿れない。
+                $verdict = 'unknown'; $blockedBy = "$($p.Name) (PID $($p.ProcessId)) の CommandLine が読めない"; break
+            }
+            # pty ホストでもデーモンでも、居れば `--bg` の下である。
+            if ($p.CommandLine -match '--bg-pty-host' -or $p.CommandLine -match '\bdaemon run\b') { return }
+            if (-not $p.ParentProcessId -or $p.ParentProcessId -eq 0) { break }
+            $pid_ = $p.ParentProcessId
+        }
+        if ($depth -ge 12) { $verdict = 'unknown'; $blockedBy = '祖先が深すぎる(12 段で打ち切り)' }
+    } catch {
+        $verdict = 'unknown'; $blockedBy = "祖先を辿れなかった: $_"
+    }
+
+    Write-Host ""
+    if ($verdict -eq 'unknown') {
+        Write-Host "!!! claude --bg の下かどうか判定できませんでした($blockedBy)。" -ForegroundColor Yellow
+        Write-Host '    ssh の前景で打つと、この形になります(#146 決定8・決定11 は --bg のセッションから打つことを求めています)。' -ForegroundColor Yellow
+    } else {
+        Write-Host '!!! claude --bg のセッションの下ではありません(#146 決定8・決定11)。' -ForegroundColor Yellow
+        Write-Host '    ssh で繋いでいるなら、切断でこのパイプラインごと落ちます。' -ForegroundColor Yellow
+    }
+    Write-Host '    拒否はしません。この警告は画面にしか出ないので、いま読んでください。' -ForegroundColor Yellow
 }
 
 function Invoke-Phase {
@@ -616,6 +818,19 @@ if (-not $lockPath) {
 $env:VISIONARY_PIPELINE_ISSUE = [string]$Issue
 
 try {
+    # **Session 0 では起動しない**(#146 決定15)。ここが最初なのは、判定が2値で
+    # ただ同然であり、かつ**この先のすべてが `gh` に依存している**ためである。
+    if (-not (Test-SessionGate)) { exit 6 }
+
+    # **決定8・決定11 を破っていないかを見る。拒否はしない**(#146 決定12)。
+    # ガードより先に置くのは、拒否されて終わる回でも「打った場所が違う」は伝わるべき
+    # だからである。読めなければ黙るので、ここが誤検知で止まることは無い。
+    Write-DetachedLaunchWarning
+
+    # **古い本体で打たない**(#146 決定4)。枠のプローブより先に置くのは、fetch がタダで
+    # あり、拒否すると分かっているのに $0.11 を払う理由が無いためである。
+    if ($From -eq 'impl' -and -not (Test-FreshnessGate)) { exit 5 }
+
     # **枠が足りなければ起動しない**(#132)。ロックを取った後に置くのは、二重起動の拒否
     # (終了コード 3)が先に出るべきだからである — 走行中と分かっているのにプローブへ
     # $0.11 を払う理由が無い。拒否しても `finally` がロックを外す。
@@ -635,7 +850,7 @@ try {
             $text = "{0}`n{1}`n`nlog: {2}" -f $r.Reason, $r.Detail, $r.Log
             Write-Host ""
             Write-Host "!!! HALT [$($r.Reason)] $($r.Detail)" -ForegroundColor Yellow
-            Send-DesktopNotification -Title $title -Text $text -Level 'Warning'
+            Send-Notification -Title $title -Text $text -Level 'Warning'
             exit 2
         }
     }
@@ -643,7 +858,7 @@ try {
     if ($DryRun) {
         Write-Host "    (DryRun: 完了通知を1回出します — 通知が届くかの確認を兼ねています)"
     }
-    Send-DesktopNotification -Title "Visionary #$Issue — PR まで完了" `
+    Send-Notification -Title "Visionary #$Issue — PR まで完了" `
         -Text "フェーズ2・3 が停止則に当たらず通りました。PR を確認してください。"
     Write-Host ""
     Write-Host "=== #$Issue 完了 ===" -ForegroundColor Green

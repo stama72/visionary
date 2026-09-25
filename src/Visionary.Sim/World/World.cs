@@ -1,3 +1,4 @@
+using Visionary.Sim.Metrics;
 using Visionary.Sim.Time;
 
 namespace Visionary.Sim;
@@ -71,8 +72,13 @@ public sealed class World
         Market = new SortedDictionary<MarketKey, int>();
         TrustLedger = new SortedDictionary<TrustKey, TrustScore>();
         Needs = new List<Need>();
+        NextNeedId = 0;
         Promises = new List<Promise>();
         EventLog = new List<DomainEvent>();
+
+        // 順5(Trade)の当日ぶんの計数(TDD01 §4.2)。ハッシュ対象外(§3.8) ──
+        // StateHasher.Compute はこの区分を読まない(W2-20 タスク仕様)。
+        Metrics = new MetricsScratch(householdCount, itemCount);
     }
 
     /// <summary>現在tick。暦(年・季節)は <see cref="GameDate"/> による読み替えで、状態としては持たない(ADR-0003)。</summary>
@@ -92,6 +98,13 @@ public sealed class World
 
     /// <summary>不足(GDD01 §3.2)。主体は世帯(<see cref="Need.TargetHouseholdId"/>)。</summary>
     public List<Need> Needs { get; }
+
+    /// <summary>
+    /// 次に払い出す Need の Id。非負。単調増加で、失効した Id を再利用しない ──
+    /// 再利用すると、失効前の Need を指していた <see cref="Promise.NeedId"/> が、
+    /// 同じ Id で立った別の Need を指してしまう(<see cref="Systems.NeedGenerationSystem"/>)。
+    /// </summary>
+    public int NextNeedId { get; internal set; }
 
     /// <summary>約束(GDD01 §2.8)。</summary>
     public List<Promise> Promises { get; }
@@ -121,4 +134,11 @@ public sealed class World
 
     /// <summary>ドメインイベントの追記専用列。ハッシュ対象外(TDD01 §3.4 / §3.8)。</summary>
     public List<DomainEvent> EventLog { get; }
+
+    /// <summary>
+    /// 順5(Trade)の当日ぶんの計数(TDD01 §4.2)。<b>ハッシュ対象外</b>(§3.8。
+    /// <see cref="Determinism.StateHasher.Compute"/> はこの区分を読まない)。
+    /// シムの意思決定には一切関与しない(<see cref="Systems.MetricsSystem"/> だけが読む)。
+    /// </summary>
+    public MetricsScratch Metrics { get; }
 }
