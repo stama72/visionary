@@ -27,7 +27,7 @@
 - **検出器を CI へ載せること**(W2-09 の判断のまま。CI 外の、手で叩く道具である)
 - **GDD02 §8 の凍結規則そのもの**。[PR #234](https://github.com/stama72/visionary/pull/234) で master に入っている。本タスクは**それを検出器のコメントから参照するだけ**である
 - **`docs/` 配下の編集**(本仕様と引き継ぎメモを除く)
-- **`scripts/pipeline.ps1` の許可一覧の1行**(`Bash(bash .pipeline/mutation:*)`)。**フェーズ1 が済ませてある** — 走行中のパイプラインは起動時に読んだ一覧を使うので、フェーズ2 が足しても自分には効かない。理由は下記「核心の変異」
+- **`scripts/pipeline.ps1` の許可一覧の1行**(`Bash(bash .pipeline/mutation/<issue>/scripts/check-doc-citations.sh:*)`)。**フェーズ1 が済ませてある** — 走行中のパイプラインは起動時に読んだ一覧を使うので、フェーズ2 が足しても自分には効かない。理由は下記「核心の変異」
 
 ### 変えない既存コード(規則8。[02-task-spec](../process/02-task-spec.md)「変えないと宣言する既存コード」)
 
@@ -116,7 +116,18 @@ $ echo $?
 # 終了コード: STALE が1件以上なら1、0件なら0。UNRESOLVED は終了コードに影響しない。
 ```
 
-#### (b) 残る穴 2.(末尾に段落を足す。既存の本文は変えない)
+#### (b) 残る穴 2.(既存本文の1文を直し、末尾に段落を足す)
+
+**既存本文の「UNRESOLVED として件数だけ数える(STALE にはしない)」を、次の1文に差し替える。**
+
+```
+#    裸の `§X` から始まる場合は引き継ぎ先が無く、UNRESOLVED として標準エラーの一覧に
+#    出す(STALE にはしない)。
+```
+
+> **訂正(フェーズ1、2026-09-25)。** 初版はここを「既存の本文は変えない」と凍らせていたが、**その本文は新しい出力契約と食い違う**(件数だけ数えるのをやめたのが本タスクである)。**凍らせた側が誤りなので、フェーズ1 が解く**(象限I-b)。レビュー3巡目が象限III として報告していたもので、**フェーズ2 が仕様に縛られて直せずに残した**。
+
+**そのうえで、末尾に次の段落を足す。**
 
 ```
 #    **UNRESOLVED は定義上 STALE にならない。** 照合する組が決まらないので、前の行で
@@ -218,7 +229,23 @@ $ echo $?
 bash .pipeline/mutation/233/scripts/check-doc-citations.sh
 ```
 
-**検出器は自分の位置からリポジトリルートを求める**ので、この形で worktree 側の `src/` `tests/` `docs/` を走査する。**`Bash(bash .pipeline/mutation:*)` は `scripts/pipeline.ps1` の許可一覧にフェーズ1 が足してある** — 既存の `Bash(bash scripts/check-doc-citations.sh:*)` は本体のスクリプトしか許さず、worktree のパスは弾かれるためである。**拒否されたら言い換えず報告すること。**
+**検出器は自分の位置からリポジトリルートを求める**ので、この形で worktree 側の `src/` `tests/` `docs/` を走査する。**この綴りは `scripts/pipeline.ps1` の許可一覧にフェーズ1 が足してある**(`Bash(bash .pipeline/mutation/$Issue/scripts/check-doc-citations.sh:*)`)— 既存の `Bash(bash scripts/check-doc-citations.sh:*)` は本体のスクリプトしか許さず、worktree のパスは弾かれるためである。**拒否されたら言い換えず報告すること。**
+
+> **訂正(フェーズ1、2026-09-25。[03-corrections](../process/03-corrections.md))。** 初版はここを `Bash(bash .pipeline/mutation:*)` と書いており、**`mutator` は 11 件中 0 件しか測れずパイプラインが `IMPL-BLOCKED` で止まった。** 原因は許可の綴りで、**照合はトークン境界で切れていないと当たらない**(`bash .pipeline/mutation` は `/233/…` の途中で切れている)。**フェーズ2 の報告が挙げた「許可一覧が `mutator` の `Bash` に効いていない」は誤りである** — 同じ一覧の `Bash(git:*)` で `git worktree add` は通っており、効いていないのは綴りのほうだった。**実測(2026-09-25)**: パイプラインと同じ許可一覧で `claude -p` を起こし、下の4形すべてで `permission_denials` が空であることを確かめた。
+
+**無人フェーズで通る形(フェーズ1 実測 2026-09-25)。** 言い換えの回数を使い切らないために、最初からこの形で打つこと。
+
+| 見たいもの | 打つ形 |
+| ---------- | ------ |
+| 標準出力(STALE の行)だけ | `bash .pipeline/mutation/233/scripts/check-doc-citations.sh 2>/dev/null` |
+| STALE の行数 | `bash .pipeline/mutation/233/scripts/check-doc-citations.sh 2>/dev/null \| wc -l` |
+| 集計行 | `bash .pipeline/mutation/233/scripts/check-doc-citations.sh 2>&1 \| tail -1` |
+| UNRESOLVED 一覧の行数 | `bash .pipeline/mutation/233/scripts/check-doc-citations.sh 2>&1 \| grep -c UNRESOLVED` |
+
+- **`;` や `&&` で繋がない。複合コマンドは形で弾かれる**(`echo "exit=$?"` のような展開式を含む文字列も同じ)
+- **ファイルへのリダイレクト(`1>out.txt` `2>err.txt`)は拒否される。** `/dev/null` と `2>&1` とパイプは通る
+- **`git worktree add` は親ディレクトリを自分で作る。** `mkdir -p … &&` を前に付けると複合コマンドとして弾かれる
+- **終了コードは `echo $?` では取れない**(複合になる)。**STALE の有無は集計行で読む** — 期待列の「終了コード 1 / 0」は `STALE 1` / `STALE 0` と同値である(スクリプトの契約)
 
 | # | 変異(場所と内容) | 期待 |
 | - | ------------------ | ---- |

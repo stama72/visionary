@@ -151,9 +151,17 @@ $AllowedTools = @(
     # **検出器そのものが完了条件で、変異を当てて測る相手でもある**タスクでは、
     # ここを許さないと [ADR-0013](../docs/adr/0013-mutation-measurement-separated.md) の
     # 測定が構造的にできない(本体で当てるのは禁止、worktree は叩けない、の板挟みになる)。
-    # **`.pipeline/mutation` 配下に限る** — そこに在るのは Git 管理下のファイルを
-    # `git worktree add` で展開したものだけである。
-    'Bash(bash .pipeline/mutation:*)',
+    #
+    # **許可の綴りはトークン境界で切れていないと当たらない**(#233 のフェーズ2 が
+    # `IMPL-BLOCKED` で止まった原因)。`Bash(bash .pipeline/mutation:*)` と書いても、
+    # `bash .pipeline/mutation/233/scripts/…` は**途中で切れている**ので拒否される。
+    # 照合は「コマンドが綴りと完全一致するか、綴り + 空白 で始まるか」であり、
+    # 既に通っている上の1行(スクリプトのパス全体)と同じ形にする必要がある。
+    # **実測 2026-09-25**: 同じ許可一覧で `claude -p` を起こし、下の形なら
+    # `permission_denials` が空、`.pipeline/mutation` 止まりの形なら拒否されることを確かめた。
+    # あわせて通る形も測ってある — パイプ(`| wc -l`)・`2>&1`・`2>/dev/null` は通り、
+    # **ファイルへのリダイレクト(`1>out.txt`)と `;` `&&` の複合は拒否される。**
+    "Bash(bash .pipeline/mutation/$Issue/scripts/check-doc-citations.sh:*)",
     'PowerShell(dotnet:*)', 'PowerShell(git:*)', 'PowerShell(gh:*)',
     'mcp__github__issue_read', 'mcp__github-ro__issue_read'
 )
