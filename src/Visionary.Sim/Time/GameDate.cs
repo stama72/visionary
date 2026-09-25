@@ -11,7 +11,7 @@ namespace Visionary.Sim.Time;
 /// </para>
 /// <para>
 /// エポック(<see cref="Tick.Zero"/> = 1年 春1日 0時)と年が1始まりであることの仕様は
-/// <c>docs/03-gdd/03-seasons-and-city.md</c> §1.2 が持つ。エポックを動かすと
+/// GDD03 §1.2 が持つ。エポックを動かすと
 /// 同一シードで生成される世界の中身がすべて変わるため、M0 の比較実験に影響する。
 /// </para>
 /// <para>
