@@ -51,6 +51,24 @@ public sealed class ProgramRunTests : IDisposable
     /// (<see cref="Visionary.Sim.Tests.Systems.MarketReferenceTests.PreviousDaySettledPriceStopsAtTheSecondDay"/>)
     /// のほうであり、本テストは完了条件の写しとして置く。
     /// </remarks>
+    /// <remarks>
+    /// <b>W2-22 追随(2026-09-24)。</b>出荷日数 1(#216)が入り、M0・シード1・30日で条件1・条件2
+    /// (<see cref="Visionary.Sim.Tests.Systems.TradePipelineTests.ProductionNeverStopsForAWholeDayOverThirtyDays"/>
+    /// / <see
+    /// cref="Visionary.Sim.Tests.Systems.TradePipelineTests.InternalSettlementsOfCityGoodsNeverDisappearOverThirtyDays"/>)
+    /// が0件の違反日で成立するようになった。<b>ただし確かめられているのは30日の生存だけである</b>
+    /// ── 「20〜30日で止まる」という上の前提のうち、30日以内に止まるという部分はもう成り立たない
+    /// が、36,000日のどこで経済が止まるか(あるいは止まらずに続くか)は測っていない。
+    /// <b>実測(<c>dotnet test</c> の出力、該当テストの所要時間。シード1・36,000日・CSV書き出し込み):
+    /// 3,033ミリ秒。</b>60秒の予算を大きく下回った。<b>「空振りに近い」という評価が今も当たるかは、
+    /// この実測だけでは決まらない。</b>旧記録(1,600日 = 85ミリ秒)は経済が20〜30日で止まる走行の
+    /// 平均であり、実質的には空回り1日の単価に近い。新記録がその何倍かは、生きている日の単価が
+    /// 空回りの何倍かが未知である限り、生きている日の割合について何も語らない。加えて2つの数は
+    /// 出所が異なる ── 3,033ミリ秒は<c>dotnet test</c>が報告するテスト所要時間(一時ディレクトリ
+    /// 作成・config書き出し・xUnitのオーバーヘッド込み)であり、85ミリ秒/1,600日は別走行の記録
+    /// なので、同じ「ミリ秒/日」に換算して倍率を比べる根拠は無い。本テストが実際に守っているのは
+    /// 依然として#19であり、本テスト自身の閾値(60秒)には近づいていない。
+    /// </remarks>
     [Fact]
     public void LongRunFinishesWithinTheBudget()
     {
