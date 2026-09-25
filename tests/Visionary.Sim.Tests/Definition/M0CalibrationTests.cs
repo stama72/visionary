@@ -309,7 +309,7 @@ public sealed class M0CalibrationTests
     /// <para>
     /// <b>式の側の変異(このテスト自身の判別力の確認)。</b>摩耗を「年間の投入労働 ×
     /// 工具の床 ÷ 耐久値」(1回で切り上げる)ではなく「1回あたりの摩耗費(切り上げ)× 回数」
-    /// (02c §2.3 の利潤上限のための保守的な丸め。現金の流出ではない)に書き換える変異を
+    /// (GDD02c §2.3 の利潤上限のための保守的な丸め。現金の流出ではない)に書き換える変異を
     /// このテストのコードへ当てたところ(<c>wear</c> の計算を
     /// <c>IntegerMath.CeilDiv((long)Definition.ExternalBuyPrice(Item.Tools) * recipe.LaborPermille,
     /// Definition.ToolDurabilityPerUnit) * Calendar.DaysPerYear * cap</c> に変更)、
