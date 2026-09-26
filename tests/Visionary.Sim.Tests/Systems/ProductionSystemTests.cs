@@ -888,4 +888,190 @@ public sealed class ProductionSystemTests
         EconomySystemTestFixtures.RunDays(world650, system, days: 1);
         Assert.Equal(3, world650.Households[0].ProductionRuns);
     }
+
+    /// <summary>
+    /// 【核心】W2-24 タスク仕様テスト表 #1。「順序・境界の具体例」の「パン屋」表(日0〜2)。
+    /// 前日の損失0/100/0を各日の前に置くと、生産量6/5/6・持ち越し4/124/128になる。
+    /// </summary>
+    /// <remarks>
+    /// M1(順1の最後の代入を <c>ProductionProgressPermille = 0</c> にする。持ち越しを毎日捨てる)は
+    /// 生産量6/5/6を変えずに持ち越しだけ0/0/0にする ── 数量ではなく持ち越しの断定が判別する。
+    /// </remarks>
+    [Fact]
+    public void ProgressCarriesTheRemainderAcrossDays()
+    {
+        var recipe = new Recipe(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = Output, Quantity = 1 } },
+            inputs: Array.Empty<ItemQuantity>(),
+            laborPermille: 216);
+
+        var definition = EconomySystemTestFixtures.BuildDefinition(
+            recipe, laborPermilleByRank: new[] { 1000, 800, 300 });
+        var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(
+            new[] { NpcRank.Master, NpcRank.Apprentice });
+        world.Households[0].WorkshopInventory[Item.Tools] = 1;
+
+        var household = world.Households[0];
+        var system = new ProductionSystem(definition);
+
+        // 日0。前日の損失0。
+        EconomySystemTestFixtures.RunDays(world, system, days: 1);
+        Assert.Equal(6, household.ProductionRuns);
+        Assert.Equal(4, household.ProductionProgressPermille);
+
+        // 日1。前日の損失100。
+        household.ErrandLaborLossPermille = 100;
+        EconomySystemTestFixtures.RunDays(world, system, days: 1);
+        Assert.Equal(5, household.ProductionRuns);
+        Assert.Equal(124, household.ProductionProgressPermille);
+
+        // 日2。前日の損失0。
+        household.ErrandLaborLossPermille = 0;
+        EconomySystemTestFixtures.RunDays(world, system, days: 1);
+        Assert.Equal(6, household.ProductionRuns);
+        Assert.Equal(128, household.ProductionProgressPermille);
+    }
+
+    /// <summary>
+    /// テスト表 #2。「順序・境界の具体例」の「鍛冶」表(日0〜2)。日0 生産量0・能力0・
+    /// 持ち越し1150、日1 生産量1・持ち越し1150、日2 生産量1(旧版の日ごとのfloorなら
+    /// 日2は1150÷1300=0回になる ── 持ち越しが損失を吸収するのは日2である)。
+    /// </summary>
+    [Fact]
+    public void SmithCompletesOnTheLossDayFromTheCarriedRemainder()
+    {
+        var recipe = new Recipe(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = Output, Quantity = 1 } },
+            inputs: Array.Empty<ItemQuantity>(),
+            laborPermille: 1300);
+
+        var definition = EconomySystemTestFixtures.BuildDefinition(
+            recipe, laborPermilleByRank: new[] { 1000, 800, 300 });
+        var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(
+            new[] { NpcRank.Master, NpcRank.Apprentice });
+        world.Households[0].WorkshopInventory[Item.Tools] = 1;
+
+        var household = world.Households[0];
+        var system = new ProductionSystem(definition);
+
+        // 日0。前日の損失150。
+        household.ErrandLaborLossPermille = 150;
+        EconomySystemTestFixtures.RunDays(world, system, days: 1);
+        Assert.Equal(0, household.ProductionRuns);
+        Assert.Equal(0, household.ProductionCapacityRuns);
+        Assert.Equal(1150, household.ProductionProgressPermille);
+
+        // 日1。前日の損失0。
+        household.ErrandLaborLossPermille = 0;
+        EconomySystemTestFixtures.RunDays(world, system, days: 1);
+        Assert.Equal(1, household.ProductionRuns);
+        Assert.Equal(1150, household.ProductionProgressPermille);
+
+        // 日2。前日の損失150。
+        household.ErrandLaborLossPermille = 150;
+        EconomySystemTestFixtures.RunDays(world, system, days: 1);
+        Assert.Equal(1, household.ProductionRuns);
+    }
+
+    /// <summary>
+    /// テスト表 #3。「順序・境界の具体例」の「工具なし」の例(出力が工具でないテスト用レシピ)。
+    /// 進捗0から650→0回(持ち越し650)→1300→1回(0)→650→0回→1300→1回。生産量0,1,0,1。
+    /// </summary>
+    [Fact]
+    public void ToolLessProductionCompletesEveryOtherDay()
+    {
+        var recipe = new Recipe(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = Output, Quantity = 1 } }, // Item.Toolsではない。
+            inputs: Array.Empty<ItemQuantity>(),
+            laborPermille: 1300);
+
+        var definition = EconomySystemTestFixtures.BuildDefinition(
+            recipe, laborPermilleByRank: new[] { 1000, 800, 300 }, equipmentPermilleWithoutTools: 500);
+        var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(
+            new[] { NpcRank.Master, NpcRank.Apprentice });
+        world.Households[0].WorkshopInventory[Item.Tools] = 0; // 出力が工具でないので工具なしが続く。
+
+        var household = world.Households[0];
+        var system = new ProductionSystem(definition);
+
+        int[] expectedRuns = { 0, 1, 0, 1 };
+        foreach (int expected in expectedRuns)
+        {
+            EconomySystemTestFixtures.RunDays(world, system, days: 1);
+            Assert.Equal(expected, household.ProductionRuns);
+        }
+    }
+
+    /// <summary>
+    /// 【核心】テスト表 #4。「順序・境界の具体例」の「パン屋、入力が2回分しか無い日」。
+    /// 進捗4から1304 → 能力6、生産量2 → 持ち越し <b>ちょうど215</b>(872ではない)。
+    /// 翌日(入力十分)は215+1300=1515 → 7回、持ち越し3。
+    /// </summary>
+    /// <remarks>
+    /// M2(<c>min</c> を落として <c>progress − L × runs</c> をそのまま代入)は持ち越しを872にする。
+    /// 上限を所要労働‰(216)にする実装ミスでは持ち越しが216になる ── どちらも215と一致しない。
+    /// </remarks>
+    [Fact]
+    public void UnusedLaborIsNotBankedWhenInputsRunShort()
+    {
+        var recipe = new Recipe(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = Output, Quantity = 1 } },
+            inputs: new[] { new ItemQuantity { ItemId = InputA, Quantity = 1 } },
+            laborPermille: 216);
+
+        var definition = EconomySystemTestFixtures.BuildDefinition(
+            recipe, laborPermilleByRank: new[] { 1000, 800, 300 });
+        var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(
+            new[] { NpcRank.Master, NpcRank.Apprentice });
+
+        var household = world.Households[0];
+        household.WorkshopInventory[Item.Tools] = 1;
+        household.ProductionProgressPermille = 4; // 前日までの持ち越し(#1のパン屋表の日0相当)。
+        household.WorkshopInventory[InputA] = 2; // 入力は2回分しか無い。
+
+        var system = new ProductionSystem(definition);
+
+        EconomySystemTestFixtures.RunDays(world, system, days: 1);
+
+        Assert.Equal(2, household.ProductionRuns);
+        Assert.Equal(6, household.ProductionCapacityRuns);
+        Assert.Equal(215, household.ProductionProgressPermille);
+
+        // 翌日、入力が十分なら215+1300=1515→7回、持ち越し3。
+        household.WorkshopInventory[InputA] = 10;
+        EconomySystemTestFixtures.RunDays(world, system, days: 1);
+
+        Assert.Equal(7, household.ProductionRuns);
+        Assert.Equal(3, household.ProductionProgressPermille);
+    }
+
+    /// <summary>
+    /// テスト表 #5。入力0の日も <see cref="HouseholdState.ProductionCapacityRuns"/> が能力
+    /// (生産量ではない)を持つ。パン屋・入力0・進捗0 → 能力6・生産量0。
+    /// </summary>
+    [Fact]
+    public void ProductionRecordsCapacityEveryDayIncludingZero()
+    {
+        var recipe = new Recipe(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = Output, Quantity = 1 } },
+            inputs: new[] { new ItemQuantity { ItemId = InputA, Quantity = 1 } },
+            laborPermille: 216);
+
+        var definition = EconomySystemTestFixtures.BuildDefinition(
+            recipe, laborPermilleByRank: new[] { 1000, 800, 300 });
+        var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(
+            new[] { NpcRank.Master, NpcRank.Apprentice });
+        world.Households[0].WorkshopInventory[Item.Tools] = 1;
+        world.Households[0].WorkshopInventory[InputA] = 0;
+
+        EconomySystemTestFixtures.RunDays(world, new ProductionSystem(definition), days: 1);
+
+        Assert.Equal(6, world.Households[0].ProductionCapacityRuns);
+        Assert.Equal(0, world.Households[0].ProductionRuns);
+    }
 }

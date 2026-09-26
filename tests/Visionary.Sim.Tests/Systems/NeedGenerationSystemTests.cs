@@ -39,11 +39,17 @@ public sealed class NeedGenerationSystemTests
             preferenceTargetStockDays: preferenceTargetStockDays ?? new int[Item.Count],
             equipmentPermilleWithoutTools: equipmentPermilleWithoutTools);
 
-    /// <summary>世帯1戸の世界。工具在庫は既定1(理由4を黙って起こさない)。</summary>
+    /// <summary>
+    /// 世帯1戸の世界。工具在庫は既定1(理由4を黙って起こさない)。当日の生産能力は既定1
+    /// (#237。順1を回さないテストでは <see cref="HouseholdState.ProductionCapacityRuns"/> が
+    /// 既定0のままだと理由3(増産できない)を黙って起こす ── ここで1を既定にし、理由3を対象と
+    /// するテスト(#8・#9・#237の新設テスト)は呼び出し側が明示的に上書きする)。
+    /// </summary>
     private static World BuildWorld(NpcRank[] memberRanks, int toolStock = 1)
     {
         var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(memberRanks);
         world.Households[0].WorkshopInventory[Item.Tools] = toolStock;
+        world.Households[0].ProductionCapacityRuns = 1;
 
         return world;
     }
@@ -210,8 +216,10 @@ public sealed class NeedGenerationSystemTests
     }
 
     /// <summary>
-    /// テスト表 #8。工具0で所要労働1000‰・労働力1300‰・設備500‰ → 労働力不足が1件、
-    /// 品目 = 出力品目、数量 = 1000 − 650 = 350。
+    /// テスト表 #8(W2-24で書き換え)。<see cref="NeedGenerationSystem"/> は順1
+    /// (<see cref="ProductionSystem"/>)が書いた「当日の生産能力」と進捗‰を読むだけで、
+    /// 労働力・設備係数を自分で計算し直さない(#237)。能力0・進捗650・所要労働1000 →
+    /// 労働力不足が1件、品目 = 出力品目、数量 = 1000 − 650 = 350。
     /// </summary>
     [Fact]
     public void LaborShortageNeedRisesWhenCapacityIsZero()
@@ -222,18 +230,22 @@ public sealed class NeedGenerationSystemTests
             inputs: Array.Empty<ItemQuantity>(),
             laborPermille: 1000);
 
-        var definition = BuildDefinition(recipe, equipmentPermilleWithoutTools: 500);
-        var world = BuildWorld(new[] { NpcRank.Master, NpcRank.Apprentice }, toolStock: 0);
+        var definition = BuildDefinition(recipe);
+        var world = BuildWorld(new[] { NpcRank.Master });
+        world.Households[0].ProductionCapacityRuns = 0;
+        world.Households[0].ProductionProgressPermille = 650;
 
         EconomySystemTestFixtures.RunDays(world, new NeedGenerationSystem(definition), days: 1);
 
         var need = Assert.Single(world.Needs, n => n.ReasonCode == NeedReason.CannotExpandProduction);
         Assert.Equal(Output, need.ItemId);
-        Assert.Equal(350, need.Quantity); // 1000 - floor(1300*500/1000) = 1000 - 650
+        Assert.Equal(350, need.Quantity); // 1000 - 650
         Assert.Equal(NeedType.LaborShortage, need.TypeCode);
     }
 
-    /// <summary>テスト表 #9。実効労働‰が所要労働‰ちょうど(能力1)→ 立たない。</summary>
+    /// <summary>
+    /// テスト表 #9(W2-24で書き換え)。能力1(0でない)→ 進捗‰の値に関わらず立たない。
+    /// </summary>
     [Fact]
     public void LaborShortageNeedDoesNotRiseAtTheBoundary()
     {
@@ -243,10 +255,54 @@ public sealed class NeedGenerationSystemTests
             inputs: Array.Empty<ItemQuantity>(),
             laborPermille: 1000);
 
-        var definition = BuildDefinition(recipe, laborPermilleByRank: new[] { 1000, 0, 0 });
-        var world = BuildWorld(new[] { NpcRank.Master }, toolStock: 1); // 労働1000‰・設備1000‰
+        var definition = BuildDefinition(recipe);
+        var world = BuildWorld(new[] { NpcRank.Master });
+        world.Households[0].ProductionCapacityRuns = 1;
+        world.Households[0].ProductionProgressPermille = 0; // 能力さえ非0ならこの欄は見ない。
 
         EconomySystemTestFixtures.RunDays(world, new NeedGenerationSystem(definition), days: 1);
+
+        Assert.DoesNotContain(world.Needs, n => n.ReasonCode == NeedReason.CannotExpandProduction);
+    }
+
+    /// <summary>
+    /// 【核心】テスト表 #6(#237)。<c>SimScheduler</c> に <see cref="ProductionSystem"/> →
+    /// <see cref="NeedGenerationSystem"/> の順で登録し、「鍛冶」表(タスク仕様「順序・境界の
+    /// 具体例」)の日0〜1を回す(各日の前に損失を置く)。日0の後に増産できないが1件・数量150、
+    /// 日1の後に0件(持ち越した1150は1300未満だが、能力は1)。
+    /// </summary>
+    /// <remarks>
+    /// M3(順4の条件を <c>household.ProductionProgressPermille &lt; recipe.LaborPermille</c> に
+    /// する)は、日1も持ち越し1150で立ってしまう(能力1で実際は満たされているのに、進捗‰だけを
+    /// 見ると所要労働‰未満に見える)。
+    /// </remarks>
+    [Fact]
+    public void CannotExpandProductionReadsTheRecordedCapacityNotTheCarriedProgress()
+    {
+        var recipe = new Recipe(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = Output, Quantity = 1 } },
+            inputs: Array.Empty<ItemQuantity>(),
+            laborPermille: 1300);
+
+        var definition = BuildDefinition(recipe);
+        var world = BuildWorld(new[] { NpcRank.Master, NpcRank.Apprentice });
+
+        var scheduler = new SimScheduler(
+            new ISimSystem[] { new ProductionSystem(definition), new NeedGenerationSystem(definition) },
+            new RandomSource(1));
+
+        // 日0。前日の損失150。
+        world.Households[0].ErrandLaborLossPermille = 150;
+        scheduler.Advance(world, ticks: 24);
+
+        var need = Assert.Single(world.Needs, n => n.ReasonCode == NeedReason.CannotExpandProduction);
+        Assert.Equal(Output, need.ItemId);
+        Assert.Equal(150, need.Quantity); // 1300 - 1150
+
+        // 日1。前日の損失0。持ち越し1150は1300未満だが能力は1 → 立たない。
+        world.Households[0].ErrandLaborLossPermille = 0;
+        scheduler.Advance(world, ticks: 24);
 
         Assert.DoesNotContain(world.Needs, n => n.ReasonCode == NeedReason.CannotExpandProduction);
     }
@@ -404,12 +460,15 @@ public sealed class NeedGenerationSystemTests
         var necessityTargetStockDays = new int[Item.Count];
         necessityTargetStockDays[NecessityItem] = 1;
 
-        // equipmentPermilleWithoutTools=1000にして、工具切れ(理由4)と同時に労働力不足(理由3)が
-        // 立たないようにする(理由3はこのテストの対象外)。
         var definition = BuildDefinition(
-            QuietRecipe(), necessityTargetStockDays: necessityTargetStockDays,
-            equipmentPermilleWithoutTools: 1000);
+            QuietRecipe(), necessityTargetStockDays: necessityTargetStockDays);
         var world = EconomySystemTestFixtures.BuildWorldWithHouseholds(3);
+
+        // 順1(ProductionSystem)を回さないので、当日の生産能力は既定0のまま
+        // (#237、労働力不足=理由3が黙って起こる)。3世帯とも1にして理由3をこのテストの対象外にする。
+        world.Households[0].ProductionCapacityRuns = 1;
+        world.Households[1].ProductionCapacityRuns = 1;
+        world.Households[2].ProductionCapacityRuns = 1;
 
         // 世帯0: 工具切れ(理由4) + 遠方在庫(理由5、品目NecessityItem)。
         world.Households[0].WorkshopInventory[Item.Tools] = 0;

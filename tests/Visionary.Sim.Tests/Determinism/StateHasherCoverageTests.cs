@@ -152,6 +152,7 @@ public sealed class StateHasherCoverageTests
             "LiquidFunds", "HouseholdInventory", "WorkshopInventory", "IsBankrupt",
             "PurchaseUnitCostAverage", "ToolWear", "UnmetConsumption", "UnfilledPurchase",
             "UnaffordableNecessityCount", "ErrandLaborLossPermille", "ProductionRuns",
+            "ProductionProgressPermille", "ProductionCapacityRuns",
         }),
         (typeof(MarketKey), new[] { "ItemId", "SellerId" }),
         (typeof(TrustKey), new[] { "From", "To" }),

@@ -13,6 +13,19 @@
 
 ## implementer の件数(フェーズ2)
 
+1回目: **止まった 1 / 決めた 7**。レビュー前に `IMPL-BLOCKED` で停止。作業は WIP コミットで保存(test 649/650、build 警告0、format 通過)。
+
+- **止まった**: `SomeBrewerIsStillProducingAfterDaySixty(seed: 7)` が赤(最終稼働日 day 48)。seed 1/2/3/42 は day 89 まで稼働。seed 7 の household3 はビールが売れ残り続け(販売在庫 > 0)、④ のゲート b が閉じたまま。day 50 に1日だけ破産中になるが b で発火せず、以後 穀物 0・資金膠着で day 89 まで止まる。implementer の見立ては「規則1〜4 と独立な市場側の現象」。仕様 #17 の「全5シード」は M7 の期待で、規則3 を入れた後に5シード緑になることは実測されていなかった。seed 7 の扱い(閉じる条件の変更 / 別 issue / 規則の追加)は設計判断なのでフェーズ1 へ戻す
+- 決めた: `NeedGenerationSystemTests` の `BuildWorld` 既定に `ProductionCapacityRuns = 1` を足した(順1 を回さないテストで増産できないが立たないように)
+- 決めた: `StateHasherTests.HashChangesWhenNextNeedIdChanges`・`NeedsAreOrderedByHouseholdThenReasonThenItem` にも同じ理由で `ProductionCapacityRuns = 1`
+- 決めた: 上の2か所で不要になった `equipmentPermilleWithoutTools: 1000` 引数を削除
+- 決めた: `CollectCannotExpandProduction` の未使用の `world` 引数を削除
+- 決めた: `HouseholdState.ToolWear` の doc「108から1000まで」→「1300まで」
+- 決めた: `UnaffordableNecessityCountsOnlyTheFundsShortfall` の自然発生する(世帯, 日)を再実測(世帯3・day 16)
+- 決めた(仕様 §9-3 の分岐): `EveryOccupationKeepsAtLeastOneCarrierOverSixtyDays` — **全5シードで ④ が60日間発火しない**ので、空振り防止の断定を消し doc に実測を記録
+
+※ implementer が作った空の `debug.log`(未追跡)がリポジトリ直下に残っている。削除が権限で拒否された。手で消すこと
+
 ## 直さないと決めた指摘(フェーズ2)
 
 | 巡 | 象限 | 指摘 | 直さない理由 |

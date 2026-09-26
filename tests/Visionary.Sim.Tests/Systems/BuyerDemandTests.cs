@@ -273,6 +273,69 @@ public sealed class BuyerDemandTests
     }
 
     /// <summary>
+    /// 【核心】テスト表 #11(#237)。取り置き・運転資金は目標在庫をそのまま掛けるのではなく、
+    /// 予想在庫を差し引く(GDD02b §3.1)。パンの目標3・世帯在庫1・相場基準20 → 取り置き
+    /// (3−1)×20=40。小麦粉の目標5・工房在庫2・相場基準7 → 運転資金(5−2)×7=21。
+    /// </summary>
+    /// <remarks>
+    /// M7(両ループを <c>(long)target * reference</c> に戻す)は目標在庫をそのまま掛け、
+    /// 60/35になる。在庫の欄を取り違える(必需に工房在庫、入力に世帯在庫を渡す)実装ミスでも
+    /// この世界(パンの世帯在庫1・小麦粉の工房在庫2)では別の値になる。
+    /// </remarks>
+    [Fact]
+    public void ReservesSubtractTheExpectedStock()
+    {
+        var definition = BuildDefinition();
+        var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(new[] { NpcRank.Master });
+        world.Households[0].HouseholdInventory[Item.Bread] = 1; // 必需(パン)の予想在庫。
+        world.Households[0].WorkshopInventory[Item.Flour] = 2; // 生産の入力(小麦粉)の予想在庫。
+
+        SetReference(world, world.Households[0].HeadNpcId, Item.Bread, price: 20);
+        SetReference(world, world.Households[0].HeadNpcId, Item.Flour, price: 7);
+
+        var demand = new BuyerDemand(definition).Build(
+            world, world.Households[0], hasPreviousOutputOfferPrice: false, previousOutputOfferPrice: 0);
+
+        Assert.Equal(40, demand.NecessityReserve);  // (3-1)×20
+        Assert.Equal(21, demand.WorkingCapital);     // (5-2)×7
+    }
+
+    /// <summary>
+    /// テスト表 #12(#237)。在庫が目標を上回る品目では取り置き・運転資金が負にならず0で止まる
+    /// (<c>Math.Max(0, …)</c>)。パンの世帯在庫5(目標3)・小麦粉の工房在庫9(目標5)→
+    /// 取り置き0・運転資金0。嗜好の行の <c>CashCap</c> が流動資金そのものから求まる
+    /// (母数の段から必需・入力の取り置きが両方0で消えるため)。
+    /// </summary>
+    /// <remarks>
+    /// M8(<c>Math.Max(0, …)</c> を外す)は取り置きが負になり、耐久・入力・嗜好の母数
+    /// (<c>AvailableFunds</c>)が流動資金を超えてしまう。
+    /// </remarks>
+    [Fact]
+    public void ReservesDoNotGoNegativeWhenStockExceedsTheTarget()
+    {
+        var definition = BuildDefinition(beerConsumptionQty: 1);
+        var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(new[] { NpcRank.Master });
+        world.Households[0].LiquidFunds = 1000;
+        world.Households[0].HouseholdInventory[Item.Bread] = 5; // 目標3を上回る。
+        world.Households[0].WorkshopInventory[Item.Flour] = 9; // 目標5を上回る。
+
+        SetReference(world, world.Households[0].HeadNpcId, Item.Bread, price: 20);
+        SetReference(world, world.Households[0].HeadNpcId, Item.Flour, price: 7);
+
+        var demand = new BuyerDemand(definition).Build(
+            world, world.Households[0], hasPreviousOutputOfferPrice: false, previousOutputOfferPrice: 0);
+
+        Assert.Equal(0, demand.NecessityReserve);
+        Assert.Equal(0, demand.WorkingCapital);
+
+        var preferenceLine = FindLine(demand, DemandPurpose.Preference, Item.Beer);
+
+        // 嗜好の母数 = 流動資金 − 0(取り置き) − 0(運転資金) = 流動資金そのもの。
+        // 嗜好(ビール)の1日消費量1(beerConsumptionQty)なのでCashCap = FloorDiv(1000, 1) = 1000。
+        Assert.Equal(1000, preferenceLine.CashCap);
+    }
+
+    /// <summary>
     /// テスト表 #25。必需2品目のうち1つだけ相場基準がある世帯で、<c>NecessityReserve</c> が
     /// その1品目ぶんだけ。入力側も同じく <c>WorkingCapital</c> が立った品目ぶんだけ。
     /// </summary>

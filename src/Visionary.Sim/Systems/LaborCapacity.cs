@@ -3,10 +3,14 @@ using Visionary.Sim.Numerics;
 namespace Visionary.Sim.Systems;
 
 /// <summary>
-/// 労働力と設備係数の求め方(GDD02a §2・§3)。<see cref="ProductionSystem"/> と
-/// <see cref="NeedGenerationSystem"/>(理由 <see cref="NeedReason.CannotExpandProduction"/>)の
-/// 両方が同じ2つの値を必要とするため1か所に寄せる。
+/// 労働力と設備係数の求め方(GDD02a §2・§3)。<see cref="ProductionSystem"/> が読む。
 /// </summary>
+/// <remarks>
+/// <b><see cref="NeedGenerationSystem"/> はもう呼ばない</b>(#237)。理由3(増産できない)は
+/// <see cref="ProductionSystem"/> が同じtickで書いた「当日の生産能力」
+/// (<see cref="HouseholdState.ProductionCapacityRuns"/>)を読むだけになった ──
+/// 前日から持ち越した進捗‰の端数は順4からは見えず、労働力・設備係数から逆算できないため。
+/// </remarks>
 /// <remarks>
 /// <b>式を2か所に置かない</b>(<see cref="Recipe.CapacityRuns"/> の doc コメントと同じ理由。
 /// 片方の丸めを直したとき他方が黙ってずれる)。<see cref="EffectiveLaborPermille"/> の内側の

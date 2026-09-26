@@ -55,7 +55,7 @@ public sealed class NeedGenerationSystem : ISimSystem
         {
             CollectProductionStopped(world, household, rebuilt);
             CollectDistress(household, rebuilt);
-            CollectCannotExpandProduction(world, household, rebuilt);
+            CollectCannotExpandProduction(household, rebuilt);
             CollectToolsExhausted(household, rebuilt);
             CollectDistantStock(household, rebuilt);
         }
@@ -170,29 +170,26 @@ public sealed class NeedGenerationSystem : ISimSystem
     }
 
     /// <summary>
-    /// 理由3: 増産できない(GDD02a §2)。<c>CapacityRuns(...) == 0</c> は「労働力合計‰ ×
-    /// 設備係数‰ ÷ 1000 &lt; 所要労働‰」と同値であり、式を綴り直さず同値を使う
-    /// (<see cref="Recipe.CapacityRuns"/> の2段の切り下げを写し損ねる余地が無い)。数量の側だけは
-    /// 引き算が要るので <see cref="LaborCapacity.EffectiveLaborPermille"/> を呼ぶ ──
-    /// <c>CapacityRuns</c> の内側の切り下げと <see cref="LaborCapacity.EffectiveLaborPermille"/> は
-    /// どちらも <see cref="Visionary.Sim.Numerics.IntegerMath.FloorPermille"/> を呼ぶだけで、
-    /// 式そのものはそちらに1か所しか無い(W2-19訂正。レビュー1巡目象限I-a)。条件が
-    /// 「所要労働‰ &gt; 実効労働‰」と同値なので差は必ず1以上。
+    /// 理由3: 増産できない(GDD02a §2 / GDD02b §8)。<b>順1(<see cref="ProductionSystem"/>)が
+    /// 同じtickで書いた「当日の生産能力」(<see cref="HouseholdState.ProductionCapacityRuns"/>)を
+    /// 読むだけであり、労働力を自分で計算し直さない</b>(#237)。前日から持ち越した進捗‰の端数は
+    /// 順4からは見えないため、進捗‰ から労働力・設備係数を逆算することはできない
+    /// (フェーズ1で決めたこと「『増産できない』は、順1 が書く『当日の生産能力』を読む」)。
     /// </summary>
-    private void CollectCannotExpandProduction(World world, HouseholdState household, List<Need> rebuilt)
+    /// <remarks>
+    /// <b>数量 = 所要労働‰ − 進捗‰(1以上)。</b>能力0の日は
+    /// <c>min(進捗‰ − 所要労働‰×0, 所要労働‰ − 1)</c> が進捗‰ のまま残る(進捗‰ &lt; 所要労働‰
+    /// だから)ので、順4 が読む進捗‰ は GDD02b §8 の「その日の労働を足した後の進捗」と一致する。
+    /// </remarks>
+    private void CollectCannotExpandProduction(HouseholdState household, List<Need> rebuilt)
     {
-        var recipe = _definition.Recipes[(int)household.Occupation];
-
-        int labor = LaborCapacity.LaborPermille(_definition, world, household);
-        int equipment = LaborCapacity.EquipmentPermille(_definition, household);
-
-        if (recipe.CapacityRuns(labor, equipment) != 0)
+        if (household.ProductionCapacityRuns != 0)
         {
             return;
         }
 
-        int effectiveLabor = LaborCapacity.EffectiveLaborPermille(labor, equipment);
-        int shortage = recipe.LaborPermille - effectiveLabor;
+        var recipe = _definition.Recipes[(int)household.Occupation];
+        int shortage = recipe.LaborPermille - household.ProductionProgressPermille;
 
         // Outputs[0]を読んでよいのは、TradeSystemのコンストラクタが全レシピの出力2件以上を
         // 拒んでいるからである(OccupationReassignment.IsGateOpenが同じ根拠で同じ読み方をしている)。
@@ -200,8 +197,8 @@ public sealed class NeedGenerationSystem : ISimSystem
     }
 
     /// <summary>
-    /// 理由4: 工具切れ(GDD02a §3.1)。「生産が止まったか」は見ない ── 工具が無くても
-    /// 半分の能力で続く職業が4つある(GDD02a §3)。それでも立てるのは、GDD02b §8 の発生源が
+    /// 理由4: 工具切れ(GDD02a §3.1)。「生産が止まったか」は見ない ── 全職業が工具無しでも
+    /// 半分の能力で続く(GDD02a §3。#237、進捗‰)。それでも立てるのは、GDD02b §8 の発生源が
     /// 「設備の摩耗」だからである。
     /// </summary>
     private void CollectToolsExhausted(HouseholdState household, List<Need> rebuilt)

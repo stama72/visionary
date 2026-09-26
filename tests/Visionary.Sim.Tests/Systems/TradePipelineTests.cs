@@ -1038,24 +1038,32 @@ public sealed class TradePipelineTests
     /// 自然発生しない)。<b>在庫切れ・嗜好の2ブロックは手作りの世界(在庫切れ)・実測ずみの
     /// (世帯, 日)(世帯Id8・0日目、嗜好)ともに無改修で緑のままだった</b>(実測、2026-09-24)。
     /// </remarks>
+    /// <remarks>
+    /// <b>W2-24 追随(#237、2026-09-26)。</b>規則3(必需の取り置き・運転資金 =
+    /// <c>max(0, 目標在庫 − 予想在庫) × 相場基準</c>)が入り必需が資金で止まる世帯日が
+    /// 5.5%→0.6%に下がった(#218決定ログ2)ことで経済の形がまた変わり、自然発生する(世帯, 日)が
+    /// 動いた(doc コメントの確立した手順どおり60日を走査。実測: 世帯Id3、16日目に0→1→0の
+    /// きれいな遷移を持つ最初の組が現れる。世帯Id4、14日目ではもう自然発生しない)。在庫切れ・
+    /// 嗜好の2ブロックは無改修で緑のままだった。
+    /// </remarks>
     [Fact]
     public void UnaffordableNecessityCountsOnlyTheFundsShortfall()
     {
         var definition = WorldDefinition.M0;
 
-        // 資金不足のケース(シード1・操作なし。世帯Id4、14日目に自然発生する。上のremarks参照)。
+        // 資金不足のケース(シード1・操作なし。世帯Id3、16日目に自然発生する。上のremarks参照)。
         {
             var world = WorldGenerator.Generate(definition, new RandomSource(1));
             var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(1));
 
-            scheduler.Advance(world, ticks: 13 * 24); // 13日目まで。
-            Assert.Equal(0, world.Households[4].UnaffordableNecessityCount);
+            scheduler.Advance(world, ticks: 15 * 24); // 15日目まで。
+            Assert.Equal(0, world.Households[3].UnaffordableNecessityCount);
 
-            scheduler.Advance(world, ticks: 24); // 14日目。資金不足が1件自然発生する。
-            Assert.Equal(1, world.Households[4].UnaffordableNecessityCount);
+            scheduler.Advance(world, ticks: 24); // 16日目。資金不足が1件自然発生する。
+            Assert.Equal(1, world.Households[3].UnaffordableNecessityCount);
 
-            scheduler.Advance(world, ticks: 24); // 15日目。毎日上書きする(GDD02b §3.3)ので0に戻る。
-            Assert.Equal(0, world.Households[4].UnaffordableNecessityCount);
+            scheduler.Advance(world, ticks: 24); // 17日目。毎日上書きする(GDD02b §3.3)ので0に戻る。
+            Assert.Equal(0, world.Households[3].UnaffordableNecessityCount);
         }
 
         // 在庫切れのケース。木工2戸の薪(工房在庫)と入力の木材(工房在庫)を0にして生産による
@@ -1438,6 +1446,17 @@ public sealed class TradePipelineTests
     /// <see cref="HouseholdSystemTests.LastCarrierOfAnOccupationIsNeverReassigned"/> が落ちることである
     /// ── 本テストの60日走行の赤は測定値であって、特定の契約が壊れた証拠として読まない。</b>
     /// </remarks>
+    /// <remarks>
+    /// <b>「④が実際に発火することの断定」を削除した(W2-24 #237、2026-09-26)。</b>規則3
+    /// (必需の取り置き・運転資金 = <c>max(0, 目標在庫 − 予想在庫) × 相場基準</c>)により、必需が
+    /// 資金で止まる世帯日が5.5%→0.6%に下がった(#218決定ログ2)。実測(2026-09-26、5シードとも
+    /// 60日間、職業分布がday 0から一度も動かなかった): seed=1/2/3/7/42のいずれも
+    /// <c>distributionEverDiverged</c>が偽。上の2026-09-23の実測(day10/17/9/11/10で分布が動いた)は
+    /// 規則3を適用する前の値であり、規則3の下では再現しない。タスク仕様(W2-24 §9手順3)の指示
+    /// どおり、全シードが偽になったため引数を足さずに断定ごと削除した。<b>M0 の値では60日で④が
+    /// 発火しない。担い手 ≥ 1 の核心は空振りしており、規則は
+    /// <see cref="HouseholdSystemTests.LastCarrierOfAnOccupationIsNeverReassigned"/> が守る。</b>
+    /// </remarks>
     [Theory]
     [InlineData(1)]
     [InlineData(2)]
@@ -1464,10 +1483,6 @@ public sealed class TradePipelineTests
                     + "(WorldGeneratorの初期配置は5職業とも2戸のはず)。");
         }
 
-        // #39レビュー3巡目 #21。day 0 の職業分布(④が1度も発火しなければ、以後この値のまま)。
-        string day0Distribution = OccupationDistributionSnapshot(definition, world);
-        bool distributionEverDiverged = false;
-
         var violationDays = new List<int>();
         var violationOccupations = new List<Occupation>();
         var violationDistributionSnapshots = new List<string>();
@@ -1477,14 +1492,6 @@ public sealed class TradePipelineTests
         for (int day = 1; day <= 60; day++)
         {
             scheduler.Advance(world, ticks: 24);
-
-            // #39レビュー3巡目 #21。60日のうち少なくとも1日、職業分布がday 0と異なることを見る
-            // (④が実際に発火したことの断定。理由は上のremarks参照)。
-            if (!distributionEverDiverged
-                && OccupationDistributionSnapshot(definition, world) != day0Distribution)
-            {
-                distributionEverDiverged = true;
-            }
 
             // 診断値(断定しない。#39裁定D-C)。60日間の工具の売り注文の延べ件数と0件だった日。
             int toolOfferCount = CountMarketOffers(world, Item.Tools);
@@ -1526,13 +1533,6 @@ public sealed class TradePipelineTests
                 + $"付け替えない」が破れた可能性)。{violationDetails}"
                 + $"(診断: 60日間の工具の売り注文の延べ件数={totalToolOfferCount} / "
                 + $"0件だった日={zeroToolOfferDayCount}日。留め具ではなく診断のみ)。");
-
-        // #39レビュー3巡目 #21。④が実際に発火することの断定(上のremarks参照)。
-        Assert.True(
-            distributionEverDiverged,
-            $"seed={seed}: 60日を通じて職業分布がday 0から動かなかった"
-                + $"(day 0の分布=[{day0Distribution}]。④が1度も発火していない可能性があり、"
-                + "裁定D-A・D-B・D-Cが固定値と日次下限を落とした根拠が立っていない)。");
     }
 
     /// <summary>
@@ -2988,5 +2988,95 @@ public sealed class TradePipelineTests
         Assert.Equal(firstNeedCount, secondNeedCount);
 
         Assert.Equal(first, second);
+    }
+
+    /// <summary>
+    /// 【核心】W2-24(#237)タスク仕様テスト表 #17。issue #237 の閉じる条件そのもの。
+    /// M0・シード1/2/3/7/42・90日走行(day 0〜89)。醸造の戸(その日の職業で判定)のうち、
+    /// その日 <c>ProductionRuns &gt; 0</c> だった最後の day(0始まり)が60以上の戸が1戸以上ある。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>90日で測る理由(フェーズ1で決めたこと)。</b>issueの閉じる条件は「60日で、day 60以上」
+    /// だが、60日走行の最後の日は day 59(0始まり)であり満たせない。90日走行(day 0〜89)で測る ──
+    /// day 90 から冬に入る(GDD03 §1.2)ので、#218決定6b「冬 = #222 をまたがない」は保たれる。
+    /// 「day 60以上」の物差しは変えていない(差し引く前は全シードday 6〜16に止まった。
+    /// #218決定ログ2)。
+    /// </para>
+    /// <para>
+    /// <b>day の数え方。</b>k回目(1〜90)の <c>Advance</c> の直後に見える <c>ProductionRuns</c> は
+    /// day <c>k − 1</c> の順1が書いた値である(0始まり)。
+    /// </para>
+    /// </remarks>
+    /// <remarks>
+    /// M7(規則3を戻す。<c>BuyerDemand</c>の両ループを<c>max(0,...)</c>無しへ戻す変異)は
+    /// 全5シードで赤になる見込み(差し引く前は全シードday 6〜16に止まった。#218決定ログ2)。
+    /// M1(進捗‰の持ち越し単体)での結果は測っていない(決定ログ2に「差し引きのみ」の行が
+    /// 無いため)。mutatorの実測はレビューの巡が閉じた後にまとめて渡される(結果はこの
+    /// remarks へ転記する)。
+    /// </remarks>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(7)]
+    [InlineData(42)]
+    public void SomeBrewerIsStillProducingAfterDaySixty(long seed)
+    {
+        var definition = WorldDefinition.M0;
+        var world = WorldGenerator.Generate(definition, new RandomSource(seed));
+        var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(seed));
+
+        int householdCount = world.Households.Length;
+        var hasRunOnADay = new bool[householdCount];
+        var lastRunDay = new int[householdCount];
+
+        int day0BrewerCount = 0;
+        foreach (var household in world.Households)
+        {
+            if (household.Occupation == Occupation.Brewer)
+            {
+                day0BrewerCount++;
+            }
+        }
+
+        for (int k = 1; k <= 90; k++)
+        {
+            scheduler.Advance(world, ticks: 24);
+            int day = k - 1; // 0始まり(フェーズ1で決めたこと)。
+
+            foreach (var household in world.Households)
+            {
+                if (household.Occupation == Occupation.Brewer && household.ProductionRuns > 0)
+                {
+                    hasRunOnADay[household.Id] = true;
+                    lastRunDay[household.Id] = day;
+                }
+            }
+        }
+
+        Assert.Equal(90, world.Now.DayIndex);
+
+        // 空振り防止(タスク仕様「作るもの8.」)。day 0 に醸造が2戸。
+        Assert.Equal(2, day0BrewerCount);
+
+        int maxLastRunDay = -1;
+        var details = new System.Text.StringBuilder();
+
+        for (int id = 0; id < householdCount; id++)
+        {
+            if (!hasRunOnADay[id])
+            {
+                continue;
+            }
+
+            details.Append($" household{id}=day{lastRunDay[id]};");
+            maxLastRunDay = Math.Max(maxLastRunDay, lastRunDay[id]);
+        }
+
+        Assert.True(
+            maxLastRunDay >= 60,
+            $"seed={seed}: 醸造の最終稼働日の最大値={maxLastRunDay}(60未満)。"
+                + $"世帯ごとの最終稼働日(day 0の醸造と、途中で醸造になった世帯):{details}");
     }
 }
