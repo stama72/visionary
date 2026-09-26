@@ -35,6 +35,12 @@ issue の閉じる条件は「5シード・60日で、各シードに醸造の�
 
 **決定: 90日走行(day 0〜89)で、最終稼働日が day 60 以上の醸造の戸が1戸以上あることを見る。** day 90 から冬に入る([GDD03 §1.2](../03-gdd/03-seasons-and-city.md) 春始まり・30日×4季)ので、#218 決定6b の「冬 = #222 をまたがない」を保つ。**「day 60 以上」の物差しは変えていない** — 差し引く前の実測は全シード day 6〜16 に止まっていた(決定ログ2)。
 
+### seed 7 を閉じる条件から外す(再凍結 2026-09-26)
+
+1回目のフェーズ2 で、規則1〜4 を入れた状態の実測は **seed 1/2/3/42 が day 89 まで稼働、seed 7 だけ最終稼働日 day 48** だった(WIP コミット `8e54adf`)。seed 7 の household3 はビールが売れ残り続けて ④ のゲート b が閉じたまま、day 50 以降は穀物 0・資金膠着で止まる。「全5シード」は規則3 を入れた後の実測に基づかない期待だった。
+
+**決定(開発者): 閉じる条件を 4/5 シード(1/2/3/42)に緩め、seed 7 は [#239](https://github.com/stama72/visionary/issues/239) へ切り出す。** 4/5 は「どれか4つ」ではなく**シードを名指しで固定する** — 数で数えると、seed 1 が壊れて seed 7 が直った変更も緑になる。seed 7 は `[InlineData]` から外し、doc コメントに実測(day 48)と #239 を書く。#239 で抜ける経路が入ったら seed 7 を戻す。
+
 ## スコープ
 
 **含む:**
@@ -213,10 +219,11 @@ wear       = CeilDiv(annualRuns × 所要労働‰ × ExternalBuyPrice(工具), 
 
 ```csharp
 [Theory]
-[InlineData(1)] [InlineData(2)] [InlineData(3)] [InlineData(7)] [InlineData(42)]
+[InlineData(1)] [InlineData(2)] [InlineData(3)] [InlineData(42)]
 public void SomeBrewerIsStillProducingAfterDaySixty(long seed)
 ```
 
+- **seed 7 は入れない**(上の「seed 7 を閉じる条件から外す」)。doc コメントに「seed 7 は最終稼働日 day 48(売れ残りと資金膠着。#239)で、#239 が閉じるまで外す」と、実測の日付・HEAD を書く。**`[InlineData(7)]` を `Skip` 付きで残す形は採らない**(xUnit の `InlineData` 単位の Skip は無く、`[Theory(Skip=…)]` は全シードを止める)
 - `WorldDefinition.M0`・`WorldGenerator.Generate`・`FullPipeline` で **90日**(`scheduler.Advance(world, ticks: 24)` を 90 回)
 - **日の番号は 0 始まりで数える。** k 回目(1〜90)の `Advance` の直後に見える `ProductionRuns` は day `k − 1` の順1 が書いた値である(`SmithNeverRunsOutOfToolsOverSixtyDays` のループ変数 `day` は 1 始まりなので、流用するときは −1 する)
 - 世帯ごとに「その日の職業が醸造 かつ `ProductionRuns > 0`」の最後の day を記録し、**最大値 ≥ 60** を断定する。④ で醸造に付け替わった世帯も数える(「醸造の戸」は日ごとの職業で判定する)
@@ -287,7 +294,7 @@ public void SomeBrewerIsStillProducingAfterDaySixty(long seed)
 | 14 | `M0CalibrationTests` `M0SatisfiesFloorPriceBalanceWithinTwoPercent_C`(書き換え) | 上の「7.」の式で5職とも ±540 以内 | 鍛冶を 1000‰ に戻す(年間 156 回、収支 +8,520)。年間実行回数を日ごとの floor × 120 のまま | **核心**。M9: `BuildM0` の鍛冶を `laborPermille: 1000` に戻す / 赤。**書き換える前のテストには当てても緑である**(#218 決定ログ5 の訂正) |
 | 15 | `StateHasherTests` `HashChangesWhenProductionProgressChanges` / `HashChangesWhenProductionCapacityChanges` | 既存の #12・#13 と同じ形 | ハッシュへの書き忘れ | — |
 | 16 | `HouseholdStateTests` | 2欄の setter が負を拒む | 検証を落とす | — |
-| 17 | `TradePipelineTests` `SomeBrewerIsStillProducingAfterDaySixty` | 上の「8.」 | 規則3 を戻す(差し引く前は全シード day 6〜16 に止まった。#218 決定ログ2) | **核心**。M7 で赤(全5シードの見込み)。**M1 での結果は測っていない**(決定ログ2 に「差し引きのみ」の行が無い)ので期待は置かない |
+| 17 | `TradePipelineTests` `SomeBrewerIsStillProducingAfterDaySixty` | 上の「8.」 | 規則3 を戻す(差し引く前は全シード day 6〜16 に止まった。#218 決定ログ2) | **核心**。M7 で赤(seed 1/2/3/42 の4シードの見込み)。**M1 での結果は測っていない**(決定ログ2 に「差し引きのみ」の行が無い)ので期待は置かない |
 
 **変異は [`mutator`](../../.claude/agents/mutator.md) が測る。** M1〜M9 はレビューの巡が閉じた後にまとめて渡す。結果は各テストの doc コメントへ転記する。
 
@@ -309,7 +316,7 @@ public void SomeBrewerIsStillProducingAfterDaySixty(long seed)
 
 - [ ] 「落ちるべき条件」のテストが全て緑
 - [ ] **「核心」印の変異(M1〜M9)を `mutator` が実測し(レビューの巡が閉じた後)、結果を doc コメントへ転記した**
-- [ ] `SomeBrewerIsStillProducingAfterDaySixty` が5シードとも緑(#237 の閉じる条件)
+- [ ] `SomeBrewerIsStillProducingAfterDaySixty` が4シード(1/2/3/42)とも緑(#237 の閉じる条件。seed 7 は #239)
 - [ ] `dotnet build Visionary.sln -c Release` が警告0
 - [ ] `dotnet test Visionary.sln -c Release` が緑
 - [ ] `dotnet format Visionary.sln --verify-no-changes --severity warn` が通る
