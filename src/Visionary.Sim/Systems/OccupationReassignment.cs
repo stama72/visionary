@@ -46,8 +46,10 @@ public static class OccupationReassignment
     /// </para>
     /// <para>
     /// <b>c は当日の値である。</b>順1 <see cref="ProductionSystem"/> が同じtickで書いた値を順3が読む
-    /// (前日値ではない)。工具切れはcに入らない ── 工具が無くても半分の能力で続く職業では生産量が
-    /// 0にならない(※3)。
+    /// (前日値ではない)。<b>c は入力切れだけを見る</b>(GDD02b §4.1 の※。生産量0だけにすると、
+    /// 鍛冶が労働が1日足りないだけで廃業する ── 工具切れはcに入らない: 全職業が工具無しでも
+    /// 半分の能力で続くため生産量が0になるとは限らないが、それを理由にゲートを閉じない
+    /// (#237、進捗‰の持ち越し)。
     /// </para>
     /// </remarks>
     public static bool IsGateOpen(WorldDefinition definition, HouseholdState household)
@@ -71,8 +73,17 @@ public static class OccupationReassignment
             return false;
         }
 
-        // c. 当日の生産量。
+        // c. 当日の生産量0 かつ 入力から作れる回数0(入力切れ、GDD02b §4.1 の※)。
+        // 生産量0だけで判定すると、能力はあるのに入力が届いていないだけの日(旧版)に加えて、
+        // 入力は足りているのに労働力が所要労働‰未満だった日(#237、鍛冶が1日だけ労働不足に
+        // 陥った日)まで開いてしまう。入力から作れる回数は順1の後・順3までに入力が動かないため
+        // (GDD02b §4.1 の※)、順1が書いた工房在庫からその場で求め直せる。
         if (household.ProductionRuns != 0)
+        {
+            return false;
+        }
+
+        if (recipe.RunsFromInputs(household.WorkshopInventory) != 0)
         {
             return false;
         }

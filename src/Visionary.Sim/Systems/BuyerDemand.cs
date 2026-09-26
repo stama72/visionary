@@ -58,10 +58,15 @@ public readonly record struct HouseholdDemand
     /// <summary>GDD02b §3.2 の走査順(必需 → 耐久 → 生産の入力 → 嗜好、同一用途は品目Id昇順)に並んだ組。</summary>
     public IReadOnlyList<DemandLine> Lines { get; init; }
 
-    /// <summary>必需の取り置き = Σ_(必需, 品目)(目標在庫 × 相場基準)(GDD02b §3.1)。単位: 貨幣。</summary>
+    /// <summary>
+    /// 必需の取り置き = Σ_(必需, 品目)(max(0, 目標在庫 − 予想在庫) × 相場基準)(GDD02b §3.1)。
+    /// 単位: 貨幣。
+    /// </summary>
     public long NecessityReserve { get; init; }
 
-    /// <summary>運転資金 = Σ_(生産の入力, 品目)(目標在庫 × 相場基準)(同上)。単位: 貨幣。</summary>
+    /// <summary>
+    /// 運転資金 = Σ_(生産の入力, 品目)(max(0, 目標在庫 − 予想在庫) × 相場基準)(同上)。単位: 貨幣。
+    /// </summary>
     public long WorkingCapital { get; init; }
 }
 
@@ -171,7 +176,9 @@ public sealed class BuyerDemand
 
             if (hasReference[itemId])
             {
-                necessityReserve += (long)target * reference[itemId];
+                // max(0, 目標在庫 − 予想在庫) × 相場基準(GDD02b §3.1)。在庫が目標を上回る品目で
+                // 取り置きが負になり、他の用途の母数(AvailableFundsの段)を押し上げてしまうのを防ぐ。
+                necessityReserve += (long)Math.Max(0, target - expected) * reference[itemId];
             }
 
             // Necessityの母数は常に流動資金そのものなので、necessityReserve/workingCapitalは
@@ -241,7 +248,8 @@ public sealed class BuyerDemand
 
             if (hasReference[itemId])
             {
-                workingCapital += (long)target * reference[itemId];
+                // max(0, 目標在庫 − 予想在庫) × 相場基準(GDD02b §3.1)。necessityReserveと同じ理由。
+                workingCapital += (long)Math.Max(0, target - expected) * reference[itemId];
             }
 
             int availableFunds = BuyerBudget.AvailableFunds(

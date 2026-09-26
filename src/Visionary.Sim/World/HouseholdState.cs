@@ -22,6 +22,8 @@ public sealed class HouseholdState
     private int unaffordableNecessityCount;
     private int errandLaborLossPermille;
     private int productionRuns;
+    private int productionProgressPermille;
+    private int productionCapacityRuns;
 
     /// <summary><see cref="World.Households"/> の添字と一致する、非負の Id(TDD01 §3.2)。</summary>
     public int Id { get; }
@@ -117,7 +119,7 @@ public sealed class HouseholdState
 
     /// <summary>
     /// 累積した工具の摩耗。単位: ‰人日。0以上(GDD02a §3.1)。旧 <c>ToolWearCount</c>(回)を改名した
-    /// ── 所要労働‰ が108から1000まで違うので、回数で数えると木材加工は鍛冶の12倍の速さで
+    /// ── 所要労働‰ が108から1300まで違うので、回数で数えると木材加工は鍛冶の12倍の速さで
     /// 工具を消費する(タスク仕様「摩耗は実行回数ではなく労働量で数える」)。
     /// </summary>
     /// <remarks>
@@ -192,6 +194,55 @@ public sealed class HouseholdState
             }
 
             productionRuns = value;
+        }
+    }
+
+    /// <summary>
+    /// 生産の進捗‰(持ち越した端数、GDD02a §1)。単位: ‰人日。0以上。
+    /// 順1(<see cref="Systems.ProductionSystem"/>)が毎日書く。④の付け替え(順3、
+    /// <see cref="Systems.HouseholdSystem"/>)で0に戻す。
+    /// </summary>
+    /// <remarks>
+    /// <b>上限(進捗‰ &lt; 所要労働‰)は型では守れない。</b>所要労働‰ を知っているのはレシピ
+    /// (<see cref="Recipe"/>)であり、この型ではない。「順1 の後は 0 ≤ 進捗‰ ≤ 所要労働‰ − 1」は
+    /// <see cref="Systems.ProductionSystem"/> の後条件であり、テストで押さえる。
+    /// </remarks>
+    public int ProductionProgressPermille
+    {
+        get => productionProgressPermille;
+        set
+        {
+            if (value < 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(value), value, "生産の進捗‰は0以上(GDD02a §1)。");
+            }
+
+            productionProgressPermille = value;
+        }
+    }
+
+    /// <summary>
+    /// 当日の生産能力(実行回数、GDD02a §1・GDD02b §8)。0以上。順1が毎日書く(0の日も書く)。
+    /// 順4(<see cref="Systems.NeedGenerationSystem"/>)の「増産できない」が読む。
+    /// </summary>
+    /// <remarks>
+    /// <b><see cref="ProductionRuns"/>(入力充足も反映した実行回数)とは別の欄である。</b>
+    /// 入力が足りない日は <see cref="ProductionRuns"/> より大きくなりうる ── 「増産できない」の
+    /// 判定(GDD02b §8)は労働力側の能力だけを見るため、入力切れとは独立に持つ必要がある。
+    /// </remarks>
+    public int ProductionCapacityRuns
+    {
+        get => productionCapacityRuns;
+        set
+        {
+            if (value < 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(value), value, "当日の生産能力(実行回数)は0以上(GDD02a §1)。");
+            }
+
+            productionCapacityRuns = value;
         }
     }
 
@@ -311,5 +362,7 @@ public sealed class HouseholdState
         UnaffordableNecessityCount = 0;
         ErrandLaborLossPermille = 0;
         ProductionRuns = 0;
+        ProductionProgressPermille = 0;
+        ProductionCapacityRuns = 0;
     }
 }

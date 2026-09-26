@@ -293,11 +293,17 @@ public sealed class M0CalibrationTests
     /// </summary>
     /// <remarks>
     /// <para>
-    /// フェーズ1の検算(GDD02d §4.4): 水車小屋番 −227 / パン屋 −230 / 醸造 −230 /
-    /// 木材加工 −230 / 鍛冶 +323(単位: 貨幣/年)。生活費 27,000/年。
+    /// <b>検算(GDD02d §4.4。#237で鍛冶の所要労働‰が1000→1300になり、下の検算を
+    /// 「年に直した実行回数 <c>floor(120 × 1300 ÷ 所要労働‰)</c>」で解き直した)</b>:
+    /// 水車小屋番 −131 / パン屋 −156 / 醸造 −156 / 木材加工 −156 / 鍛冶 −480(単位: 貨幣/年)。
+    /// 生活費 27,000/年。
     /// </para>
     /// <para>
-    /// <b>値の側の変異の実測・再測(2026-09-19、レビュー1巡目 象限III)。</b>薪の外部買値を
+    /// <b>旧版(所要労働1000‰・日ごとの floor × 120)での実測(フェーズ1の検算)</b>:
+    /// 水車小屋番 −227 / パン屋 −230 / 醸造 −230 / 木材加工 −230 / 鍛冶 +323(単位: 貨幣/年)。
+    /// </para>
+    /// <para>
+    /// <b>旧版での値の側の変異の実測・再測(2026-09-19、レビュー1巡目 象限III)。</b>薪の外部買値を
     /// 10→11にする変異を当てたところ、<b>木材加工ではなく水車小屋番(職業の走査順で先頭。
     /// 水車小屋番は薪を扱わないが、生活費(全職業で共通の値)が薪の値上がりで押し上がり、
     /// 元の収支−227が最も0に近い水車小屋番から先に閾値を超える)</b>で
@@ -307,7 +313,7 @@ public sealed class M0CalibrationTests
     /// 超えるとすれば超過側であり、かつ水車小屋番が先に落ちるためそこへは到達しない。訂正)。
     /// </para>
     /// <para>
-    /// <b>式の側の変異(このテスト自身の判別力の確認)。</b>摩耗を「年間の投入労働 ×
+    /// <b>旧版での式の側の変異(このテスト自身の判別力の確認)。</b>摩耗を「年間の投入労働 ×
     /// 工具の床 ÷ 耐久値」(1回で切り上げる)ではなく「1回あたりの摩耗費(切り上げ)× 回数」
     /// (GDD02c §2.3 の利潤上限のための保守的な丸め。現金の流出ではない)に書き換える変異を
     /// このテストのコードへ当てたところ(<c>wear</c> の計算を
@@ -315,6 +321,12 @@ public sealed class M0CalibrationTests
     /// Definition.ToolDurabilityPerUnit) * Calendar.DaysPerYear * cap</c> に変更)、
     /// 水車小屋番の収支が−960/年(−3.6%)になり <c>Assert.True(...)</c> が失敗した
     /// (赤を再確認: 収支−960・生活費27000・許容540・摩耗4200)。変異を戻して緑に復帰させた。
+    /// </para>
+    /// <para>
+    /// <b>M9の実測</b>(<c>mutator</c>、2026-09-26、HEAD <c>c900127</c>)。<c>BuildM0</c> の鍛冶を
+    /// <c>laborPermille: 1000</c> に戻す変異を当てると、この書き換え後のテストは赤くなった
+    /// (鍛冶の収支 +8,520。年間実行回数156)。期待との食い違いは無い。書き換える<b>前</b>の
+    /// テスト(日ごとの floor × 120、旧版)には当てても緑である(#218 決定ログ5 の訂正)。
     /// </para>
     /// </remarks>
     [Fact]
@@ -332,24 +344,34 @@ public sealed class M0CalibrationTests
         {
             var occupation = (Occupation)occupationId;
             var recipe = Definition.Recipes[occupationId];
-            int cap = Definition.ProductionCapacity(occupation);
             int outputItemId = recipe.Outputs[0].ItemId;
             int outputQuantity = recipe.Outputs[0].Quantity;
 
-            long revenue = (long)Calendar.DaysPerYear * cap * outputQuantity
-                * Definition.ExternalBuyPrice(outputItemId);
+            // 年間実行回数 = floor(DaysPerYear × NominalLaborPermille ÷ 所要労働‰)(GDD02d §4.4
+            // 「下の検算はこれを年に直した実行回数で解く」)。#237(進捗‰の持ち越し)により、
+            // 日ごとの floor(旧版)ではなく年間の労働総量を1回だけfloorする ── 日ごとに切り捨てる
+            // 旧版は、端数が翌日以降に持ち越されず捨てられる前提のまま年間供給を見積もっており、
+            // 進捗‰が持ち越される#237の下では鍛冶(所要労働1300‰、生産能力1)の年間供給を
+            // 過小評価する。
+            long annualRuns = IntegerMath.FloorDiv(
+                (long)Calendar.DaysPerYear * Definition.NominalLaborPermille, recipe.LaborPermille);
 
+            long revenue = annualRuns * outputQuantity * Definition.ExternalBuyPrice(outputItemId);
+
+            // 入力は年平均価格(Floor)を掛ける ── annualRunsは年間の総実行回数であり、旧版の
+            // 「日当たり実行回数 × その日の価格」を年間分足し合わせる経路(AnnualPriceの実体)が
+            // もう無いため(タスク仕様「purchasesは annualRuns × 数量 × AnnualPrice ÷ 120 ではなく
+            // Floor(入力) を掛ける」)。
             long purchases = 0;
             foreach (var input in recipe.Inputs)
             {
-                purchases += (long)cap * input.Quantity * AnnualPrice(input.ItemId);
+                purchases += annualRuns * input.Quantity * Floor(input.ItemId);
             }
 
             // 摩耗は現金の流出で数える ── 年間の投入労働(‰人日)× 工具の床 ÷ 耐久値、
             // 切り上げは合計に対して1回だけ(GDD02d §4.4)。
             long wear = IntegerMath.CeilDiv(
-                (long)Calendar.DaysPerYear * cap * recipe.LaborPermille
-                    * Definition.ExternalBuyPrice(Item.Tools),
+                annualRuns * recipe.LaborPermille * Definition.ExternalBuyPrice(Item.Tools),
                 Definition.ToolDurabilityPerUnit);
 
             long balance = revenue - purchases - wear - livingCost;
@@ -357,7 +379,7 @@ public sealed class M0CalibrationTests
             Assert.True(
                 Math.Abs(balance) * 100 <= 2 * livingCost,
                 $"(c) 職業{occupation}: 収支{balance}が生活費{livingCost}の2%を超える"
-                    + $"(売上{revenue}、仕入{purchases}、摩耗{wear})。");
+                    + $"(売上{revenue}、仕入{purchases}、摩耗{wear}、年間実行回数{annualRuns})。");
         }
     }
 

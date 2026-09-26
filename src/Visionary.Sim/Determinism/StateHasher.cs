@@ -211,6 +211,10 @@ public static class StateHasher
 
             // #40が足した欄。既存の値は動かさず末尾へ足す(同じ規律)。
             WriteInt32Array(hasher, buffer, household.UnfilledPurchase);
+
+            // #237が足した2欄。既存の値は動かさず末尾へ足す(同じ規律)。
+            WriteInt32(hasher, buffer, household.ProductionProgressPermille);
+            WriteInt32(hasher, buffer, household.ProductionCapacityRuns);
         }
 
         // EventLog は含めない(§3.8 の除外表)。意思決定に関与せず、追記専用で巨大。

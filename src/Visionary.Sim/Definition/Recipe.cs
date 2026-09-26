@@ -73,16 +73,17 @@ public sealed class Recipe
     /// <b>両方の除算を切り下げる。</b>端数の労働力ではレシピを1回完成できない —
     /// <see cref="IntegerMath.ApplyPermille"/>(切り上げ)を内側に使うと存在しない労働力で
     /// 生産したことになる(GDD02a §1 の「切り上げ規約の意図的な例外」)。
-    /// <see cref="Systems.ProductionSystem"/>(日次の実行回数)と <see cref="WorldDefinition"/>
-    /// (目標在庫の物差し)の両方がこのメソッドを呼ぶ ── 式を書き分けると、片方の丸めを
-    /// 直したとき他方が黙ってずれる(タスク仕様「生産能力の式は1か所にしか置かない」)。
+    /// <see cref="WorldDefinition"/>(目標在庫の物差し。進捗‰ を持たない世界基準の生産能力)
+    /// だけがこのメソッドを呼ぶ ── #237 で日次の実行回数は進捗‰(<see cref="CapacityRunsFromProgress"/>)
+    /// 側に移った。
     /// <para>
     /// <b>内側の切り下げ(floor(労働力合計‰ × 設備係数‰ ÷ 1000))は
     /// <see cref="IntegerMath.FloorPermille"/> が唯一の置き場所である</b>(W2-19訂正。レビュー1巡目
     /// 象限I-a)。<see cref="Systems.LaborCapacity.EffectiveLaborPermille(int, int)"/> も同じ
     /// <see cref="IntegerMath.FloorPermille"/> を呼ぶ ── 以前は2か所に同じ式が手で綴られており、
-    /// この remarks の主張(「式は1か所にしか置かない」)自体が偽だった。外側の除算
-    /// (÷ 所要労働‰)は本メソッドにしか無い。
+    /// この remarks の主張(「式は1か所にしか置かない」)自体が偽だった。<b>外側の除算
+    /// (÷ 所要労働‰)は <see cref="CapacityRunsFromProgress"/> にしか無い</b>(#237。中身をそちらへ
+    /// 委譲する)。
     /// </para>
     /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException">
@@ -104,10 +105,53 @@ public sealed class Recipe
 
         // 内側の切り下げはIntegerMath.FloorPermilleへ寄せてある(戻り値long。中間の積は
         // labor×equipがintを超えうるため)。LaborCapacity.EffectiveLaborPermilleも同じ関数を呼ぶ
-        // ── ここに書き直さない(W2-19訂正)。
+        // ── ここに書き直さない(W2-19訂正)。外側の除算はCapacityRunsFromProgressへ委譲する
+        // (#237。物差し=「進捗‰ 0 から1日働いたときの能力」)。
         long effectiveLaborPermille = IntegerMath.FloorPermille(laborPermille, equipmentPermille);
 
-        return checked((int)IntegerMath.FloorDiv(effectiveLaborPermille, LaborPermille));
+        return CapacityRunsFromProgress(checked((int)effectiveLaborPermille));
+    }
+
+    /// <summary>生産能力(実行回数)= floor(進捗‰ ÷ 所要労働‰)(GDD02a §1)。</summary>
+    /// <remarks>
+    /// <b>外側の除算はここにしか無い</b>(#237)。<see cref="Systems.ProductionSystem"/> と
+    /// <see cref="CapacityRuns"/> の両方がこれを呼ぶ。
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="progressPermille"/> が負のとき。</exception>
+    public int CapacityRunsFromProgress(int progressPermille)
+    {
+        if (progressPermille < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(progressPermille), progressPermille, "生産の進捗‰は非負(GDD02a §1)。");
+        }
+
+        return checked((int)IntegerMath.FloorDiv(progressPermille, LaborPermille));
+    }
+
+    /// <summary>
+    /// 入力から作れる回数 = min_j floor(工房在庫[入力j] ÷ 必要数量_j)(GDD02a §1)。
+    /// </summary>
+    /// <remarks>
+    /// <b>入力が0件のレシピは <see cref="int.MaxValue"/> を返す。</b>「この項では制約しない」の
+    /// 実体である ── 空の min を 0 にすると、入力0件のレシピの生産が永久に止まる(#218 全般2巡目
+    /// 指摘2)。<see cref="Systems.ProductionSystem"/> と
+    /// <see cref="Systems.OccupationReassignment.IsGateOpen"/> の両方がこれを呼ぶ(#237)。
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="workshopInventory"/> が null のとき。</exception>
+    public int RunsFromInputs(int[] workshopInventory)
+    {
+        ArgumentNullException.ThrowIfNull(workshopInventory);
+
+        int runs = int.MaxValue;
+
+        foreach (var input in Inputs)
+        {
+            int affordableRuns = IntegerMath.FloorDiv(workshopInventory[input.ItemId], input.Quantity);
+            runs = Math.Min(runs, affordableRuns);
+        }
+
+        return runs;
     }
 
     private static void ValidateQuantities(ItemQuantity[] items, string paramName)

@@ -379,6 +379,32 @@ public sealed class StateHasherTests
         Assert.NotEqual(before, after);
     }
 
+    /// <summary>テスト表 #15(#237)。ProductionProgressPermilleの書き忘れで落ちる。</summary>
+    [Fact]
+    public void HashChangesWhenProductionProgressChanges()
+    {
+        var world = OneHouseholdWorld();
+        ulong before = StateHasher.Compute(world);
+
+        world.Households[0].ProductionProgressPermille = 5;
+        ulong after = StateHasher.Compute(world);
+
+        Assert.NotEqual(before, after);
+    }
+
+    /// <summary>テスト表 #15(#237)。ProductionCapacityRunsの書き忘れで落ちる。</summary>
+    [Fact]
+    public void HashChangesWhenProductionCapacityChanges()
+    {
+        var world = OneHouseholdWorld();
+        ulong before = StateHasher.Compute(world);
+
+        world.Households[0].ProductionCapacityRuns = 5;
+        ulong after = StateHasher.Compute(world);
+
+        Assert.NotEqual(before, after);
+    }
+
     /// <summary>テスト表 #25(#34)。UnmetConsumptionの1要素だけを変えると状態ハッシュが変わる。</summary>
     [Fact]
     public void HashChangesWhenUnmetConsumptionChanges()
@@ -602,19 +628,21 @@ public sealed class StateHasherTests
             inputs: Array.Empty<ItemQuantity>(),
             laborPermille: 1000);
 
-        // equipmentPermilleWithoutToolsを1000にして、工具切れでもCannotExpandProduction(理由3)が
-        // 同時に立たないようにする ── 動かしたいのはToolsExhausted(理由4)1件だけ。
-        var definition = EconomySystemTestFixtures.BuildDefinition(recipe, equipmentPermilleWithoutTools: 1000);
+        var definition = EconomySystemTestFixtures.BuildDefinition(recipe);
 
         // freshWorld: 工具は常に1個。Needは一度も立たず、NextNeedIdは0のまま。
+        // ProductionCapacityRunsを1にする(#237。順1を回さないので既定0のままだと
+        // CannotExpandProduction=理由3が黙って起こる。動かしたいのはToolsExhausted(理由4)1件だけ)。
         var freshWorld = EconomySystemTestFixtures.BuildWorldWithOneHousehold(new[] { NpcRank.Master });
         freshWorld.Households[0].WorkshopInventory[Item.Tools] = 1;
+        freshWorld.Households[0].ProductionCapacityRuns = 1;
         var freshSystem = new NeedGenerationSystem(definition);
         EconomySystemTestFixtures.RunDays(freshWorld, freshSystem, days: 2);
 
         // advancedWorld: 1日目に工具0でToolsExhaustedを立て、2日目に工具を戻して失効させる。
         var advancedWorld = EconomySystemTestFixtures.BuildWorldWithOneHousehold(new[] { NpcRank.Master });
         advancedWorld.Households[0].WorkshopInventory[Item.Tools] = 0;
+        advancedWorld.Households[0].ProductionCapacityRuns = 1;
         var advancedSystem = new NeedGenerationSystem(definition);
         EconomySystemTestFixtures.RunDays(advancedWorld, advancedSystem, days: 1);
         advancedWorld.Households[0].WorkshopInventory[Item.Tools] = 1;

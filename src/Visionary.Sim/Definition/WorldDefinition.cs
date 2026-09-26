@@ -957,7 +957,7 @@ public sealed class WorldDefinition
                     new ItemQuantity { ItemId = Item.IronOre, Quantity = 2 },
                     new ItemQuantity { ItemId = Item.Charcoal, Quantity = 1 },
                 },
-                laborPermille: 1000), // ‰。1300‰ ÷ 1000‰ = 1実行/日
+                laborPermille: 1300), // ‰。1300‰ ÷ 1300‰ = 1実行/日(平均。GDD02a §2・GDD02d §4.4)
         };
 
         // 添字 = itemId(Grain, Timber, IronOre, Charcoal, Flour, Firewood, Bread, Beer, Tools)。

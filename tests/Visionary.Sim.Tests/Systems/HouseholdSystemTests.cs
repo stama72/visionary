@@ -142,6 +142,12 @@ public sealed class HouseholdSystemTests
         subject.WorkshopInventory[OutputItemId(occupation)] = sellableStockIsZero ? 0 : 5;
         subject.ProductionRuns = productionRunsIsZero ? 0 : 1;
 
+        // 前提(W2-24): 新しいc(生産量0 かつ 入力から作れる回数0)は、AddHouseholdが入力在庫を
+        // 0で作ることに依存する。ここが崩れると「3条件すべて」「a欠け」「c欠け」の各行の
+        // ゲートcの開閉が変わってしまう。
+        int inputItemId = definition.Recipes[(int)occupation].Inputs[0].ItemId;
+        Assert.Equal(0, subject.WorkshopInventory[inputItemId]);
+
         EconomySystemTestFixtures.RunDays(world, new HouseholdSystem(definition), days: 1);
 
         if (expectReassignment)
@@ -196,6 +202,67 @@ public sealed class HouseholdSystemTests
 
             Assert.NotEqual(Occupation.Smith, world.Households[0].Occupation);
         }
+    }
+
+    /// <summary>
+    /// 【核心】テスト表 #8(#237)。破産中・販売在庫0・生産量0だが入力は1回分ある世帯(Miller、
+    /// 工房在庫[穀物]=2)→ 付け替えない(GDD02b §4.1 の※。cは入力切れだけを見る)。
+    /// </summary>
+    /// <remarks>
+    /// <b>M4の実測</b>(<c>mutator</c>、2026-09-26、HEAD <c>c900127</c>)。
+    /// <c>RunsFromInputs(...) != 0</c> の早期returnを消す(c を生産量0だけで判定する旧版)変異を
+    /// 当てると、本テストは赤くなった(入力が残っていても付け替わり、Bakerになった)。期待との
+    /// 食い違いは無い。
+    /// </remarks>
+    [Fact]
+    public void GateStaysClosedWhenInputsRemainOnAZeroProductionDay()
+    {
+        var definition = WorldDefinition.M0;
+        var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
+
+        AddHousehold(world, id: 0, districtId: 0, Occupation.Miller); // 被験者。
+        AddHousehold(world, id: 1, districtId: 1, Occupation.Miller); // 相方(担い手2)。
+
+        var subject = world.Households[0];
+        subject.UnaffordableNecessityCount = 1;
+        subject.WorkshopInventory[OutputItemId(Occupation.Miller)] = 0;
+        subject.ProductionRuns = 0;
+        subject.WorkshopInventory[Item.Grain] = 2; // 入力(穀物)から1回作れる → RunsFromInputs != 0。
+
+        EconomySystemTestFixtures.RunDays(world, new HouseholdSystem(definition), days: 1);
+
+        Assert.Equal(Occupation.Miller, world.Households[0].Occupation);
+    }
+
+    /// <summary>
+    /// 【核心】テスト表 #9(#237)。入力0件のレシピの世帯(破産中・販売在庫0・生産量0)で
+    /// <see cref="OccupationReassignment.IsGateOpen"/> が false(空のminを0にしない)。
+    /// </summary>
+    /// <remarks>
+    /// <b>M5の実測</b>(<c>mutator</c>、2026-09-26、HEAD <c>c900127</c>)。
+    /// <see cref="Recipe.RunsFromInputs"/> が入力0件で0を返す(空のminを0にする)変異を当てると、
+    /// 本テストは赤くなった(<c>IsGateOpen</c>: 期待false → 実測true)。既存の
+    /// <c>ProductionSystemTests.ProductionRunsWithoutInputsUpToCapacity</c> も同時に赤くなった
+    /// (出力: 期待4 → 実測0。入力0件のレシピの生産が永久に止まる)。期待との食い違いは無い。
+    /// </remarks>
+    [Fact]
+    public void GateStaysClosedForARecipeWithoutInputs()
+    {
+        var recipe = new Recipe(
+            Occupation.Miller,
+            outputs: new[] { new ItemQuantity { ItemId = Item.Bread, Quantity = 1 } },
+            inputs: Array.Empty<ItemQuantity>(),
+            laborPermille: 1000);
+
+        var definition = EconomySystemTestFixtures.BuildDefinition(recipe);
+        var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(new[] { NpcRank.Master });
+
+        var household = world.Households[0];
+        household.IsBankrupt = 1;
+        household.WorkshopInventory[Item.Bread] = 0;
+        household.ProductionRuns = 0;
+
+        Assert.False(OccupationReassignment.IsGateOpen(definition, household));
     }
 
     /// <summary>
@@ -370,9 +437,23 @@ public sealed class HouseholdSystemTests
     }
 
     /// <summary>
-    /// テスト表 #11。付け替えの前後で <see cref="HouseholdState.Occupation"/> 以外が不変
-    /// (GDD02b §4.2「変えないもの」の表)。
+    /// テスト表 #11(W2-24で書き換え)。付け替えの前後で <see cref="HouseholdState.Occupation"/> と
+    /// <see cref="HouseholdState.ProductionProgressPermille"/>(0に戻る)以外が不変
+    /// (GDD02b §4.2「変えないもの」の表)。木材(生産の入力)は0にしてゲートcを閉じさせない
+    /// ── 42のままだと入力から21回作れてしまい(新しいc)、付け替わらなくなる(タスク仕様
+    /// 「9. 既存テストの追随」)。「ゲートに関係しない工房在庫」の役は穀物(Millerの入力・
+    /// Woodworkerには無関係)に譲る。
     /// </summary>
+    /// <remarks>
+    /// <b>M6の実測</b>(<c>mutator</c>、2026-09-26、HEAD <c>c900127</c>)。付け替えの
+    /// <c>ProductionProgressPermille = 0</c> の代入を消す変異を当てると、本テストは赤くなった
+    /// (進捗‰: 期待0 → 実測90)。期待との食い違いは無い。
+    /// </remarks>
+    /// <remarks>
+    /// <b>M10の実測</b>(<c>mutator</c>、2026-09-26、HEAD <c>c900127</c>。レビュー1巡目 象限I-aで
+    /// 追加)。付け替え時に <c>ProductionCapacityRuns = 0</c> も書く変異を当てると、本テストは
+    /// 赤くなった(能力: 期待3 → 実測0)。期待との食い違いは無い。
+    /// </remarks>
     [Fact]
     public void ReassignmentTouchesNothingButTheOccupation()
     {
@@ -386,9 +467,17 @@ public sealed class HouseholdSystemTests
         subject.UnaffordableNecessityCount = 1;
         subject.LiquidFunds = 500;
         subject.WorkshopInventory[OutputItemId(Occupation.Woodworker)] = 0; // ゲートb。
-        subject.WorkshopInventory[Item.Timber] = 42; // 生産の入力(ゲートに関係しない)。
+        subject.WorkshopInventory[Item.Timber] = 0; // 生産の入力。ゲートcを閉じさせない。
+        subject.WorkshopInventory[Item.Grain] = 42; // ゲートに関係しない工房在庫(Woodworkerの入力ではない)。
         subject.HouseholdInventory[Item.Firewood] = 7;
         subject.ProductionRuns = 0;
+        subject.ProductionProgressPermille = 90; // 付け替えで0に戻ることを断定するため正の値にする。
+
+        // 既定値0のままだと「付け替えで能力が変わらない」の断定が0と0の比較になり、能力を0に
+        // 消す実装ミスを見逃す(レビュー1巡目 象限I-a)。入力(木材)が0なので生産量0のまま
+        // ゲートcと両立する正の値を置く(タスク仕様5c・表#10)。
+        subject.ProductionCapacityRuns = 3;
+        int capacityBefore = subject.ProductionCapacityRuns;
 
         var memberNpcIdsBefore = (int[])subject.MemberNpcIds.Clone();
 
@@ -398,11 +487,14 @@ public sealed class HouseholdSystemTests
         Assert.Equal(1, subject.IsBankrupt); // 付け替えでフラグを降ろさない。
         Assert.Equal(500, subject.LiquidFunds);
         Assert.Equal(0, subject.WorkshopInventory[OutputItemId(Occupation.Woodworker)]);
-        Assert.Equal(42, subject.WorkshopInventory[Item.Timber]);
+        Assert.Equal(0, subject.WorkshopInventory[Item.Timber]);
+        Assert.Equal(42, subject.WorkshopInventory[Item.Grain]);
         Assert.Equal(7, subject.HouseholdInventory[Item.Firewood]);
         Assert.Equal(3, subject.DistrictId);
         Assert.Equal(0, subject.HeadNpcId);
         Assert.Equal(memberNpcIdsBefore, subject.MemberNpcIds);
+        Assert.Equal(0, subject.ProductionProgressPermille); // GDD02b §4.2が戻すのは進捗‰だけ。
+        Assert.Equal(capacityBefore, subject.ProductionCapacityRuns); // 当日の値のまま(順3は触らない)。
     }
 
     /// <summary>

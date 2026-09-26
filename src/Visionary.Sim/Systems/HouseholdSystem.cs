@@ -79,6 +79,11 @@ public sealed class HouseholdSystem : ISimSystem
             }
 
             household.Occupation = target;
+
+            // 進捗‰だけを0に戻す(GDD02b §4.2)。当日のProductionCapacityRuns/ProductionRunsは
+            // 旧職業のレシピで順1が書いた値のまま触らない ── 翌日の順1が新職業のレシピで上書きする
+            // (#237。フェーズ1で決めたこと「残る穴」)。
+            household.ProductionProgressPermille = 0;
         }
     }
 }

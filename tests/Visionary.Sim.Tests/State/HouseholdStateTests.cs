@@ -165,13 +165,16 @@ public sealed class HouseholdStateTests
     }
 
     /// <summary>
-    /// テスト表 #15(#96)。<see cref="HouseholdState.ErrandLaborLossPermille"/> と
-    /// <see cref="HouseholdState.ProductionRuns"/> も同じく検証なしの自動プロパティにする
+    /// テスト表 #15(#96)・#16(#237)。<see cref="HouseholdState.ErrandLaborLossPermille"/> /
+    /// <see cref="HouseholdState.ProductionRuns"/> / <see cref="HouseholdState.ProductionProgressPermille"/> /
+    /// <see cref="HouseholdState.ProductionCapacityRuns"/> も同じく検証なしの自動プロパティにする
     /// 実装ミスを捕まえる。
     /// </summary>
     [Theory]
     [InlineData("errandLaborLoss")]
     [InlineData("productionRuns")]
+    [InlineData("productionProgress")]
+    [InlineData("productionCapacityRuns")]
     public void NewHouseholdFieldsRejectNegativeValues(string field)
     {
         var household = new HouseholdState(
@@ -181,6 +184,8 @@ public sealed class HouseholdStateTests
         {
             "errandLaborLoss" => () => household.ErrandLaborLossPermille = -1,
             "productionRuns" => () => household.ProductionRuns = -1,
+            "productionProgress" => () => household.ProductionProgressPermille = -1,
+            "productionCapacityRuns" => () => household.ProductionCapacityRuns = -1,
             _ => throw new ArgumentOutOfRangeException(nameof(field), field, "未知のフィールド。"),
         };
 
