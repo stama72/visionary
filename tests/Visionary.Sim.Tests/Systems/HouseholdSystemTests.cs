@@ -458,6 +458,11 @@ public sealed class HouseholdSystemTests
         subject.HouseholdInventory[Item.Firewood] = 7;
         subject.ProductionRuns = 0;
         subject.ProductionProgressPermille = 90; // 付け替えで0に戻ることを断定するため正の値にする。
+
+        // 既定値0のままだと「付け替えで能力が変わらない」の断定が0と0の比較になり、能力を0に
+        // 消す実装ミスを見逃す(レビュー1巡目 象限I-a)。入力(木材)が0なので生産量0のまま
+        // ゲートcと両立する正の値を置く(タスク仕様5c・表#10)。
+        subject.ProductionCapacityRuns = 3;
         int capacityBefore = subject.ProductionCapacityRuns;
 
         var memberNpcIdsBefore = (int[])subject.MemberNpcIds.Clone();
