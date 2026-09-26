@@ -1558,6 +1558,13 @@ public sealed class TradePipelineTests
     /// (1/2/3/7/42)が赤になった ── 留保の核心はこのテストが担保する。
     /// </remarks>
     /// <remarks>
+    /// <b>変異M-1の再測</b>(<c>mutator</c>、2026-09-26、HEAD <c>c900127</c>。レビュー1巡目の疑いを
+    /// 受けて再測)。#237(進捗‰の持ち越し・鍛冶1300‰)後の世代でも同じ変異(<c>SellableStock.
+    /// ReserveQuantity</c> が常に0)を当てると、本テストは全5シード(1/2/3/7/42)が赤になった
+    /// (工具在庫が0まで痩せる日: seed=1: day2 / seed=2: day2 / seed=3: day3 / seed=7: day3 /
+    /// seed=42: day3)── 留保の核心は#237後の世代でも空振りでない。期待との食い違いは無い。
+    /// </remarks>
+    /// <remarks>
     /// <b>健全な鍛冶の工房在庫[工具]の定常値の実測</b>(2026-09-21、60日走行、シード
     /// 1/2/3/7/42。day 60 時点)。seed=1: household2=4, household3=4。seed=2: household3=4,
     /// household7=4。seed=3: household1=6, household7=6。seed=7: household2=4, household9=4。
@@ -3018,11 +3025,12 @@ public sealed class TradePipelineTests
     /// </para>
     /// </remarks>
     /// <remarks>
-    /// M7(規則3を戻す。<c>BuyerDemand</c>の両ループを<c>max(0,...)</c>無しへ戻す変異)は
-    /// seed 1/2/3/42 の4シードで赤になる見込み(差し引く前は全シードday 6〜16に止まった。
-    /// #218決定ログ2)。M1(進捗‰の持ち越し単体)での結果は測っていない(決定ログ2に
-    /// 「差し引きのみ」の行が無いため)。mutatorの実測はレビューの巡が閉じた後にまとめて
-    /// 渡される(結果はこの remarks へ転記する)。
+    /// <b>M7の実測</b>(<c>mutator</c>、2026-09-26、HEAD <c>c900127</c>)。規則3を戻す
+    /// (<c>BuyerDemand.Build</c> の両ループを <c>(long)target * reference[itemId]</c> に戻す)変異を
+    /// 当てると、本テストは seed 1/2/3/42 の4シードとも赤くなった(最終稼働日: seed=1: day10 /
+    /// seed=2: day9 / seed=3: day20 / seed=42: day9。いずれも60未満)。期待との食い違いは無い
+    /// (差し引く前は全シードday 6〜16に止まった。#218決定ログ2)。M1(進捗‰の持ち越し単体)での
+    /// 結果は測っていない(決定ログ2に「差し引きのみ」の行が無いため)。
     /// </remarks>
     [Theory]
     [InlineData(1)]

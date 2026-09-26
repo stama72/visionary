@@ -320,6 +320,11 @@ public sealed class ProductionSystemTests
     }
 
     /// <summary>テスト表 #12(W2-03)。入力0件のレシピで、生産能力ぶん実行される。</summary>
+    /// <remarks>
+    /// <b>M5の実測</b>(<c>mutator</c>、2026-09-26、HEAD <c>c900127</c>)。
+    /// <see cref="Recipe.RunsFromInputs"/> が入力0件で0を返す(空のminを0にする)変異を当てると、
+    /// 本テストは赤くなった(出力: 期待4 → 実測0)。期待との食い違いは無い。
+    /// </remarks>
     [Fact]
     public void ProductionRunsWithoutInputsUpToCapacity()
     {
@@ -894,8 +899,10 @@ public sealed class ProductionSystemTests
     /// 前日の損失0/100/0を各日の前に置くと、生産量6/5/6・持ち越し4/124/128になる。
     /// </summary>
     /// <remarks>
-    /// M1(順1の最後の代入を <c>ProductionProgressPermille = 0</c> にする。持ち越しを毎日捨てる)は
-    /// 生産量6/5/6を変えずに持ち越しだけ0/0/0にする ── 数量ではなく持ち越しの断定が判別する。
+    /// <b>M1の実測</b>(<c>mutator</c>、2026-09-26、HEAD <c>c900127</c>)。順1の最後の代入を
+    /// <c>ProductionProgressPermille = 0</c> にする(持ち越しを毎日捨てる)変異を当てると、
+    /// 本テストは赤くなった(日0の持ち越し: 期待4 → 実測0)── 数量ではなく持ち越しの断定が判別
+    /// する。期待との食い違いは無い。
     /// </remarks>
     [Fact]
     public void ProgressCarriesTheRemainderAcrossDays()
@@ -938,6 +945,12 @@ public sealed class ProductionSystemTests
     /// 持ち越し1150、日1 生産量1・持ち越し1150、日2 生産量1(旧版の日ごとのfloorなら
     /// 日2は1150÷1300=0回になる ── 持ち越しが損失を吸収するのは日2である)。
     /// </summary>
+    /// <remarks>
+    /// <b>M1の実測</b>(<c>mutator</c>、2026-09-26、HEAD <c>c900127</c>)。
+    /// <see cref="ProgressCarriesTheRemainderAcrossDays"/> と同じ変異(順1の最後の代入を
+    /// <c>ProductionProgressPermille = 0</c> にする)を当てると、本テストも赤くなった
+    /// (日0の持ち越し: 期待1150 → 実測0)。期待との食い違いは無い。
+    /// </remarks>
     [Fact]
     public void SmithCompletesOnTheLossDayFromTheCarriedRemainder()
     {
@@ -1011,8 +1024,10 @@ public sealed class ProductionSystemTests
     /// 翌日(入力十分)は215+1300=1515 → 7回、持ち越し3。
     /// </summary>
     /// <remarks>
-    /// M2(<c>min</c> を落として <c>progress − L × runs</c> をそのまま代入)は持ち越しを872にする。
-    /// 上限を所要労働‰(216)にする実装ミスでは持ち越しが216になる ── どちらも215と一致しない。
+    /// <b>M2の実測</b>(<c>mutator</c>、2026-09-26、HEAD <c>c900127</c>)。<c>Math.Min(…, L−1)</c> を
+    /// 落として <c>progress − L × runs</c> をそのまま代入する変異を当てると、本テストは赤くなった
+    /// (持ち越し: 期待215 → 実測872)。期待との食い違いは無い。上限を所要労働‰(216)にする
+    /// 実装ミスでは持ち越しが216になる ── どちらも215と一致しない。
     /// </remarks>
     [Fact]
     public void UnusedLaborIsNotBankedWhenInputsRunShort()

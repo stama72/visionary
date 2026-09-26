@@ -209,8 +209,10 @@ public sealed class HouseholdSystemTests
     /// 工房在庫[穀物]=2)→ 付け替えない(GDD02b §4.1 の※。cは入力切れだけを見る)。
     /// </summary>
     /// <remarks>
-    /// M4(<c>RunsFromInputs(...) != 0</c> の早期returnを消す。c を生産量0だけで判定する旧版)は
-    /// 入力が残っていても付け替えてしまう。
+    /// <b>M4の実測</b>(<c>mutator</c>、2026-09-26、HEAD <c>c900127</c>)。
+    /// <c>RunsFromInputs(...) != 0</c> の早期returnを消す(c を生産量0だけで判定する旧版)変異を
+    /// 当てると、本テストは赤くなった(入力が残っていても付け替わり、Bakerになった)。期待との
+    /// 食い違いは無い。
     /// </remarks>
     [Fact]
     public void GateStaysClosedWhenInputsRemainOnAZeroProductionDay()
@@ -237,9 +239,11 @@ public sealed class HouseholdSystemTests
     /// <see cref="OccupationReassignment.IsGateOpen"/> が false(空のminを0にしない)。
     /// </summary>
     /// <remarks>
-    /// M5(<see cref="Recipe.RunsFromInputs"/> が入力0件で0を返す)は空のminを0にする実装ミストで、
-    /// 本テストと既存の <c>ProductionSystemTests.ProductionRunsWithoutInputsUpToCapacity</c> も
-    /// 赤になる見込み(入力0件のレシピの生産が永久に止まる)。
+    /// <b>M5の実測</b>(<c>mutator</c>、2026-09-26、HEAD <c>c900127</c>)。
+    /// <see cref="Recipe.RunsFromInputs"/> が入力0件で0を返す(空のminを0にする)変異を当てると、
+    /// 本テストは赤くなった(<c>IsGateOpen</c>: 期待false → 実測true)。既存の
+    /// <c>ProductionSystemTests.ProductionRunsWithoutInputsUpToCapacity</c> も同時に赤くなった
+    /// (出力: 期待4 → 実測0。入力0件のレシピの生産が永久に止まる)。期待との食い違いは無い。
     /// </remarks>
     [Fact]
     public void GateStaysClosedForARecipeWithoutInputs()
@@ -440,6 +444,16 @@ public sealed class HouseholdSystemTests
     /// 「9. 既存テストの追随」)。「ゲートに関係しない工房在庫」の役は穀物(Millerの入力・
     /// Woodworkerには無関係)に譲る。
     /// </summary>
+    /// <remarks>
+    /// <b>M6の実測</b>(<c>mutator</c>、2026-09-26、HEAD <c>c900127</c>)。付け替えの
+    /// <c>ProductionProgressPermille = 0</c> の代入を消す変異を当てると、本テストは赤くなった
+    /// (進捗‰: 期待0 → 実測90)。期待との食い違いは無い。
+    /// </remarks>
+    /// <remarks>
+    /// <b>M10の実測</b>(<c>mutator</c>、2026-09-26、HEAD <c>c900127</c>。レビュー1巡目 象限I-aで
+    /// 追加)。付け替え時に <c>ProductionCapacityRuns = 0</c> も書く変異を当てると、本テストは
+    /// 赤くなった(能力: 期待3 → 実測0)。期待との食い違いは無い。
+    /// </remarks>
     [Fact]
     public void ReassignmentTouchesNothingButTheOccupation()
     {

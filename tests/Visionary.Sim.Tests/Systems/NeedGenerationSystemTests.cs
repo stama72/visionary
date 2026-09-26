@@ -272,9 +272,10 @@ public sealed class NeedGenerationSystemTests
     /// 日1の後に0件(持ち越した1150は1300未満だが、能力は1)。
     /// </summary>
     /// <remarks>
-    /// M3(順4の条件を <c>household.ProductionProgressPermille &lt; recipe.LaborPermille</c> に
-    /// する)は、日1も持ち越し1150で立ってしまう(能力1で実際は満たされているのに、進捗‰だけを
-    /// 見ると所要労働‰未満に見える)。
+    /// <b>M3の実測</b>(<c>mutator</c>、2026-09-26、HEAD <c>c900127</c>)。順4の条件を
+    /// <c>household.ProductionProgressPermille &lt; recipe.LaborPermille</c> にする変異を当てると、
+    /// 本テストは赤くなった(日1も持ち越し1150で立ってしまう。能力1で実際は満たされているのに、
+    /// 進捗‰だけを見ると所要労働‰未満に見える)。期待との食い違いは無い。
     /// </remarks>
     [Fact]
     public void CannotExpandProductionReadsTheRecordedCapacityNotTheCarriedProgress()
