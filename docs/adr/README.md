@@ -20,7 +20,7 @@ ADRの価値は決定そのものより、**却下した選択肢とその理由
 | 0012 | [設計セッションを「決定の束」で切り、モデルはセッションではなく仕事で決める](0012-design-session-bundles.md) | 承認(**論点ごとに読み替えあり。本文のステータス行を見る**) | 2026-09-20 |
 | 0013 | [変異は専用エージェントが使い捨て worktree で当て、測る者と書く者を分ける](0013-mutation-measurement-separated.md) | 承認 | 2026-09-20 |
 | 0014 | [対話セッションのモデルは既定(opus)に従い、fable は大規模な洗い直しにだけ手で選ぶ](0014-interactive-sessions-follow-the-default-model.md) | 承認 | 2026-09-21 |
-| 0015 | [ロードマップを最小構成要素から組み直す](0015-roadmap-rebuilt-from-minimal-element.md) | 起案中 | 2026-09-30 |
+| 0015 | [ロードマップを最小構成要素から組み直す](0015-roadmap-rebuilt-from-minimal-element.md) | 承認 | 2026-09-30 |
 
 ## 運用ルール
 
