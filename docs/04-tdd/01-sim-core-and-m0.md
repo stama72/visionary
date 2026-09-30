@@ -212,7 +212,7 @@ k = Mix(k ^ (ulong)entityId)     // エンティティ非依存の用途は enti
 
 ### 3.4 コマンドとドメインイベント
 
-**コマンド**(外部→シム): `Talk`, `AskNeeds`, `ProposeTrade`, `AcceptPromise`, `Deliver`, `Apologize`, `RequestExtension`, `GiveGift` など。Godotのプレイヤー操作と、ヘッドレス実験のスクリプト化プレイヤー(§5.1)が**同じコマンドAPI**を使う。これにより「グレーボックスで人間が体験すること」と「ヘッドレスで測ること」の乖離を防ぐ。
+**コマンド**(外部→シム): `Talk`, `AskNeeds`, `ProposeTrade`, `AcceptPromise`, `Deliver`, `Apologize`, `RequestExtension`, `GiveGift` など(約束系の4つは M1 から。M0 は約束を持たない — [GDD01 §6.1](../03-gdd/01-trust-and-conversation.md))。Godotのプレイヤー操作と、ヘッドレス実験のスクリプト化プレイヤー(§5.1)が**同じコマンドAPI**を使う。これにより「グレーボックスで人間が体験すること」と「ヘッドレスで測ること」の乖離を防ぐ。
 
 **ドメインイベント**(シム→外部・ログ): `TradeExecuted`, `TrustChanged{from, to, delta, reason}`, `NeedCreated`, `PromiseBroken{e, penalty}`, `UnfairPriceSuspected{trade, detectorObservation}`, `PenaltyApplied` など。
 
@@ -569,7 +569,9 @@ GDD01 §6-5「誤爆率」の定義:
 | W5 | 台詞テンプレート+`dialogue-sample`(§6-3)、Godotグレーボックス(歩行・会話メニュー・売買)     | グレーボックスで**1時間**(ゲーム内の約6日)の通しプレイが可能               |
 | W6 | プレイテスト(§6-1, 3の所感側)、Exit判定レビュー、GDD01/本書の実態合わせ改訂                | GO判断の M0 の2項目に答えが出ている(企画書 §6)              |
 
-**W2 の土台は「プレイテストの30日のあいだ都市が死なない経済」である。** 価格の安定と貨幣の有界性は保証していない — 30日走行でも [GDD02 §8](../03-gdd/02-economy.md)-6 の帯は5シードとも赤である(day 29 の貨幣総量は初期の 378〜463‰)。**M0 ではこれを記述統計として残し、調整はしない**([#243](https://github.com/stama72/visionary/issues/243) 決定10・23)。信用あり/なしの比較実験が要る「信用なしで価格が安定する経済」は、M1 の経済の再設計([#244](https://github.com/stama72/visionary/issues/244))が作る。
+**W2 の土台は「プレイヤー不在の30日走行で都市が死なない経済」である。** プレイヤーが入った状態で死なないかは [#103](https://github.com/stama72/visionary/issues/103) と W6 で見る。 価格の安定と貨幣の有界性は保証していない — 30日走行でも [GDD02 §8](../03-gdd/02-economy.md)-6 の帯は5シードとも赤である(day 29 の貨幣総量は初期の 378〜463‰)。**M0 ではこれを記述統計として残し、調整はしない**([#243](https://github.com/stama72/visionary/issues/243) 決定10・23)。信用あり/なしの比較実験が要る「信用なしで価格が安定する経済」は、M1 の経済の再設計([#244](https://github.com/stama72/visionary/issues/244))が作る。
+
+**`configs/m0-w2-baseline.json` は、名前に反して W2 の基準ではない。** 中身(10シード × 36,000日)は M1 の耐久試験の設定であり、§5.2 の実測と性能テストが引いている。改名は #244 の実装で行う([#243](https://github.com/stama72/visionary/issues/243) 決定28)。
 
 ## 6. 技術リスク
 
