@@ -12,7 +12,7 @@ ADRの価値は決定そのものより、**却下した選択肢とその理由
 | 0004 | [AIエージェントの役割分担と作業単位](0004-ai-driven-development-workflow.md)                     | 承認(**論点ごとに読み替えあり。本文のステータス行を見る**) | 2026-08-27 |
 | 0005 | [レビュアーの守備範囲と憲章の所在](0005-reviewer-scope-includes-spec-defects.md)                 | 承認 | 2026-08-31 |
 | 0006 | [issue駆動のタスク管理と、スコープ・優先順位の器](0006-issue-driven-task-management.md)          | 承認(**論点ごとに読み替えあり。本文のステータス行を見る**) | 2026-09-14 |
-| 0007 | [M1 の品目数を経済モデルの要求に合わせて広げる](0007-m1-scale-follows-economic-model.md)          | 承認 | 2026-09-14 |
+| 0007 | [M1 の品目数を経済モデルの要求に合わせて広げる](0007-m1-scale-follows-economic-model.md)          | 承認(**帰結に ADR-0015 の註記あり**) | 2026-09-14 |
 | 0008 | [レビューの守備範囲を「気付けない × 影響大」に絞り、効率と質の両立へ転換する](0008-review-scope-narrowed-to-unnoticeable-defects.md) | 承認 | 2026-09-14 |
 | 0009 | [タスクをフェーズで切り、フェーズ境界でセッションを捨てる](0009-phase-scoped-sessions.md) | 承認 | 2026-09-15 |
 | 0010 | [フェーズ境界を機械が握り、停止則に当たったときだけ開発者を呼ぶ](0010-phase-pipeline-and-halt-conditions.md) | 承認 | 2026-09-16 |
