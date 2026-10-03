@@ -35,6 +35,12 @@ namespace Visionary.Sim.Tests.Runner;
 /// ── 空振りではない。取り違えると取引の行が6行になり落ちる</description></item>
 /// </list>
 /// <para>
+/// 変異の実測(<c>mutator</c> の報告、HEAD f7a76bf、2026-10-03): <c>DialogueSampleCommand</c> で
+/// <c>DisclosedNeeds.Of(world, householdId)</c> を <c>Of(world, npc)</c> に変えると、#20
+/// (<c>DialogueSampleDisclosesTheNeedsStandingThatDay</c>)と #21
+/// (<c>DialogueSampleRotatesOutcomesOnlyOnNeedDays</c>)の両方が赤。
+/// </para>
+/// <para>
 /// 参考: npc 0・1 は Need のある日が1日だけで、タスク仕様どおり「#20 で選んだ npc」を #21 に使うと
 /// 取引の行が1行になり前提が崩れる。
 /// </para>

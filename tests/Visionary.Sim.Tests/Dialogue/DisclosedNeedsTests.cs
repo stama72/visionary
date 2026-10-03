@@ -4,6 +4,10 @@ namespace Visionary.Sim.Tests.Dialogue;
 
 public sealed class DisclosedNeedsTests
 {
+    /// <remarks>
+    /// 変異の実測(<c>mutator</c> の報告、HEAD f7a76bf、2026-10-03): 理由の条件に
+    /// <c>CannotExpandProduction</c> を足すと赤(本テスト)。
+    /// </remarks>
     [Fact]
     public void DisclosedNeedsAreTheThreeTradableReasonsSortedById()
     {

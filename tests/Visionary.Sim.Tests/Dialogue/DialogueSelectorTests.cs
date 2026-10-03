@@ -10,7 +10,8 @@ namespace Visionary.Sim.Tests.Dialogue;
 /// <c>DialogueCorpus.M0</c> に依存しない。
 /// </summary>
 /// <remarks>
-/// 「核心」印(#1・#5・#7)の変異は <c>mutator</c> が実測する(ADR-0013)。ここには実測の主張を書かない。
+/// 「核心」印(#1・#5・#7)ほかの変異は <c>mutator</c> が実測した(ADR-0013)。各テストの remarks に、
+/// <c>mutator</c> の報告(HEAD f7a76bf、2026-10-03)をそのまま転記してある。
 /// </remarks>
 public sealed class DialogueSelectorTests
 {
@@ -49,6 +50,11 @@ public sealed class DialogueSelectorTests
         return ids;
     }
 
+    /// <remarks>
+    /// 変異の実測(<c>mutator</c> の報告、HEAD f7a76bf、2026-10-03): 手順2 で「職業指定の候補が1本でもあれば
+    /// <c>Occupation == null</c> の候補を除く」に変えると赤(本テスト。ほかに
+    /// <c>M0CorpusFollowsTheWritingRules</c> も落ちた)。
+    /// </remarks>
     [Fact]
     public void CandidatesAreTheUnionOfGenericAndOccupationSpecific()
     {
@@ -118,6 +124,10 @@ public sealed class DialogueSelectorTests
         }
     }
 
+    /// <remarks>
+    /// 変異の実測(<c>mutator</c> の報告、HEAD f7a76bf、2026-10-03): 手順4 のプールを候補全体にすると赤
+    /// (本テスト。ほかに <c>UsageIsCountedPerNpc</c> も落ちた)。
+    /// </remarks>
     [Fact]
     public void UnusedTemplatesComeFirstWithinOneNpc()
     {
@@ -131,6 +141,10 @@ public sealed class DialogueSelectorTests
         }
     }
 
+    /// <remarks>
+    /// 変異の実測(<c>mutator</c> の報告、HEAD f7a76bf、2026-10-03): 使用回数の鍵から <c>npcId</c> を外す
+    /// (直前 Id は NPC ごとのまま)と赤(本テスト)。
+    /// </remarks>
     [Fact]
     public void UsageIsCountedPerNpc()
     {
@@ -158,6 +172,10 @@ public sealed class DialogueSelectorTests
             "NPC 2 の最初の1本が、20シードのどれでも NPC 1 の使った本を避けている(使用回数が NPC をまたいでいる)。");
     }
 
+    /// <remarks>
+    /// 変異の実測(<c>mutator</c> の報告、HEAD f7a76bf、2026-10-03): 手順5 の直前 Id の除外を無効化すると赤
+    /// (本テスト)。
+    /// </remarks>
     [Fact]
     public void NoImmediateRepeatAfterACycle()
     {
