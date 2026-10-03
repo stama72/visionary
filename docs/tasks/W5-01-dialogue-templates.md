@@ -284,7 +284,7 @@ dialogue-sample seed=1 npc=12 start-day=0 repeat=10
 | 18 | `DisclosedNeedsAreTheThreeTradableReasonsSortedById` | 世帯 h に5理由の Need を Id の逆順で積み、別の世帯にも1件 → 結果は h の3理由だけで Id 昇順 | 困窮・増産できないを含める / 並べ直さない / 他の世帯を含める | **核心**: 理由の条件に `CannotExpandProduction` を足す → 赤 |
 | 19 | `DialogueSampleWritesTheRequestedConversations` | `Program.Execute(dialogue-sample --npc 0 --seed 1 --start-day 2 --repeat 3 --out <tmp>)` が 0 を返し、見出しが3つで `day 2・3・4`、時刻が `T12`。各会話に挨拶と世間話が1行ずつ。同じ引数で2回 → バイト単位で一致 | 時刻の計算のずれ / 決定論の破れ | |
 | 20 | `DialogueSampleDisclosesTheNeedsStandingThatDay` | テスト内で同じ世界を独立に回し、seed 1 の day 0〜29 で `DisclosedNeeds.Of` が空でない最初の (day, npc) を探す(無ければテストを失敗させる)。その npc・day で `--repeat 1` → `[開示]` 行がその Need の数だけあり、本文に品目名と漢数字の数量を含み、末尾の `<need #…>` が Need と一致。取引の行は `[取引の成立/渋々]` | Need を読まない / 世帯ではなく NPC の Id で引く / 巡りの初期値のずれ | |
-| 21 | `DialogueSampleRotatesOutcomesOnlyOnNeedDays` | 20 と同じ npc を `--start-day 0 --repeat 30` で → 取引の行のラベルの列が `渋々, 感謝, 深い感謝, 不成立, 渋々, …` の先頭部分に一致。**取引の行が2行以上あることを前提として確かめる**(無ければ失敗) | Need の無い会話でも添字を進める(Need の無い日を挟むと列が飛ぶ) | |
+| 21 | `DialogueSampleRotatesOutcomesOnlyOnNeedDays` | テスト内で独立に回した世界で、seed 1 の day 0〜29 に「Need あり → 無し → Need あり」の並びを持つ Id 最小の npc を選び(無ければ失敗。**フェーズ2 訂正**: 当初は「20 と同じ npc」だったが、その npc は Need のある日が1日しかなく前提が成り立たなかった)、`--start-day 0 --repeat 30` で → 取引の行のラベルの列が `渋々, 感謝, 深い感謝, 不成立, 渋々, …` の先頭部分に一致。**取引の行が2行以上あることを前提として確かめる**(無ければ失敗) | Need の無い会話でも添字を進める(Need の無い日を挟むと列が飛ぶ) | |
 | 22 | `DialogueSampleSummaryMatchesTheLines` | 19 の出力の集計6行が、同じ出力の本文の行から数えた行数・種類数・最多と一致 | 集計の数え間違い / 段階別に分けて数える | |
 | 23 | `DialogueSampleRejectsBadOptions` | `--npc` なし / `--npc` = NpcCount / `--npc -1` / `--repeat 0` / `--start-day -1` → 64 | 範囲の検査漏れ(範囲外の NPC で `IndexOutOfRangeException`) | |
 
@@ -308,4 +308,4 @@ dialogue-sample seed=1 npc=12 start-day=0 repeat=10
 - [ ] `dotnet test Visionary.sln -c Release` が緑
 - [ ] `dotnet format Visionary.sln --verify-no-changes --severity warn` が通る
 - [ ] レビュアーエージェントの指摘が解消済み
-- [ ] `vsim dialogue-sample --npc <#20 の npc> --repeat 10 --out <path>` の出力をコミットせずに PR 説明へ貼る(開発者が §6.2 #3 の判定に使う)
+- [ ] `vsim dialogue-sample --npc <#21 の npc> --repeat 30 --out <path>`(フェーズ2 訂正: #20 の npc は Need のある日が1日だけで判定材料にならない) の出力をコミットせずに PR 説明へ貼る(開発者が §6.2 #3 の判定に使う)
