@@ -43,6 +43,9 @@ internal static class Program
             case "run":
                 return RunRun(args);
 
+            case "dialogue-sample":
+                return DialogueSampleCommand.Run(args);
+
             default:
                 Console.Error.WriteLine($"未実装のコマンド: {args[0]}");
                 PrintUsage();
@@ -239,7 +242,7 @@ internal static class Program
     /// UnfairPriceDetection / Rumor)は W3・W4 で実装されるまで存在しないので登録しない。
     /// 順0(OpportunityCost)は M0 ではシステムを持たない(同節)。
     /// </summary>
-    private static ISimSystem[] BuildPipeline(WorldDefinition definition, IDailyMetricsSink sink) => new ISimSystem[]
+    internal static ISimSystem[] BuildPipeline(WorldDefinition definition, IDailyMetricsSink sink) => new ISimSystem[]
     {
         new ProductionSystem(definition),
         new ConsumptionSystem(definition),
@@ -278,7 +281,7 @@ internal static class Program
         return true;
     }
 
-    private static void PrintUsage()
+    internal static void PrintUsage()
     {
         Console.WriteLine(
             """
@@ -290,10 +293,11 @@ internal static class Program
                                  状態ハッシュを標準出力に1行(TDD01 §3.8)
               run                --config <path> --out <dir>
                                  比較実験を実行し、5つのCSVを<out>/<シード>/へ書く
+              dialogue-sample    --npc <id> [--seed <n>] [--start-day <n>] [--repeat <n>] [--out <path>]
+                                 同一NPCとの会話サンプルを出力する(既定: seed 1 / start-day 0 / repeat 10 / 標準出力)
 
             未実装(TDD01 §4.1 / M0 W3以降):
               promise-table      §2.8 信用式の感度表を出力する
-              dialogue-sample    同一NPCとの会話サンプルを出力する  --npc <id> --repeat <n>
             """);
     }
 }
