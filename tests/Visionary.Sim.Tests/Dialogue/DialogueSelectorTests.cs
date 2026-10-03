@@ -136,14 +136,26 @@ public sealed class DialogueSelectorTests
     {
         var corpus = Corpus(Many(LineKind.Greeting, "g", 5));
 
+        // NPC 1 とは一巡未満(3回)で止める。一巡させると全本の回数が揃い、NPC をまたいで数える実装でも
+        // NPC 2 の挙動が変わらず緑のままになる。
+        bool npc2StartedWithATemplateNpc1Used = false;
+
         for (long seed = 1; seed <= 20; seed++)
         {
             var memory = new DialogueMemory();
-            Collect(corpus, memory, seed, 1, LineKind.Greeting, Plain(), 5);
+            var usedByNpc1 = Collect(corpus, memory, seed, 1, LineKind.Greeting, Plain(), 3);
             var second = Collect(corpus, memory, seed, 2, LineKind.Greeting, Plain(), 5);
 
             Assert.Equal(5, second.Distinct().Count());
+
+            // 数え方が NPC ごとなら NPC 2 の最初の1本は5本から選ばれ、NPC 1 の使った本にも当たりうる。
+            // 取り違えると、最初の2本は NPC 1 の未使用の2本に限られる。
+            npc2StartedWithATemplateNpc1Used |= usedByNpc1.Contains(second[0]);
         }
+
+        Assert.True(
+            npc2StartedWithATemplateNpc1Used,
+            "NPC 2 の最初の1本が、20シードのどれでも NPC 1 の使った本を避けている(使用回数が NPC をまたいでいる)。");
     }
 
     [Fact]

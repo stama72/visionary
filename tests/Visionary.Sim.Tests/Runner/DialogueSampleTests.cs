@@ -22,12 +22,17 @@ namespace Visionary.Sim.Tests.Runner;
 /// 左端が day 0):
 /// </para>
 /// <list type="bullet">
-/// <item><description>#20 が選ぶ (day 1, npc 0)。npc 0 の並び: <c>−〇−−−−−−−−−−−−−−−−−−−−−−−−−−−−</c>
-/// (day 0 は Need が無い。Need のある日は day 1 の1日だけ)</description></item>
-/// <item><description>#21・#22 が選ぶ npc 2(Id 昇順で最初に <c>〇−+〇</c> を含む)。並び:
-/// <c>−〇〇〇−−−−−−−−−−〇〇−−−−−−−−−−−−−−</c>。取引の行は5行
+/// <item><description>#20 が選ぶ (day 1, npc 1)。npc 1 は世帯 0 で、day 1 に <c>Of(world, 世帯Id 0)</c> と
+/// <c>Of(world, NpcId 1)</c>(= 世帯 1 の Need)の結果が異なる最初の組。npc 0 は世帯 0 と NpcId が
+/// 同じ番号なので、取り違えても結果が変わらず選ばれない。day 0 は Need が無い。
+/// npc 1 の並び: <c>−〇−−−−−−−−−−−−−−−−−−−−−−−−−−−−</c>(Need のある日は day 1 の1日だけ。
+/// これは #20 には十分)</description></item>
+/// <item><description>#21・#22 が選ぶ npc 2(世帯 1。Id 昇順で最初に <c>〇−+〇</c> を含み、かつ NpcId を
+/// 世帯 Id と取り違えると Need のある日の数が変わるもの)。並び:
+/// <c>−〇〇〇−−−−−−−−−−〇〇−−−−−−−−−−−−−−</c>(Need のある日は5日)。取り違えた場合の並び
+/// (世帯 2 のもの)は <c>−〇−−〇〇−−−−−−−−〇〇−−−−−〇−−−−−−−−</c>(6日)。取引の行は5行
 /// (渋々・感謝・深い感謝・不成立・渋々)で、day 3 と day 14 の間の10日が Need の無い日として挟まる
-/// ── 空振りではない</description></item>
+/// ── 空振りではない。取り違えると取引の行が6行になり落ちる</description></item>
 /// </list>
 /// <para>
 /// 参考: npc 0・1 は Need のある日が1日だけで、タスク仕様どおり「#20 で選んだ npc」を #21 に使うと
@@ -72,7 +77,14 @@ public sealed class DialogueSampleTests : IDisposable
         return File.ReadAllText(path, new UTF8Encoding(false));
     }
 
-    /// <summary>テスト内で同じ世界を独立に回し、day 0〜29 で最初に開示する Need が立つ (day, npc) を探す。</summary>
+    private static bool SameNeeds(IReadOnlyList<Need> a, IReadOnlyList<Need> b) =>
+        a.Select(n => n.Id).SequenceEqual(b.Select(n => n.Id));
+
+    /// <summary>
+    /// テスト内で同じ世界を独立に回し、day 0〜29 で最初の (day, npc) を探す。条件: 世帯の Need が立ち、
+    /// かつ <c>Of(world, 世帯Id)</c> と <c>Of(world, NpcId)</c> の結果が異なる(NPC の Id を世帯 Id と
+    /// 取り違える実装を、npc と世帯が同じ番号の NPC では見逃すため)。
+    /// </summary>
     private static (int Day, int Npc) FindFirstNpcWithDisclosedNeed()
     {
         var definition = WorldDefinition.M0;
@@ -86,14 +98,16 @@ public sealed class DialogueSampleTests : IDisposable
 
             for (int npc = 0; npc < definition.NpcCount; npc++)
             {
-                if (DisclosedNeeds.Of(world, world.Npcs[npc].HouseholdId).Count > 0)
+                var right = DisclosedNeeds.Of(world, world.Npcs[npc].HouseholdId);
+
+                if (right.Count > 0 && !SameNeeds(right, DisclosedNeeds.Of(world, npc)))
                 {
                     return (day, npc);
                 }
             }
         }
 
-        Assert.Fail("seed 1 の day 0〜29 に、開示する Need が立つ NPC が無い。");
+        Assert.Fail("seed 1 の day 0〜29 に、世帯の Need が立ち NpcId を世帯 Id と取り違えると結果が変わる NPC が無い。");
         return default;
     }
 
@@ -101,17 +115,19 @@ public sealed class DialogueSampleTests : IDisposable
     /// 添字 = NpcId、値 = day 0〜29 の「開示する Need があるか」の並び(〇 / −)。テスト内で同じ世界を
     /// 独立に回して作る。
     /// </summary>
-    private static string[] NeedPatternsOfThirtyDays()
+    private static (string[] Right, string[] Wrong) NeedPatternsOfThirtyDays()
     {
         var definition = WorldDefinition.M0;
         var world = WorldGenerator.Generate(definition, new RandomSource(1));
         var scheduler = new SimScheduler(
             Program.BuildPipeline(definition, new NullDailyMetricsSink()), new RandomSource(1));
         var rows = new StringBuilder[definition.NpcCount];
+        var wrongRows = new StringBuilder[definition.NpcCount];
 
         for (int npc = 0; npc < rows.Length; npc++)
         {
             rows[npc] = new StringBuilder();
+            wrongRows[npc] = new StringBuilder();
         }
 
         for (int day = 0; day < 30; day++)
@@ -121,10 +137,13 @@ public sealed class DialogueSampleTests : IDisposable
             for (int npc = 0; npc < rows.Length; npc++)
             {
                 rows[npc].Append(DisclosedNeeds.Of(world, world.Npcs[npc].HouseholdId).Count > 0 ? '〇' : '−');
+
+                // NpcId を世帯 Id として引く取り違えた実装が見る並び
+                wrongRows[npc].Append(DisclosedNeeds.Of(world, npc).Count > 0 ? '〇' : '−');
             }
         }
 
-        return rows.Select(r => r.ToString()).ToArray();
+        return (rows.Select(r => r.ToString()).ToArray(), wrongRows.Select(r => r.ToString()).ToArray());
     }
 
     /// <summary>
@@ -138,8 +157,24 @@ public sealed class DialogueSampleTests : IDisposable
     /// 仕様の注記(Need の無い日が Need のある日の間に挟まるときだけ落ちる)を満たす NPC を、
     /// 独立に回した並びから選ぶ。
     /// </remarks>
-    private static int FindNpcWithAGapBetweenNeedDays() =>
-        Array.FindIndex(NeedPatternsOfThirtyDays(), p => Regex.IsMatch(p, "〇−+〇"));
+    private static (int Npc, int NeedDays) FindNpcWithAGapBetweenNeedDays()
+    {
+        var (right, wrong) = NeedPatternsOfThirtyDays();
+
+        // さらに、NpcId を世帯 Id と取り違えると Need のある日の数が変わる NPC に限る
+        // (取引の行の数で取り違えを見分けるため)。
+        for (int npc = 0; npc < right.Length; npc++)
+        {
+            int needDays = right[npc].Count(c => c == '〇');
+
+            if (Regex.IsMatch(right[npc], "〇−+〇") && needDays != wrong[npc].Count(c => c == '〇'))
+            {
+                return (npc, needDays);
+            }
+        }
+
+        return (-1, 0);
+    }
 
     private static List<string> Body(string output) =>
         output.Split('\n').Where(l => l.StartsWith('[')).ToList();
@@ -227,8 +262,8 @@ public sealed class DialogueSampleTests : IDisposable
     [Fact]
     public void DialogueSampleRotatesOutcomesOnlyOnNeedDays()
     {
-        int npc = FindNpcWithAGapBetweenNeedDays();
-        Assert.True(npc >= 0, "seed 1 の30日に、Need のある日の間に Need の無い日が挟まる NPC が無い(空振り)。");
+        var (npc, needDays) = FindNpcWithAGapBetweenNeedDays();
+        Assert.True(npc >= 0, "seed 1 の30日に、Need のある日の間に Need の無い日が挟まり NpcId の取り違えで日数が変わる NPC が無い(空振り)。");
         string output = RunSample("--npc", npc.ToString(CultureInfo.InvariantCulture), "--start-day", "0", "--repeat", "30");
 
         var labels = Body(output)
@@ -240,6 +275,9 @@ public sealed class DialogueSampleTests : IDisposable
 
         // 前提: 取引の行が2行以上ある(無ければ巡りを確かめられない)
         Assert.True(labels.Count >= 2, $"取引の行が {labels.Count} 行しかない。");
+
+        // 取引の行は世帯の Need のある日ごとに1行(NpcId を世帯 Id と取り違えると日数が変わる)
+        Assert.Equal(needDays, labels.Count);
 
         string[] cycle = { "渋々", "感謝", "深い感謝", "不成立" };
         var expected = Enumerable.Range(0, labels.Count).Select(i => cycle[i % cycle.Length]).ToList();
@@ -282,7 +320,7 @@ public sealed class DialogueSampleTests : IDisposable
     [Fact]
     public void DialogueSampleSummaryMatchesTheLines()
     {
-        int npc = FindNpcWithAGapBetweenNeedDays();
+        var (npc, _) = FindNpcWithAGapBetweenNeedDays();
         Assert.True(npc >= 0);
 
         var outputs = new[]
