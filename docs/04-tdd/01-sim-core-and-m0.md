@@ -363,11 +363,13 @@ W1 は器だけを作ったため、`World` の各区分の要素型は宣言の
 ```
 vsim run --config configs/m0-trust-ab.json --out results/2026-09-xx/
 vsim promise-table                # §2.8の式の感度表(B×L×謝罪日)を標準出力に表示
-vsim dialogue-sample --npc <id> --repeat 10   # 同一NPC10回会話の台詞出力(§6-3レビュー用)
+vsim dialogue-sample --npc <id> [--seed <n>] [--start-day <d>] [--repeat <n>]   # 同一NPCと1日1回話し、n日分の台詞を出力(GDD01 §6.2 #3 のレビュー用)
 vsim hash --seed <n> --ticks <n>  # 状態ハッシュを標準出力に1行(§3.8 の2プロセス検証用)
 ```
 
 **`vsim hash` の世界は `WorldDefinition.M0` + `WorldGenerator.Generate(seed)` で、システムは §3.3 の本物の登録順である。** 規模(NPC 数・世帯数・品目数)は定義が持つので、規模を指定する選択肢は置かない — 定義と食い違う規模を CLI から渡せると、**同一シードでも別の世界のハッシュが出る**。W1 の合成システム(`SyntheticLoadSystem` / `SyntheticDecaySystem`)はここで役目を終える。
+
+**`vsim dialogue-sample` の世界は `vsim hash` と同じ組み立てで、実際にシムを回す。** day `d`(既定 0)から1日1回、正午(hour 12)に指定 NPC へ話しかけ、その日に立っている Need で [GDD01 §3.3.1](../03-gdd/01-trust-and-conversation.md) の会話を組む。プレイヤーはシムに居ないので、取引の台詞の結果(感謝の段階 / 不成立)はコマンドが決まった順に巡らせて与える。出力は標準出力のテキストで、各行に使ったテンプレートの Id を添え、最後に種類ごとの「出した行数 / 異なるテンプレート数」をまとめる — 反復感を判定する人が、どの台詞が何回出たかを数えずに読めるようにするためである。
 
 **`vsim run` の出力は `<out>/<シード>/` の下に §4.2 の CSV を並べ、`<out>/summary.json` に判定をまとめる。** シードごとにディレクトリを切るのは、`masterSeeds` が条件あたり10反復を持つためである(§4.1 の設定例)。
 
