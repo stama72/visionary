@@ -158,7 +158,7 @@
 | 居場所(区画Id。§4.3) | **中心区画(Id 4)** | 移動 |
 
 - **初期所持金は世帯の初期資金([GDD02d §4.4](02d-external-market-and-money.md) (d))とは別の定数である。** 値がたまたま同じだけで、連動しない。(d) は世帯の校正の下限なので、そちらを直すたびにプレイヤーの難度と [#264](https://github.com/stama72/visionary/issues/264) の比較の基準が黙って動くのを避ける
-- **生活費(貨幣の出口)を持たない。** M0 の所持金は、仕入れに使うかスコアとして積むだけである([GDD05](05-ui-ux.md))。世帯との売買は移転なので、**プレイヤーが世帯から稼いだ分だけ世帯の貨幣が減る**。窓口から仕入れた品を世帯へ売ると、仕入値のぶんはさらに都市の外へ出る(窓口との取引は [GDD06 §6.3](06-trade-and-negotiation.md)、恒等式は [GDD02d §4.1](02d-external-market-and-money.md))。その大きさは [#264](https://github.com/stama72/visionary/issues/264) が記録する。M1 で貨幣の使い道を足すときに見直す([#260](https://github.com/stama72/visionary/issues/260) 決定3)
+- **生活費(貨幣の出口)を持たない。** M0 の所持金は、仕入れに使うかスコアとして積むだけである([GDD05](05-ui-ux.md))。世帯との売買は移転なので、**輸出入を除けば、プレイヤーの所持金が増えた分だけ世帯の貨幣が減る**。窓口から仕入れた品を世帯へ売ると、世帯は売値の全額を失い、そのうち仕入値のぶんは都市の外へ出る(窓口との取引は [GDD06 §6.3](06-trade-and-negotiation.md)、恒等式は [GDD02d §4.1](02d-external-market-and-money.md))。その大きさは [#264](https://github.com/stama72/visionary/issues/264) が記録する。M1 で貨幣の使い道を足すときに見直す([#260](https://github.com/stama72/visionary/issues/260) 決定3)
 - **居場所の単位は区画である。** M0 の歩ける範囲はシムの9区画である([#243](https://github.com/stama72/visionary/issues/243) 決定20)。区画の中のどこに居るかは描画が決め、シムは持たない
 - 置き方(`World` の区分・ハッシュ)は [TDD01 §3.2・§3.8](../04-tdd/01-sim-core-and-m0.md) が持つ。貨幣総量に数えないことは §8-6 が持つ
 
