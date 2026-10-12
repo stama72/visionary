@@ -20,6 +20,22 @@ namespace Visionary.Sim;
 /// </remarks>
 public sealed class WorldDefinition
 {
+    /// <summary>
+    /// 家業の始まりの時刻。単位: 時。プレイヤーの取引の時間帯の始まりも読む(GDD05 §1.5 / GDD06 §6.4)。
+    /// </summary>
+    /// <remarks>
+    /// <b>コンストラクタの引数にしない。</b>引数にすると定義ごとにシステムの実行時刻が変わり、
+    /// M0 の比較実験の前提(全条件で同じ時刻に約定する)が設定ファイルで壊せる。
+    /// W5 で触って直すときは定数を書き換える(GDD05 §1.5)。
+    /// </remarks>
+    public const int WorkdayStartHour = 6;
+
+    /// <summary>
+    /// 順5夕〜10 の実行時刻で、委託先が外出から帰り着く時刻。単位: 時(TDD01 §3.3 / GDD05 §1.5)。
+    /// </summary>
+    /// <remarks><see cref="WorkdayStartHour"/> と同じ理由でコンストラクタの引数にしない。</remarks>
+    public const int EveningTradeHour = 18;
+
     /// <summary>品目数(GDD02 §2.2)。</summary>
     public int ItemCount { get; }
 
@@ -708,6 +724,14 @@ public sealed class WorldDefinition
         {
             throw new ArgumentOutOfRangeException(
                 nameof(disposableHours), disposableHours, "可処分時間Tは1以上(GDD08 §3.1)。");
+        }
+
+        // GDD05 §1.5「往復時間の合計は T 以下なので、出発は6時より前にならない」の前提。
+        if (disposableHours > EveningTradeHour - WorkdayStartHour)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(disposableHours), disposableHours,
+                $"可処分時間Tは家業の時間帯({EveningTradeHour - WorkdayStartHour}時間)以下(GDD05 §1.5)。");
         }
 
         // 0〜999の外を拒む(1000を含めない)。1000ちょうどだと信用100で係数が0になり、

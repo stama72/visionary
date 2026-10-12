@@ -30,6 +30,7 @@ public sealed class TradePipelineTests
         new NeedGenerationSystem(definition), // 順4(#40)。順3と順5の間 ── 順5の後に置くと
                                                // UnfilledPurchaseを当日中に読み、GDD06 §3.1の
                                                // 1日遅延が消える(タスク仕様「配線の列挙」)。
+        new TradePlanningSystem(definition),
         new TradeSystem(definition),
     };
 
@@ -319,7 +320,7 @@ public sealed class TradePipelineTests
         var before = TotalGoodsByItem(world, definition.ItemCount);
 
         var scheduler = new SimScheduler(
-            new ISimSystem[] { new TradeSystem(definition) }, new RandomSource(1));
+            EconomySystemTestFixtures.TradeSystems(definition), new RandomSource(1));
         scheduler.Advance(world, ticks: 24);
 
         var after = TotalGoodsByItem(world, definition.ItemCount);
@@ -1291,7 +1292,7 @@ public sealed class TradePipelineTests
         world.Households[0].LiquidFunds = 100_000;
 
         var scheduler = new SimScheduler(
-            new ISimSystem[] { new ProductionSystem(definition), new TradeSystem(definition) },
+            new ISimSystem[] { new ProductionSystem(definition), new TradePlanningSystem(definition), new TradeSystem(definition) },
             new RandomSource(1));
 
         scheduler.Advance(world, ticks: 60 * 24);
@@ -2956,8 +2957,10 @@ public sealed class TradePipelineTests
         // 空振り防止(値の問題の可能性)。
         Assert.NotEmpty(expectedItems);
 
-        // 2日目。順4が1日目のUnfilledPurchaseを読み、遠方在庫を立てる。
-        scheduler.Advance(world, ticks: 24);
+        // 2日目の0時だけを処理する。順4が1日目のUnfilledPurchaseを読み、遠方在庫を立てる。
+        // 24tick進めると18時の段8(購入した個数の差し引き)が2日目の購入ぶんを引いてしまい、
+        // 「順4が立てた」ことを確かめられない。
+        scheduler.Advance(world, ticks: 1);
 
         foreach (var (householdId, itemId) in expectedItems)
         {

@@ -153,6 +153,8 @@ public sealed class StateHasherCoverageTests
             "PurchaseUnitCostAverage", "ToolWear", "UnmetConsumption", "UnfilledPurchase",
             "UnaffordableNecessityCount", "ErrandLaborLossPermille", "ProductionRuns",
             "ProductionProgressPermille", "ProductionCapacityRuns",
+            "ErrandDelegateNpcId", "PlannedErrandDistrictIds", "ExportErrandTaken",
+            "MemoHasPreviousOffer", "MemoPreviousOfferPrice", "MemoHasSellerReference", "MemoSellerReference",
         }),
         (typeof(MarketKey), new[] { "ItemId", "SellerId" }),
         (typeof(TrustKey), new[] { "From", "To" }),

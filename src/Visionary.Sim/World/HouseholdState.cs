@@ -24,6 +24,8 @@ public sealed class HouseholdState
     private int productionRuns;
     private int productionProgressPermille;
     private int productionCapacityRuns;
+    private int errandDelegateNpcId;
+    private int exportErrandTaken;
 
     /// <summary><see cref="World.Households"/> の添字と一致する、非負の Id(TDD01 §3.2)。</summary>
     public int Id { get; }
@@ -154,9 +156,9 @@ public sealed class HouseholdState
     /// (GDD02a §2)。
     /// <para>
     /// <b>書き手は2人であり、順序と意味が違う(#38)。</b>
-    /// <see cref="Systems.TradeSystem"/> の段5a(<see cref="Systems.ErrandPlanner"/>、買い物の外出)が
+    /// <see cref="Systems.TradePlanningSystem"/> の段5a(<see cref="Systems.ErrandPlanner"/>、買い物の外出)が
     /// 当日の合計を<b>上書き</b>する(<c>=</c>) ── 外出しない日も0を書く(書かない日があると
-    /// 前日の損失が翌日以降も効き続ける)。続く段6(輸出。GDD06 §3「外出ごとに切り上げてから
+    /// 前日の損失が翌日以降も効き続ける)。続く夕方の <see cref="Systems.TradeSystem"/> の段6(輸出。GDD06 §3「外出ごとに切り上げてから
     /// 合計する」)は、段5aが書いたその日の値へ<b>加算</b>する(<c>+=</c>)。
     /// <b>段6を <c>=</c> に直すと段5aの買い物の労働損失が消える</b>(タスク仕様W2-12。
     /// 守っているのはテスト <c>ErrandPlannerTests</c> ではなく
@@ -287,6 +289,64 @@ public sealed class HouseholdState
         }
     }
 
+    /// <summary>
+    /// 当日の外出の委託先の NpcId。−1 = まだ計画していない(<see cref="Randomness.RandomSource.NoEntity"/> と同じ番兵)。
+    /// 朝の段5a(<see cref="Systems.TradePlanningSystem"/>)が全世帯ぶん毎日書く(TDD01 §3.2)。
+    /// </summary>
+    public int ErrandDelegateNpcId
+    {
+        get => errandDelegateNpcId;
+        set
+        {
+            if (value < -1)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(value), value, "外出の委託先の NpcId は −1(未計画)か非負(TDD01 §3.2)。");
+            }
+
+            errandDelegateNpcId = value;
+        }
+    }
+
+    /// <summary>
+    /// 当日の外出で行くと決めた区画。<b>選んだ順のまま</b>(並べ替えない)。自区画・中心(輸出ぶん)を含まない。
+    /// 朝の段5a が全世帯ぶん毎日書く(外出しない日は空)。夕方の段5b・段7 と時間割が読む。
+    /// </summary>
+    public List<int> PlannedErrandDistrictIds { get; } = new();
+
+    /// <summary>
+    /// 当日、輸出のために別の外出で中心へ行ったか。0 / 1。夕方の段6 が書き、翌朝の段5a が 0 に戻す。
+    /// </summary>
+    public int ExportErrandTaken
+    {
+        get => exportErrandTaken;
+        set
+        {
+            if (value is not (0 or 1))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(value), value, "輸出の外出フラグは 0 / 1(TDD01 §3.2)。");
+            }
+
+            exportErrandTaken = value;
+        }
+    }
+
+    /// <summary>
+    /// 値付けの控え: 前日の自分の出力品目の提示価格が <see cref="World.Market"/> にあったか(0 / 1)。
+    /// 添字 = itemId。朝の段1 が書き、朝と夕方の段4 が読む(TDD01 §3.2・§3.3)。書き手は段1 だけ。
+    /// </summary>
+    public int[] MemoHasPreviousOffer { get; }
+
+    /// <summary>値付けの控え: 前日の自分の提示価格。添字 = itemId。単位: 貨幣。</summary>
+    public int[] MemoPreviousOfferPrice { get; }
+
+    /// <summary>値付けの控え: 売り手の相場基準(速い側)が立ったか(0 / 1)。添字 = itemId。夕方の段6 が読む。</summary>
+    public int[] MemoHasSellerReference { get; }
+
+    /// <summary>値付けの控え: 売り手の相場基準(速い側)。添字 = itemId。単位: 貨幣。</summary>
+    public int[] MemoSellerReference { get; }
+
     public HouseholdState(int id, int districtId, int headNpcId, int[] memberNpcIds, int itemCount)
     {
         if (id < 0)
@@ -364,5 +424,11 @@ public sealed class HouseholdState
         ProductionRuns = 0;
         ProductionProgressPermille = 0;
         ProductionCapacityRuns = 0;
+        ErrandDelegateNpcId = -1;
+        ExportErrandTaken = 0;
+        MemoHasPreviousOffer = new int[itemCount];
+        MemoPreviousOfferPrice = new int[itemCount];
+        MemoHasSellerReference = new int[itemCount];
+        MemoSellerReference = new int[itemCount];
     }
 }

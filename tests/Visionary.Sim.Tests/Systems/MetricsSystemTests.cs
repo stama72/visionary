@@ -82,13 +82,13 @@ public sealed class MetricsSystemTests
         world.Households[id].LiquidFunds = liquidFunds;
     }
 
-    /// <summary><see cref="MetricsSystem"/> だけを1tick(1日)走らせる。段1〜段5bを一切通らない。</summary>
+    /// <summary><see cref="MetricsSystem"/> だけを1日走らせる(実行時刻の18時まで進める)。段1〜段5bを一切通らない。</summary>
     private static FakeMetricsSink RunMetricsOnly(WorldDefinition definition, World world)
     {
         var sink = new FakeMetricsSink();
         var scheduler = new SimScheduler(
             new ISimSystem[] { new MetricsSystem(definition, sink) }, new RandomSource(1));
-        scheduler.Advance(world, ticks: 1);
+        scheduler.Advance(world, ticks: WorldDefinition.EveningTradeHour + 1);
 
         return sink;
     }
@@ -114,6 +114,7 @@ public sealed class MetricsSystemTests
         new ConsumptionSystem(definition),
         new HouseholdSystem(definition),
         new NeedGenerationSystem(definition),
+        new TradePlanningSystem(definition),
         new TradeSystem(definition),
         new MetricsSystem(definition, sink),
     };
@@ -164,6 +165,7 @@ public sealed class MetricsSystemTests
                 new ConsumptionSystem(definition),
                 new HouseholdSystem(definition),
                 new NeedGenerationSystem(definition),
+                new TradePlanningSystem(definition),
                 new TradeSystem(definition),
             },
             new RandomSource(1));
@@ -262,7 +264,7 @@ public sealed class MetricsSystemTests
 
         var sink = new FakeMetricsSink();
         var scheduler = new SimScheduler(
-            new ISimSystem[] { new TradeSystem(definition), new MetricsSystem(definition, sink) },
+            new ISimSystem[] { new TradePlanningSystem(definition), new TradeSystem(definition), new MetricsSystem(definition, sink) },
             new RandomSource(1));
         scheduler.Advance(world, ticks: 24);
 
@@ -295,7 +297,7 @@ public sealed class MetricsSystemTests
 
         var sink = new FakeMetricsSink();
         var scheduler = new SimScheduler(
-            new ISimSystem[] { new TradeSystem(definition), new MetricsSystem(definition, sink) },
+            new ISimSystem[] { new TradePlanningSystem(definition), new TradeSystem(definition), new MetricsSystem(definition, sink) },
             new RandomSource(1));
         scheduler.Advance(world, ticks: 24);
 
@@ -354,7 +356,7 @@ public sealed class MetricsSystemTests
 
         var sink = new FakeMetricsSink();
         var scheduler = new SimScheduler(
-            new ISimSystem[] { new TradeSystem(definition), new MetricsSystem(definition, sink) },
+            new ISimSystem[] { new TradePlanningSystem(definition), new TradeSystem(definition), new MetricsSystem(definition, sink) },
             new RandomSource(1));
         scheduler.Advance(world, ticks: 24);
 
@@ -449,7 +451,7 @@ public sealed class MetricsSystemTests
 
         var sink = new FakeMetricsSink();
         var scheduler = new SimScheduler(
-            new ISimSystem[] { new TradeSystem(definition), new MetricsSystem(definition, sink) },
+            new ISimSystem[] { new TradePlanningSystem(definition), new TradeSystem(definition), new MetricsSystem(definition, sink) },
             new RandomSource(1));
         scheduler.Advance(world, ticks: 2 * 24);
 
@@ -668,7 +670,7 @@ public sealed class MetricsSystemTests
 
         var sink = new FakeMetricsSink();
         var scheduler = new SimScheduler(
-            new ISimSystem[] { new TradeSystem(definition), new MetricsSystem(definition, sink) },
+            new ISimSystem[] { new TradePlanningSystem(definition), new TradeSystem(definition), new MetricsSystem(definition, sink) },
             new RandomSource(1));
         scheduler.Advance(world, ticks: 24);
 
@@ -859,7 +861,7 @@ public sealed class MetricsSystemTests
 
         var sink = new FakeMetricsSink();
         var scheduler = new SimScheduler(
-            new ISimSystem[] { new TradeSystem(definition), new MetricsSystem(definition, sink) },
+            new ISimSystem[] { new TradePlanningSystem(definition), new TradeSystem(definition), new MetricsSystem(definition, sink) },
             new RandomSource(1));
 
         scheduler.Advance(world, ticks: 24); // 1日目: 流動資金0 → input_blocked。
@@ -908,7 +910,7 @@ public sealed class MetricsSystemTests
 
         var sink = new FakeMetricsSink();
         var scheduler = new SimScheduler(
-            new ISimSystem[] { new TradeSystem(definition), new MetricsSystem(definition, sink) },
+            new ISimSystem[] { new TradePlanningSystem(definition), new TradeSystem(definition), new MetricsSystem(definition, sink) },
             new RandomSource(1));
         scheduler.Advance(world, ticks: 2 * 24);
 
@@ -990,7 +992,7 @@ public sealed class MetricsSystemTests
 
             var sink = new FakeMetricsSink();
             var scheduler = new SimScheduler(
-                new ISimSystem[] { new TradeSystem(definition), new MetricsSystem(definition, sink) },
+                new ISimSystem[] { new TradePlanningSystem(definition), new TradeSystem(definition), new MetricsSystem(definition, sink) },
                 new RandomSource(1));
 
             scheduler.Advance(world, ticks: 24); // 1日目: 売り手Aから1単位買う。
@@ -1028,7 +1030,7 @@ public sealed class MetricsSystemTests
 
             var sink = new FakeMetricsSink();
             var scheduler = new SimScheduler(
-                new ISimSystem[] { new TradeSystem(definition), new MetricsSystem(definition, sink) },
+                new ISimSystem[] { new TradePlanningSystem(definition), new TradeSystem(definition), new MetricsSystem(definition, sink) },
                 new RandomSource(1));
 
             scheduler.Advance(world, ticks: 24); // 1日目。

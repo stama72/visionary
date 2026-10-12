@@ -215,6 +215,22 @@ public static class StateHasher
             // #237が足した2欄。既存の値は動かさず末尾へ足す(同じ規律)。
             WriteInt32(hasher, buffer, household.ProductionProgressPermille);
             WriteInt32(hasher, buffer, household.ProductionCapacityRuns);
+
+            // #257が足した欄。既存の値は動かさず末尾へ足す(同じ規律)。区画列は選んだ順のまま書く
+            // (並べ替えない)。
+            WriteInt32(hasher, buffer, household.ErrandDelegateNpcId);
+            WriteInt32(hasher, buffer, household.PlannedErrandDistrictIds.Count);
+
+            foreach (int districtId in household.PlannedErrandDistrictIds)
+            {
+                WriteInt32(hasher, buffer, districtId);
+            }
+
+            WriteInt32(hasher, buffer, household.ExportErrandTaken);
+            WriteInt32Array(hasher, buffer, household.MemoHasPreviousOffer);
+            WriteInt32Array(hasher, buffer, household.MemoPreviousOfferPrice);
+            WriteInt32Array(hasher, buffer, household.MemoHasSellerReference);
+            WriteInt32Array(hasher, buffer, household.MemoSellerReference);
         }
 
         // EventLog は含めない(§3.8 の除外表)。意思決定に関与せず、追記専用で巨大。

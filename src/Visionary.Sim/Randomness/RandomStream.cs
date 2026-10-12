@@ -30,4 +30,10 @@ public enum RandomStream
     /// の系統の重複登録の検査)に一意な識別子が要る(W2-20 タスク仕様)。
     /// </summary>
     Metrics = 13,
+
+    /// <summary>
+    /// 順5 朝の <see cref="Systems.TradePlanningSystem"/>(TDD01 §3.3。朝0時の値付け・計画)。乱数は引かないが、
+    /// 登録に一意な識別子が要る(<see cref="Trade"/> と同じ。#257)。
+    /// </summary>
+    TradePlanning = 14,
 }

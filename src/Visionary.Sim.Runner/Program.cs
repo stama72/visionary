@@ -245,6 +245,7 @@ internal static class Program
         new ConsumptionSystem(definition),
         new HouseholdSystem(definition),
         new NeedGenerationSystem(definition),
+        new TradePlanningSystem(definition),
         new TradeSystem(definition),
         new MetricsSystem(definition, sink),
     };

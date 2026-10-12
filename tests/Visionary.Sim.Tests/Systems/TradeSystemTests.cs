@@ -14,7 +14,7 @@ public sealed class TradeSystemTests
     // Millerのレシピはパン(必需)を出力し木材(1次産品)を消費する。木材以外(小麦粉4)には触れない
     // ── UnusedRecipe(Baker〜Smith)が品目0(穀物)を出力・品目1(木材)を消費するので、木材を
     // 共有しても整合する。穀物は必需/嗜好のもう一方の品目として使う。
-    private static Recipe MillerBreadRecipe() =>
+    internal static Recipe MillerBreadRecipe() =>
         new(
             Occupation.Miller,
             outputs: new[] { new ItemQuantity { ItemId = Item.Bread, Quantity = 1 } },
@@ -46,7 +46,7 @@ public sealed class TradeSystemTests
     /// 床を持たせた定義。既定は両方とも床10(価格1だとFundsCapがCashCapを下回れず段5の
     /// 経路(2)を再現できないため)。
     /// </summary>
-    private static WorldDefinition BuildShoppingDefinition(
+    internal static WorldDefinition BuildShoppingDefinition(
         int breadFloor = 10,
         int grainFloor = 10,
         int[]? necessityTargetStockDays = null,
@@ -77,7 +77,7 @@ public sealed class TradeSystemTests
     }
 
     /// <summary>世帯を1戸、指定の区画・職業で作る(単独NPC世帯)。</summary>
-    private static void AddHousehold(
+    internal static void AddHousehold(
         World world, int id, int districtId, Occupation occupation, int liquidFunds = 0)
     {
         world.Npcs[id].Rank = NpcRank.Master;
@@ -103,7 +103,7 @@ public sealed class TradeSystemTests
             AddHousehold(world, id: 0, districtId: 4, Occupation.Miller);
             world.Households[0].WorkshopInventory[Item.Bread] = sellableStock;
 
-            EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+            EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
 
             if (sellableStock <= 0)
             {
@@ -124,7 +124,7 @@ public sealed class TradeSystemTests
         AddHousehold(world, id: 0, districtId: 4, Occupation.Miller);
         world.Households[0].WorkshopInventory[Item.Bread] = 0;
 
-        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+        EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
 
         Assert.False(world.Market.ContainsKey(new MarketKey(Item.Bread, 0)));
     }
@@ -138,7 +138,7 @@ public sealed class TradeSystemTests
         AddHousehold(world, id: 0, districtId: 4, Occupation.Miller);
         world.Households[0].WorkshopInventory[Item.Bread] = 5;
 
-        var system = new TradeSystem(definition);
+        var system = EconomySystemTestFixtures.TradeSystems(definition);
         var key = new MarketKey(Item.Bread, 0);
 
         EconomySystemTestFixtures.RunDays(world, system, days: 1);
@@ -171,7 +171,7 @@ public sealed class TradeSystemTests
         // 1000‰(価格係数1000‰)に保ち、相場基準がそのまま提示価格に出るようにする。
         world.Households[0].WorkshopInventory[Item.Bread] = 1;
 
-        var system = new TradeSystem(definition);
+        var system = EconomySystemTestFixtures.TradeSystems(definition);
         var key = new MarketKey(Item.Bread, 0);
 
         EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目: 買い手不在で売れ残る
@@ -227,7 +227,7 @@ public sealed class TradeSystemTests
         // household1: 買い手。1日目に床(10)で1単位だけ買える資金を持つ。
         AddHousehold(world, id: 1, districtId: 0, Occupation.Woodworker, liquidFunds: 10);
 
-        var system = new TradeSystem(definition);
+        var system = EconomySystemTestFixtures.TradeSystems(definition);
         var sellerKey = new MarketKey(Item.Bread, 0);
 
         EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目
@@ -293,7 +293,7 @@ public sealed class TradeSystemTests
         world.Households[0].WorkshopInventory[Item.Bread] = 1;
         world.Households[0].IsBankrupt = 1;
 
-        var system = new TradeSystem(definition);
+        var system = EconomySystemTestFixtures.TradeSystems(definition);
         var key = new MarketKey(Item.Bread, 0);
 
         EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目: 相場基準が無く床のまま
@@ -365,7 +365,7 @@ public sealed class TradeSystemTests
             AddHousehold(world, id: 0, districtId: 0, Occupation.Miller);
             world.Households[0].WorkshopInventory[Item.Bread] = 1;
 
-            var system = new TradeSystem(definition);
+            var system = EconomySystemTestFixtures.TradeSystems(definition);
             var key = new MarketKey(Item.Bread, 0);
 
             EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目: 床のまま
@@ -386,7 +386,7 @@ public sealed class TradeSystemTests
             AddHousehold(world, id: 0, districtId: 0, Occupation.Miller);
             world.Households[0].WorkshopInventory[Item.Bread] = 1;
 
-            var system = new TradeSystem(definition);
+            var system = EconomySystemTestFixtures.TradeSystems(definition);
             var key = new MarketKey(Item.Bread, 0);
 
             EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目
@@ -442,7 +442,7 @@ public sealed class TradeSystemTests
             world.Households[0].WorkshopInventory[Item.Bread] = 1;
             world.Households[0].HouseholdInventory[Item.Bread] = householdInventoryBread;
 
-            var system = new TradeSystem(definition);
+            var system = EconomySystemTestFixtures.TradeSystems(definition);
             EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目: 床のまま
 
             world.Knowledge[0].Add(new PriceObservation
@@ -512,8 +512,8 @@ public sealed class TradeSystemTests
             Source = ObservationSource.Direct,
         });
 
-        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1); // 1日目
-        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1); // 2日目
+        EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1); // 1日目
+        EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1); // 2日目
 
         // 相場基準 = 200(SellerId=0の自己観測999は除外される)。household.Idで
         // Knowledgeを引く変異では観測そのものが見つからず床(10)のまま、selfHouseholdIdに
@@ -570,7 +570,7 @@ public sealed class TradeSystemTests
             liquidFunds: 100_000);
 
         var exception = Record.Exception(
-            () => EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1));
+            () => EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1));
 
         Assert.Null(exception);
 
@@ -589,7 +589,7 @@ public sealed class TradeSystemTests
     /// <c>TravelHoursPerDistrict</c> の組み合わせで、段5aの買い物往復時間 + 段6の輸出往復時間の
     /// 合計がTを超えるかどうかを作り分ける(<see cref="BuildExportAndShoppingDefinition"/>)。
     /// </summary>
-    private static World BuildExportAndShoppingWorld(
+    internal static World BuildExportAndShoppingWorld(
         WorldDefinition definition, int exporterDistrictId, int sellerDistrictId)
     {
         var world = new World(npcCount: 2, householdCount: 2, itemCount: Item.Count);
@@ -607,7 +607,7 @@ public sealed class TradeSystemTests
         return world;
     }
 
-    private static WorldDefinition BuildExportAndShoppingDefinition(int travelHoursPerDistrict)
+    internal static WorldDefinition BuildExportAndShoppingDefinition(int travelHoursPerDistrict)
     {
         var necessityTargetStockDays = new int[Item.Count];
         necessityTargetStockDays[Item.Grain] = 10;
@@ -688,7 +688,7 @@ public sealed class TradeSystemTests
                 Source = ObservationSource.Direct,
             });
 
-            EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+            EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
 
             // 前提: 買い物は実際に成立している(穀物を買えた)。
             Assert.True(world.Households[0].HouseholdInventory[Item.Grain] > 0);
@@ -722,7 +722,7 @@ public sealed class TradeSystemTests
                 Source = ObservationSource.Direct,
             });
 
-            EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+            EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
 
             Assert.True(world.Households[0].HouseholdInventory[Item.Grain] > 0);
 
@@ -745,7 +745,7 @@ public sealed class TradeSystemTests
         var definition = BuildExportAndShoppingDefinition(travelHoursPerDistrict: 1);
         var world = BuildExportAndShoppingWorld(definition, exporterDistrictId: 0, sellerDistrictId: 8);
 
-        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+        EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
 
         // 前提: 輸出が実際に成立している。
         Assert.True(world.Households[0].WorkshopInventory[Item.Bread] < 100);
@@ -789,7 +789,7 @@ public sealed class TradeSystemTests
             Source = ObservationSource.Direct,
         });
 
-        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+        EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
 
         // 前提: 輸出が実際に成立している。
         Assert.True(world.Households[0].WorkshopInventory[Item.Bread] < 100);
@@ -820,7 +820,7 @@ public sealed class TradeSystemTests
             world.Households[1].WorkshopInventory[Item.Grain] = 5;
 
             var scheduler = new SimScheduler(
-                new ISimSystem[] { new TradeSystem(definition) }, new RandomSource(seed));
+                EconomySystemTestFixtures.TradeSystems(definition), new RandomSource(seed));
             scheduler.Advance(world, ticks: 24);
 
             return StateHasher.Compute(world);
@@ -856,7 +856,7 @@ public sealed class TradeSystemTests
             AddHousehold(world, id: 1, districtId: 4, Occupation.Miller);
             world.Households[1].WorkshopInventory[Item.Bread] = 100;
 
-            EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+            EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
 
             Assert.Equal(1, world.Households[0].UnaffordableNecessityCount);
         }
@@ -872,7 +872,7 @@ public sealed class TradeSystemTests
             world.Households[1].WorkshopInventory[Item.Bread] = 100;
             world.Households[2].WorkshopInventory[Item.Grain] = 100;
 
-            EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+            EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
 
             // 品目Id昇順(穀物0 → パン6)で穀物を先に買い切り、流動資金が尽きてパンがFundsCapで
             // 切り詰められる。同じlineで二重に数えられないので、結果は1のままである。
@@ -927,7 +927,7 @@ public sealed class TradeSystemTests
         world.Households[1].WorkshopInventory[Item.Bread] = 100;
         world.Households[2].WorkshopInventory[Item.Grain] = 100;
 
-        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+        EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
 
         var buyer = world.Households[0];
 
@@ -962,7 +962,7 @@ public sealed class TradeSystemTests
             AddHousehold(world, id: 1, districtId: 4, Occupation.Miller);
             world.Households[1].WorkshopInventory[Item.Bread] = 100;
 
-            var system = new TradeSystem(definition);
+            var system = EconomySystemTestFixtures.TradeSystems(definition);
             EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目: 観測なし
 
             // 安い観測(価格1)を仕込む。1日目の日付(Tick.Zero)で、2日目に前日として有効になる。
@@ -992,7 +992,7 @@ public sealed class TradeSystemTests
             AddHousehold(world, id: 1, districtId: 4, Occupation.Miller);
             world.Households[1].WorkshopInventory[Item.Bread] = 0;
 
-            EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+            EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
 
             Assert.Equal(0, world.Households[0].UnaffordableNecessityCount);
         }
@@ -1004,7 +1004,7 @@ public sealed class TradeSystemTests
             var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
             AddHousehold(world, id: 0, districtId: 4, Occupation.Woodworker, liquidFunds: 1000);
 
-            EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+            EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
 
             Assert.Equal(0, world.Households[0].UnaffordableNecessityCount);
         }
@@ -1081,7 +1081,7 @@ public sealed class TradeSystemTests
         world.Households[1].WorkshopInventory[Item.Bread] = 100;
         world.Households[2].WorkshopInventory[Item.Grain] = 100;
 
-        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+        EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
 
         var buyer = world.Households[0];
 
@@ -1202,7 +1202,7 @@ public sealed class TradeSystemTests
         homeWorld.Households[0].WorkshopInventory[Item.Timber] = 100_000;
         homeWorld.Households[0].WorkshopInventory[Item.Tools] = 5;
 
-        EconomySystemTestFixtures.RunDays(homeWorld, new TradeSystem(definition), days: 1);
+        EconomySystemTestFixtures.RunTradeDays(homeWorld, definition, days: 1);
 
         var homeBuyer = homeWorld.Households[0];
 
@@ -1215,7 +1215,7 @@ public sealed class TradeSystemTests
         distantWorld.Households[0].WorkshopInventory[Item.Timber] = 100_000;
         distantWorld.Households[0].WorkshopInventory[Item.Tools] = 5;
 
-        EconomySystemTestFixtures.RunDays(distantWorld, new TradeSystem(definition), days: 1);
+        EconomySystemTestFixtures.RunTradeDays(distantWorld, definition, days: 1);
 
         var distantBuyer = distantWorld.Households[0];
 
@@ -1301,7 +1301,7 @@ public sealed class TradeSystemTests
             Source = ObservationSource.Direct,
         });
 
-        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+        EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
 
         var distantBuyer = world.Households[DistantBuyerId];
 
@@ -1393,7 +1393,7 @@ public sealed class TradeSystemTests
             AddHousehold(world, id: 1, districtId: SellerDistrictId, Occupation.Miller);
             world.Households[1].WorkshopInventory[Item.Bread] = 1000;
 
-            EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+            EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
 
             // W2-15追随(2026-09-22、決定10・11)。相場参照が無い日の基礎値は現金上限ではなく
             // 窓口の当日価格(パンの外部買値breadFloor=1)になった。独立予測: baseValue=1・
@@ -1498,7 +1498,7 @@ public sealed class TradeSystemTests
                 Source = ObservationSource.Direct,
             });
 
-            EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+            EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
 
             // 独立予測: 目標=耐久値そのもの(ToolTargetStockPermille=1000・RankCoefficient=1000)、
             // 予想在庫0(WorkshopInventory[Tools]=0・ToolWear=0)、基礎値=市場参照(生。2000)。
@@ -1580,7 +1580,7 @@ public sealed class TradeSystemTests
         AddHousehold(world, id: 1, districtId: 4, Occupation.Baker, liquidFunds: 0);
         world.Households[1].WorkshopInventory[Item.Grain] = 100;
 
-        var system = new TradeSystem(definition);
+        var system = EconomySystemTestFixtures.TradeSystems(definition);
 
         EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目: 資金0で何も買わない
 
@@ -1655,7 +1655,7 @@ public sealed class TradeSystemTests
         AddHousehold(world, id: 1, districtId: 4, Occupation.Baker, liquidFunds: 0);
         world.Households[1].WorkshopInventory[Item.Grain] = 100;
 
-        var system = new TradeSystem(definition);
+        var system = EconomySystemTestFixtures.TradeSystems(definition);
 
         EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目: 資金0で何も買わない
 
@@ -1696,7 +1696,7 @@ public sealed class TradeSystemTests
         // 前日の(古い)損失を直接立てておく。
         world.Households[0].ErrandLaborLossPermille = 100;
 
-        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+        EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
 
         Assert.Equal(0, world.Households[0].ErrandLaborLossPermille);
     }
@@ -1778,7 +1778,7 @@ public sealed class TradeSystemTests
         world.Households[SellerId].WorkshopInventory[Item.Grain] = 1000;
 
         var scheduler = new SimScheduler(
-            new ISimSystem[] { new ProductionSystem(definition), new TradeSystem(definition) },
+            new ISimSystem[] { new ProductionSystem(definition), new TradePlanningSystem(definition), new TradeSystem(definition) },
             new RandomSource(1));
 
         scheduler.Advance(world, ticks: 24); // 1日目
@@ -1876,7 +1876,7 @@ public sealed class TradeSystemTests
         world.Households[2].WorkshopInventory[Item.Timber] = 1_000_000;
         world.Households[2].WorkshopInventory[Item.Tools] = 5;
 
-        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+        EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
 
         // 前提: Aが実際にBからパンを買い、Bの流動資金が朝の95から増えている。
         Assert.True(world.Households[0].HouseholdInventory[Item.Bread] > 0);
@@ -1953,7 +1953,7 @@ public sealed class TradeSystemTests
         world.Households[1].WorkshopInventory[Item.Timber] = 1_000_000; // 自分の入力を中立化。
         world.Households[1].WorkshopInventory[Item.Tools] = 5;
 
-        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+        EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
 
         // Bは閾在庫(1)ではなく、Aの全量(200)を前提にした量を買えている。
         Assert.True(
@@ -2034,7 +2034,7 @@ public sealed class TradeSystemTests
         // 中心区画に置く(段6のIsWithinReachを常に真にし、Tの検査を本テストの関心の外にする)。
         AddHousehold(world, id: 0, districtId: District.ExternalMarketDistrictId, Occupation.Miller);
 
-        var system = new TradeSystem(definition);
+        var system = EconomySystemTestFixtures.TradeSystems(definition);
 
         EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目: 在庫0で何も起きない。
 
@@ -2204,7 +2204,7 @@ public sealed class TradeSystemTests
         // household1: 工具の売り手。1日目は在庫0(オファーを立てない)。
         AddHousehold(world, id: 1, districtId: District.ExternalMarketDistrictId, Occupation.Miller);
 
-        var system = new TradeSystem(definition);
+        var system = EconomySystemTestFixtures.TradeSystems(definition);
 
         EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目: 双方とも工具在庫0。
 
@@ -2346,7 +2346,7 @@ public sealed class TradeSystemTests
         AddHousehold(world, id: 0, districtId: 4, Occupation.Miller);
         world.Households[0].WorkshopInventory[Item.Tools] = toolStock;
 
-        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+        EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
 
         Assert.Equal(expectOffer, world.Market.ContainsKey(new MarketKey(Item.Tools, 0)));
     }
@@ -2384,7 +2384,7 @@ public sealed class TradeSystemTests
             world.Households[0].WorkshopInventory[Item.Tools] = 4;
             world.Households[0].IsBankrupt = 1;
 
-            EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+            EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
 
             Assert.Equal(1, world.Households[0].WorkshopInventory[Item.Tools]);
             Assert.Contains(
@@ -2402,7 +2402,7 @@ public sealed class TradeSystemTests
             world.Households[0].WorkshopInventory[Item.Tools] = 1;
             world.Households[0].IsBankrupt = 1;
 
-            EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+            EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
 
             Assert.Equal(1, world.Households[0].WorkshopInventory[Item.Tools]);
             Assert.DoesNotContain(
@@ -2469,7 +2469,7 @@ public sealed class TradeSystemTests
 
         AddHousehold(world, id: 1, districtId: 4, Occupation.Baker, liquidFunds: 100_000); // 買い手。
 
-        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+        EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
 
         Assert.Equal(1, world.Households[0].WorkshopInventory[Item.Bread]);
         Assert.Contains(
@@ -2509,7 +2509,7 @@ public sealed class TradeSystemTests
         AddHousehold(world, id: 0, districtId: 4, Occupation.Woodworker, liquidFunds: 1000);
         AddHousehold(world, id: 1, districtId: 4, Occupation.Baker); // Grainの売り手(1日目は在庫0)。
 
-        var system = new TradeSystem(definition);
+        var system = EconomySystemTestFixtures.TradeSystems(definition);
 
         EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目: 売り手不在で買えない
         Assert.True(
@@ -2571,7 +2571,7 @@ public sealed class TradeSystemTests
         // 資金0で世帯間・窓口のどちらからも一切買えない(価格・売り手の有無に依存させない)。
         AddHousehold(world, id: 0, districtId: 4, Occupation.Woodworker, liquidFunds: 0);
 
-        var system = new TradeSystem(definition);
+        var system = EconomySystemTestFixtures.TradeSystems(definition);
 
         // 1日目。穀物(必需、目標5・在庫0)と工具(耐久、目標30000・在庫0)の両方が買えず値が入る。
         // 工具の添字(Item.Tools)は品目数の末尾であり、穀物の添字(Item.Grain)は先頭である ──
@@ -2614,7 +2614,7 @@ public sealed class TradeSystemTests
         AddHousehold(world, id: 0, districtId: 4, Occupation.Woodworker, liquidFunds: 1000);
         world.Households[0].HouseholdInventory[Item.Grain] = 1000; // 予想在庫が目標在庫を上回る
 
-        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+        EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
 
         Assert.Equal(0, world.Households[0].UnfilledPurchase[Item.Grain]);
     }
@@ -2651,7 +2651,7 @@ public sealed class TradeSystemTests
         AddHousehold(world, id: 0, districtId: 4, Occupation.Woodworker, liquidFunds: 0); // 資金0で買えない
         world.Households[0].HouseholdInventory[Item.Grain] = 2; // 0 < ExpectedStock < TargetStock
 
-        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+        EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
 
         // 段5bが読んだのと同じ入力(直前に何も買えていないので、需要行を作り直しても同じ値になる)。
         var demand = new BuyerDemand(definition).Build(
@@ -2699,7 +2699,7 @@ public sealed class TradeSystemTests
         var world = new World(npcCount: 1, householdCount: 1, itemCount: Item.Count);
         AddHousehold(world, id: 0, districtId: 4, Occupation.Miller, liquidFunds: 0); // 資金0で両行とも買えない
 
-        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+        EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
 
         // 段5bが読んだのと同じ入力(直前に何も買えていないので、需要行を作り直しても同じ値になる)。
         var demand = new BuyerDemand(definition).Build(
@@ -2739,7 +2739,7 @@ public sealed class TradeSystemTests
         AddHousehold(world, id: 0, districtId: 4, Occupation.Miller, liquidFunds: 0); // 資金0で買えない
         world.Households[0].WorkshopInventory[Item.Tools] = 0;
 
-        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+        EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
 
         var demand = new BuyerDemand(definition).Build(
             world, world.Households[0], hasPreviousOutputOfferPrice: false, previousOutputOfferPrice: 0);
@@ -2771,7 +2771,7 @@ public sealed class TradeSystemTests
         AddHousehold(world, id: 1, districtId: 0, Occupation.Baker); // Grainの売り手。在庫は1個だけ。
         world.Households[1].WorkshopInventory[Item.Grain] = 1;
 
-        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+        EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
 
         // 前提: 実際に1個だけ買えた(目標3には届いていない)。
         Assert.Equal(1, world.Households[0].HouseholdInventory[Item.Grain]);
@@ -2843,7 +2843,7 @@ public sealed class TradeSystemTests
         // 耐久の行がこの世界で正当な不足を積まないようにする(配列全体を0で比較するため)。
         world.Households[0].WorkshopInventory[Item.Tools] = 1;
 
-        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+        EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
 
         // 前提: 必需の行では実際に買えた(世帯在庫が増えている)。
         Assert.True(
@@ -2937,7 +2937,7 @@ public sealed class TradeSystemTests
             Source = ObservationSource.Direct,
         });
 
-        EconomySystemTestFixtures.RunDays(world, new TradeSystem(definition), days: 1);
+        EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
 
         // 前提: 必需の行では実際に買えた(世帯在庫が増えている)。
         Assert.True(

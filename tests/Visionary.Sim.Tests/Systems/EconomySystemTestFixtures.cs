@@ -214,6 +214,27 @@ internal static class EconomySystemTestFixtures
     internal static void AdvanceClockOnly(World world, int ticks) =>
         new SimScheduler(Array.Empty<ISimSystem>(), new RandomSource(1)).Advance(world, ticks);
 
+    /// <summary>
+    /// 順5 の朝(<see cref="TradePlanningSystem"/>)と夕方(<see cref="TradeSystem"/>)の2システム。
+    /// 夕方のシステムは朝の計画を World から読むので、単独では走らせられない(#257)。
+    /// </summary>
+    internal static ISimSystem[] TradeSystems(WorldDefinition definition) =>
+        new ISimSystem[] { new TradePlanningSystem(definition), new TradeSystem(definition) };
+
+    /// <summary>順5 の朝と夕方だけを登録し、<paramref name="days"/> 日ぶん(1日 = 24tick)進める。</summary>
+    internal static void RunTradeDays(World world, WorldDefinition definition, int days, long seed = 1)
+    {
+        var scheduler = new SimScheduler(TradeSystems(definition), new RandomSource(seed));
+        scheduler.Advance(world, ticks: days * 24);
+    }
+
+    /// <summary>複数のシステムを登録し、<paramref name="days"/> 日ぶん(1日 = 24tick)進める。</summary>
+    internal static void RunDays(World world, ISimSystem[] systems, int days, long seed = 1)
+    {
+        var scheduler = new SimScheduler(systems, new RandomSource(seed));
+        scheduler.Advance(world, ticks: days * 24);
+    }
+
     /// <summary>1つのシステムだけを登録し、<paramref name="days"/> 日ぶん(1日 = 24tick)進める。</summary>
     internal static void RunDays(World world, ISimSystem system, int days, long seed = 1)
     {
