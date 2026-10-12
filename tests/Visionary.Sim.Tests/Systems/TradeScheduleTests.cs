@@ -160,12 +160,28 @@ public sealed class TradeScheduleTests
         // 前日の自分の提示価格(高い)。当日は相場基準が立たず床(30)になる。
         world.Market[new MarketKey(Item.Bread, 0)] = PreviousBreadOffer;
 
+        // 利潤上限は、入力(穀物)の買い手側の相場基準が立った日にだけ生まれる(BuyerBudget.ProfitCaps は
+        // 入力に基準が無いと上限を作らない)。1日目には観測が無く、上限が無ければ控えを読んでも
+        // 読まなくても同じ結果になって、このテストは何も守らない。他の売り手(世帯1)の穀物の
+        // 観測(100、前日付)を仕込み、基準 100 を立てる。
+        EconomySystemTestFixtures.AdvanceClockOnly(world, ticks: 24);
+        world.Knowledge[0].Add(new PriceObservation
+        {
+            ItemId = Item.Grain,
+            LocationId = 4,
+            Price = GrainFloor,
+            SellerId = 1,
+            ObservedAt = Tick.Zero,
+            Source = ObservationSource.Direct,
+        });
+
         EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
 
         // 前提: 当日の提示価格は床で、前日の高い値とは別。見込み収益 = 当日の値なら 30×2 = 60 < 穀物 100。
         Assert.Equal(BreadFloor, world.Market[new MarketKey(Item.Bread, 0)]);
 
-        // 前日の値(1000×2 = 2000)で利潤上限が立つので、入力(穀物)を買う。
+        // 前日の値(1000×2 = 2000)なら利潤上限 = 2000 ≥ 穀物 100 でゲートが開き、入力(穀物)を買う。
+        // 当日の床 30 を読む実装では 上限 = 30×2 = 60 < 100 でゲートが閉じて買わない。
         Assert.Contains(
             world.Ledgers[0],
             entry => entry.Direction == LedgerDirection.Purchase && entry.ItemId == Item.Grain);
