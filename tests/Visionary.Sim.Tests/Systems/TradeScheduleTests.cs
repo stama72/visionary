@@ -562,4 +562,111 @@ public sealed class TradeScheduleTests
         Assert.Equal(streams.Length, streams.Distinct().Count());
         _ = new SimScheduler(systems, new RandomSource(1));
     }
+
+    /// <summary>
+    /// レビュー2巡目(#257)。段6 の労働損失は、朝に計画した委託先 NpcId の階層の労働力係数で決まる。
+    /// 世帯0は親方(NpcId 0、係数1000)と徒弟(NpcId 1、係数300)で、機会費用が低い徒弟が委託先になる。
+    /// 委託先を世帯主にする・Master に固定する変異では、係数が1000になって損失が変わる。
+    /// </summary>
+    [Fact]
+    public void ExportLaborLossUsesTheDelegatesRankCoefficient()
+    {
+        const int ApprenticeLabor = 300; // EconomySystemTestFixtures の既定 { Master 1000, Journeyman 800, Apprentice 300 }
+        const int MasterLabor = 1000;
+
+        var necessityTargetStockDays = new int[Item.Count];
+        necessityTargetStockDays[Item.Grain] = 10;
+        var grainRow = new int[Item.Count];
+        grainRow[Item.Grain] = 1;
+
+        var definition = EconomySystemTestFixtures.BuildDefinition(
+            new Recipe(
+                Occupation.Miller,
+                outputs: new[] { new ItemQuantity { ItemId = Item.Bread, Quantity = 1 } },
+                inputs: new[] { new ItemQuantity { ItemId = Item.Timber, Quantity = 1 } },
+                laborPermille: 1000),
+            dailyConsumptionPerNpcByRank: new[] { (int[])grainRow.Clone(), (int[])grainRow.Clone(), (int[])grainRow.Clone() },
+            necessityTargetStockDays: necessityTargetStockDays,
+            tolerancePermille: 1200,
+            opportunityCostBaseByOccupation: new[] { 1000, 1000, 1000, 1000, 1000 },
+            rankCoefficientPermille: new[] { 1000, 1000, 500 }, // 徒弟の機会費用が最小
+            travelHoursPerDistrict: 1,
+            shipmentDays: 1,
+            inputBufferDays: 1,
+            disposableHours: 12);
+
+        var world = new World(npcCount: 3, householdCount: 2, itemCount: Item.Count);
+        world.Npcs[0].Rank = NpcRank.Master;
+        world.Npcs[1].Rank = NpcRank.Apprentice;
+        world.Npcs[2].Rank = NpcRank.Master;
+        world.Npcs[2].HouseholdId = 1;
+
+        world.Households[0] = new HouseholdState(
+            id: 0, districtId: 0, headNpcId: 0, memberNpcIds: new[] { 0, 1 }, itemCount: Item.Count);
+        world.Households[0].Occupation = Occupation.Miller;
+        world.Households[0].LiquidFunds = 1_000_000;
+        world.Households[0].WorkshopInventory[Item.Bread] = 100;
+        world.Households[0].WorkshopInventory[Item.Timber] = 100_000;
+        world.Households[0].WorkshopInventory[Item.Tools] = 5;
+
+        world.Households[1] = new HouseholdState(
+            id: 1, districtId: 8, headNpcId: 2, memberNpcIds: new[] { 2 }, itemCount: Item.Count);
+        world.Households[1].Occupation = Occupation.Baker;
+        world.Households[1].WorkshopInventory[Item.Grain] = 100;
+        world.Households[1].WorkshopInventory[Item.Timber] = 100_000;
+        world.Households[1].WorkshopInventory[Item.Tools] = 5;
+
+        // 窓口の穀物の高値記憶で、買い物を区画8へ向ける(BuildSeparateExportWorld と同じ足場)。
+        EconomySystemTestFixtures.AdvanceClockOnly(world, ticks: 24);
+        world.Knowledge[0].Add(new PriceObservation
+        {
+            ItemId = Item.Grain,
+            LocationId = 0,
+            Price = 999,
+            SellerId = HouseholdState.ExternalMarketSellerId,
+            ObservedAt = Tick.Zero,
+            Source = ObservationSource.Direct,
+        });
+
+        EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
+
+        var household = world.Households[0];
+
+        // 前提: 委託先は徒弟、買い物は区画8、輸出は別の外出。
+        Assert.Equal(1, household.ErrandDelegateNpcId);
+        Assert.Contains(8, household.PlannedErrandDistrictIds);
+        Assert.Equal(1, household.ExportErrandTaken);
+
+        int shopping = Errand.TravelHours(0, 8, hoursPerDistrict: 1); // 8
+        int export = Errand.TravelHours(0, District.ExternalMarketDistrictId, hoursPerDistrict: 1); // 4
+
+        int expected = Errand.LaborLossPermille(ApprenticeLabor, shopping, disposableHours: 12)
+            + Errand.LaborLossPermille(ApprenticeLabor, export, disposableHours: 12);
+        int ifMaster = Errand.LaborLossPermille(MasterLabor, shopping, disposableHours: 12)
+            + Errand.LaborLossPermille(MasterLabor, export, disposableHours: 12);
+
+        Assert.NotEqual(expected, ifMaster); // 変異で値が変わる組み合わせであること
+        Assert.Equal(expected, household.ErrandLaborLossPermille);
+    }
+
+    /// <summary>
+    /// レビュー2巡目(#257)。中心にいる世帯(別の外出をせずに輸出を持ち込める)は、輸出した日も
+    /// <c>ExportErrandTaken</c> が 0 のまま。フラグの代入が <c>IsWithinReach</c> の枝の中にあることを守る。
+    /// </summary>
+    [Fact]
+    public void ExportFromTheCentreDoesNotSetTheExportErrandFlag()
+    {
+        var definition = TradeSystemTests.BuildExportAndShoppingDefinition(travelHoursPerDistrict: 1);
+        var world = TradeSystemTests.BuildExportAndShoppingWorld(definition, exporterDistrictId: 4, sellerDistrictId: 4);
+
+        EconomySystemTestFixtures.RunTradeDays(world, definition, days: 1);
+
+        // 前提: 輸出は成立している。
+        Assert.Contains(
+            world.Ledgers[0],
+            entry => entry.Direction == LedgerDirection.Sale
+                && entry.CounterpartyId == HouseholdState.ExternalMarketSellerId);
+
+        Assert.Equal(0, world.Households[0].ExportErrandTaken);
+    }
 }
