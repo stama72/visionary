@@ -88,6 +88,10 @@ public sealed class TimetableTests
     /// 落ちるべき条件: 片道に往復(<c>TravelHours</c>)をそのまま使う(<c>/ 2</c> を外す) /
     /// 出発を 6時起点で数える / 輸出の外出を先に置く・数えない / 帰着と次の出発の tick を1ずらす。
     /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(<c>mutator</c> が測定、2026-10-12、対象HEAD <c>66e0008</c>)。</b>
+    /// M4: <c>Timetable</c> の片道の <c>/ 2</c> を外す変異は<b>赤</b>(3ケースすべてが落ちた)。
+    /// </remarks>
     [Theory]
     // H = 0、計画 [1]、輸出 0(往復 2)。S0 = 16。
     [InlineData(

@@ -123,6 +123,13 @@ public sealed class TradeScheduleTests
     /// 落ちるべき条件: 夕方の段4 が控えの欄ではなく <c>world.Market.TryGetValue(new MarketKey(出力, household.Id), …)</c>
     /// から当日の自分の提示価格を引く。
     /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(<c>mutator</c> が測定、2026-10-12、対象HEAD <c>ae3307c</c>)。</b>
+    /// M1: 段4(夕)で前日の提示価格を控えではなく <c>world.Market</c> から引く変異は<b>赤</b>。
+    /// 落ちたのはこのテストと <c>TradePipelineTests.UnaffordableNecessityCountsOnlyTheFundsShortfall</c>。
+    /// <b>経緯:</b> <c>66e0008</c> の時点ではこのテストは緑のままだった(穀物に買い手側の相場基準が無く、
+    /// 利潤上限が作られていなかった)。<c>ae3307c</c> で基準の観測を仕込んで直した。
+    /// </remarks>
     [Fact]
     public void EveningDemandReadsYesterdaysOwnOfferFromTheMemo()
     {
@@ -194,6 +201,12 @@ public sealed class TradeScheduleTests
     /// <remarks>
     /// 落ちるべき条件: 段6 が World の列に中心を足す / フラグを書かない / 段7 が World の列を読む
     /// (窓口の観測が消える)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(<c>mutator</c> が測定、2026-10-12、対象HEAD <c>66e0008</c>)。</b>
+    /// M2: 段6 で中心を World の列に足し、段7 にも World の列を渡す変異は<b>赤</b>。
+    /// M8: 段6 で中心をどこにも足さず(フラグは残す)、段7 に World の列を渡す変異は<b>赤</b>。
+    /// どちらもこのテストが落ちた。
     /// </remarks>
     [Fact]
     public void ExportTripDoesNotAddTheCentreToThePlannedDistricts()
@@ -385,6 +398,11 @@ public sealed class TradeScheduleTests
     /// 落ちるべき条件: 品目だけで引く(用途を見ない) / <c>DistantStock</c> を1用途だけで引く /
     /// <c>CannotExpandProduction</c> を引く / <c>ProductionStopped</c> の <c>b</c> を4用途すべての和にする
     /// (必需だけ不足の世界で <c>ProductionStopped</c> が減る)。
+    /// </remarks>
+    /// <remarks>
+    /// <b>変異の実測(<c>mutator</c> が測定、2026-10-12、対象HEAD <c>66e0008</c>)。</b>
+    /// M3: 段8 で <c>ProductionStopped</c> の引く量を4用途すべての和にする変異は<b>赤</b>。
+    /// 落ちたのは <c>All</c> と <c>Necessity</c> の2ケース。
     /// </remarks>
     [Theory]
     [InlineData("Necessity")]
@@ -584,6 +602,12 @@ public sealed class TradeScheduleTests
     /// 世帯0は親方(NpcId 0、係数1000)と徒弟(NpcId 1、係数300)で、機会費用が低い徒弟が委託先になる。
     /// 委託先を世帯主にする・Master に固定する変異では、係数が1000になって損失が変わる。
     /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(<c>mutator</c> が測定、2026-10-12、対象HEAD <c>66e0008</c>)。</b>
+    /// M5: 段6 の係数の <c>ErrandDelegateNpcId</c> を <c>HeadNpcId</c> に差し替える変異は<b>赤</b>。
+    /// M6: 段6 の係数を <c>NpcRank.Master</c> に固定する変異は<b>赤</b>。
+    /// どちらもこのテストが落ちた。
+    /// </remarks>
     [Fact]
     public void ExportLaborLossUsesTheDelegatesRankCoefficient()
     {
@@ -669,6 +693,11 @@ public sealed class TradeScheduleTests
     /// レビュー2巡目(#257)。中心にいる世帯(別の外出をせずに輸出を持ち込める)は、輸出した日も
     /// <c>ExportErrandTaken</c> が 0 のまま。フラグの代入が <c>IsWithinReach</c> の枝の中にあることを守る。
     /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(<c>mutator</c> が測定、2026-10-12、対象HEAD <c>66e0008</c>)。</b>
+    /// M7: <c>ExportErrandTaken = 1</c> を <c>IsWithinReach</c> の枝の外へ出す変異は<b>赤</b>
+    /// (このテストが落ちた)。
+    /// </remarks>
     [Fact]
     public void ExportFromTheCentreDoesNotSetTheExportErrandFlag()
     {
