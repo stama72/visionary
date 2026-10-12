@@ -195,9 +195,14 @@ public sealed class TradeScheduleTests
 
         Assert.DoesNotContain(District.ExternalMarketDistrictId, household.PlannedErrandDistrictIds);
         Assert.Equal(1, household.ExportErrandTaken);
+
+        // 足場が仕込んだ窓口観測(ObservedAt = Tick.Zero)ではなく、当日の段7 が18時に生んだ観測を見る。
+        // 仕込みだけで満たされると、段7 が World の列を読む誤りを捕まえない。
         Assert.Contains(
             world.Knowledge[household.HeadNpcId],
-            o => o.SellerId == HouseholdState.ExternalMarketSellerId);
+            o => o.SellerId == HouseholdState.ExternalMarketSellerId
+                && o.ObservedAt.DayIndex == 1
+                && o.ObservedAt.HourOfDay == WorldDefinition.EveningTradeHour);
     }
 
     /// <summary>テスト表 #5(#257)。輸出フラグは翌朝の段5a が 0 に戻す。</summary>
