@@ -437,7 +437,7 @@ public sealed class ObservationsTests
         world.Households[1].Occupation = Occupation.Miller;
         world.Households[1].WorkshopInventory[Item.Flour] = SellableStock;
 
-        var system = new TradeSystem(definition);
+        var system = EconomySystemTestFixtures.TradeSystems(definition);
         var key0 = new MarketKey(Item.Flour, 0);
 
         EconomySystemTestFixtures.RunDays(world, system, days: 1); // 1日目

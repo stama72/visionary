@@ -498,7 +498,7 @@ public sealed class HouseholdSystemTests
     }
 
     /// <summary>
-    /// テスト表 #12。<c>new ISimSystem[] { new HouseholdSystem(d), new TradeSystem(d) }</c> の順で
+    /// テスト表 #12。<c>new ISimSystem[] { new HouseholdSystem(d), new TradePlanningSystem(d), new TradeSystem(d) }</c> の順で
     /// 登録し、1日目に必需の資金不足を起こす。2日目の順3でフラグが立ち、同じ2日目の順5で
     /// その売り手の提示価格が半値(床の2倍を超える相場基準のとき)へ、販売在庫が全量窓口へ出る
     /// (閾在庫0)。<b>順3からフラグが届く経路そのものを押さえる</b> ── ②の分岐自体は
@@ -518,7 +518,7 @@ public sealed class HouseholdSystemTests
         seller.LiquidFunds = 0; // 必需(薪)の現金上限を0にし、経路(1)の資金不足を起こす。
         seller.WorkshopInventory[Item.Bread] = 1; // 破産中でも販売在庫は正(④のゲートbが閉じる)。
 
-        var systems = new ISimSystem[] { new HouseholdSystem(definition), new TradeSystem(definition) };
+        var systems = new ISimSystem[] { new HouseholdSystem(definition), new TradePlanningSystem(definition), new TradeSystem(definition) };
         var scheduler = new SimScheduler(systems, new RandomSource(1));
 
         scheduler.Advance(world, ticks: 24); // 1日目。

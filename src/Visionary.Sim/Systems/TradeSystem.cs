@@ -3,47 +3,43 @@ using Visionary.Sim.Randomness;
 namespace Visionary.Sim.Systems;
 
 /// <summary>
-/// 交易(TDD01 §3.3 順5)。値付け・約定・観測の3系統を1つのシステムに収める ──
-/// 順5 に2つのシステムを置けない(<see cref="SimScheduler"/> が <see cref="Stream"/> の
-/// 重複登録を拒む。共通乱数法が壊れる)。
+/// 交易の夕方の部(TDD01 §3.3 順5 夕)。約定・輸出・観測の生成・Need の差し引きを行う。
+/// 値付け・市場の書き込み・外出の計画は朝0時の <see cref="TradePlanningSystem"/> が済ませている。
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>内部は7段(うち段5は5a・5bの2手順)</b>(TDD01 §3.3「順5 Trade の内部の段」/ #38 タスク仕様。
-/// 段6(輸出)を新設して段を1つ増やした)。
-/// 1. 全売り手の新しい提示価格を求める(<c>Market</c> は読むだけ。前日の自分の出力品目の
-/// 提示価格と、輸出(段6)が読む相場基準(速い側)を控える)。2. <c>Market.Clear()</c> → 一括書き込み。
-/// 3. <see cref="Observations.Expire"/>。
-/// 4. 全世帯ぶんの <see cref="HouseholdDemand"/> を作る(段5 の中へ畳まない)。
-/// 5. 世帯 Id 昇順に、5a(<see cref="ErrandPlanner"/> で外出を計画し
-/// <see cref="HouseholdState.ErrandLaborLossPermille"/> を書く)→5b(<see cref="StoreChoice"/> で
-/// 5aが決めた区画の中から店を選び、都市内は <see cref="TradeSettlement.Execute"/>、窓口は
-/// <see cref="TradeSettlement.ExecuteImport"/> で約定する)。
-/// 6. <b>輸出(新設)。</b><see cref="WorldDefinition.IsExportEnabled"/> が偽なら段ごと飛ばす。
-/// 世帯 Id 昇順に、閾在庫を超えた販売在庫を <see cref="TradeSettlement.ExecuteExport"/> で窓口へ
-/// 売る(GDD02d §2.3)。<b>段5 の世帯ループへ畳まない</b> ── 畳むと先に輸出した世帯の在庫減が、
-/// 後の世帯の買い物に効く(世帯間の取引が「確定したあと」でなくなる)。
+/// <b>順5 を2つのシステムに割る理由。</b>朝と夕方で実行時刻が違うので <see cref="Cadence"/> が別になる。
+/// 1つの系統に2つのシステムを置けない(<see cref="SimScheduler"/> が <see cref="Stream"/> の重複登録を
+/// 拒む。共通乱数法が壊れる)ので、朝は <see cref="RandomStream.TradePlanning"/>、夕方は
+/// <see cref="RandomStream.Trade"/> を持つ。
+/// </para>
+/// <para>
+/// <b>内部の段(TDD01 §3.3 の段番号)。</b>段1〜3・5a は <see cref="TradePlanningSystem"/>。ここは
+/// 4. 全世帯ぶんの <see cref="HouseholdDemand"/> を控えの欄から作り直す(朝と同じ式。プレイヤーの売買が
+/// 0時〜18時の間に入った状態を映す。Metrics の需要の3欄はここだけが書く)。
+/// 5b. 世帯 Id 昇順に、朝の計画の区画の中から <see cref="StoreChoice"/> で店を選び、都市内は
+/// <see cref="TradeSettlement.Execute"/>、窓口は <see cref="TradeSettlement.ExecuteImport"/> で約定する。
+/// 6. <b>輸出。</b><see cref="WorldDefinition.IsExportEnabled"/> が偽なら段ごと飛ばす。世帯 Id 昇順に、
+/// 閾在庫を超えた販売在庫を <see cref="TradeSettlement.ExecuteExport"/> で窓口へ売る(GDD02d §2.3)。
+/// <b>段5b の世帯ループへ畳まない</b> ── 畳むと先に輸出した世帯の在庫減が後の世帯の買い物に効く。
 /// 7. <see cref="Observations.CollectAndShare"/> の直後に <see cref="Observations.CollectWindow"/>
-/// (段5 と別ループ)。
+/// (別ループ)。8. 段5b で約定した購入の個数を、用途を合わせて <see cref="World.Needs"/> から引く
+/// (GDD02b §8.1)。
 /// </para>
 /// <para>
-/// <b><see cref="World.Market"/> を書くのは段2 だけである</b>(GDD02b §4.1「書き込みは1か所の
-/// ままである」)。約定は在庫・資金・帳簿を動かすが <c>Market</c> には触らない。
-/// <c>Market</c> のエントリがあることが「前日に売り注文を出していた」と同値になるのは、
-/// 毎日クリアして書き直すからである(GDD02c §1)。売り手ごとに読んでは書くと、先に
-/// <c>Clear()</c> してしまった売り手が自分の前日価格を失うので、段1 と段2 は分かれている。
+/// <b>朝の計画は World から読む。</b>計画の区画列・委託先・控えは <see cref="HouseholdState"/> の欄から
+/// 読み、<see cref="TradePlanningSystem"/> のインスタンスやこのインスタンスのフィールドで持ち越さない
+/// (ハッシュが同じで振る舞いが違う世界ができる)。段6 が中心を足す先は World の列ではなく、世帯ごとに
+/// 複製した列である(World の列に足すと時間割が中心行きを2回数える)。
 /// </para>
 /// <para>
-/// <b>段7(観測の生成)は段6(輸出)の後であり、かつ別ループである。</b>段5 の世帯ループへ畳むと、
-/// 先に買った世帯の観測が後の世帯の買い物より前に生まれる(GDD06 §3.1「記憶は前日まで」は
-/// 当日生成の観測が誰にも読まれないことに立っている)。生まれた観測は
-/// <see cref="MarketReference"/> / <see cref="ErrandPlanner"/> の鮮度判定
-/// (差1日以上)により翌日から有効な記憶になる。
+/// <b><see cref="World.Market"/> を書くのは朝の段2 だけである</b>(GDD02b §4.1)。約定は在庫・資金・帳簿を
+/// 動かすが <c>Market</c> には触らない。
 /// </para>
 /// <para>
-/// <b>輸出は段5 と段7(観測)の間の新しい段である。</b>観測より前に置くのは、持ち込んだ世帯が
-/// その日中心に居たことになる(GDD02d §2.3 追記)ためである ── 段6 が訪問区画に中心を足した後で
-/// なければ、段7 がその観測を生めない。
+/// <b>段7(観測の生成)は段6(輸出)の後であり、かつ別ループである。</b>段5b の世帯ループへ畳むと、
+/// 先に買った世帯の観測が後の世帯の買い物より前に生まれる(GDD06 §3.1「記憶は前日まで」)。
+/// 観測を輸出より後に置くのは、持ち込んだ世帯がその日中心に居たことになる(GDD02d §2.3 追記)ためである。
 /// </para>
 /// <para>
 /// <b>乱数を一切引かない。</b><see cref="Stream"/> が <see cref="RandomStream.Trade"/> を持つのは
@@ -53,10 +49,12 @@ namespace Visionary.Sim.Systems;
 /// </remarks>
 public sealed class TradeSystem : ISimSystem
 {
+    /// <summary><see cref="DemandPurpose"/> の値の数(添字 = (int)DemandPurpose、0〜3)。</summary>
+    private const int PurposeCount = 4;
+
     private readonly WorldDefinition _definition;
     private readonly BuyerDemand _buyerDemand;
     private readonly StoreChoice _storeChoice;
-    private readonly ErrandPlanner _errandPlanner;
 
     public TradeSystem(WorldDefinition definition)
     {
@@ -77,140 +75,38 @@ public sealed class TradeSystem : ISimSystem
 
         _definition = definition;
 
-        // BuyerDemand / StoreChoice / ErrandPlanner はStepのたびに作らず、コンストラクタで1つ持つ
-        // (_definitionと同じ。タスク仕様)。
+        // BuyerDemand / StoreChoice はStepのたびに作らず、コンストラクタで1つ持つ(_definitionと同じ)。
         _buyerDemand = new BuyerDemand(definition);
         _storeChoice = new StoreChoice(definition);
-        _errandPlanner = new ErrandPlanner(definition);
     }
 
     public RandomStream Stream => RandomStream.Trade;
 
-    public Cadence Cadence => Cadence.Daily(hour: 0);
+    public Cadence Cadence => Cadence.Daily(WorldDefinition.EveningTradeHour);
 
     public void Step(World world, SimContext context)
     {
         ArgumentNullException.ThrowIfNull(world);
 
-        // 順10(Metrics)が読む当日ぶんの計数の初期化(W2-20 タスク仕様「呼び出し順」)。
-        // 段1 より前、順5 の先頭で呼ぶ ── 順5 が唯一の書き手である。
-        world.Metrics.BeginDay();
-
         int householdCount = world.Households.Length;
 
-        // 段4がBuyerDemand.Buildへ渡す「前日の自分の出力品目の提示価格」。Worldの状態にしない
-        // (1日限りの中間値、#36引き継ぎ)。販売在庫0で売り注文を出さない世帯についても控える
-        // ── その世帯も買い手としては需要を持つ。
-        var hasOwnPreviousOffer = new bool[householdCount];
-        var ownPreviousOfferPrice = new int[householdCount];
-
-        // 段6(輸出)が読む、売り手の相場基準(速い側)。段1が求める(#38タスク仕様)。
-        var hasSellerReference = new bool[householdCount];
-        var sellerReference = new int[householdCount];
-
-        // 段1. 新しい提示価格を求める(この間 world.Market は読むだけ)。世帯Id昇順に
-        // (Householdsは添字=Idなので先頭から走査するだけでADR-0002の処理順規約を満たす)。
-        var newOffers = new List<(MarketKey Key, int Price)>();
-
-        foreach (var household in world.Households)
-        {
-            var recipe = _definition.Recipes[(int)household.Occupation];
-            int outputItemId = recipe.Outputs[0].ItemId; // 出力1件はコンストラクタが保証
-
-            // 販売在庫は工房在庫の出力品目から留保を引いた量(世帯在庫は見ない。GDD02c §1.3
-            // 「販売在庫は工房在庫の部分集合であり、生産の入力・設備として抱えている分は
-            // 売りに出ていない」)。5経路すべてを SellableStock に通す(W2-14。#148 追随表)。
-            int sellableStock = SellableStock.Of(_definition, household, outputItemId);
-
-            // hasOwnPreviousOffer/ownPreviousOfferPriceは段4(利潤上限)が読む「前日の出力提示価格」
-            // である。販売在庫0の世帯についても控える ── その世帯も買い手として利潤上限を持つ。
-            bool hasOwnOffer = world.Market.TryGetValue(
-                new MarketKey(outputItemId, household.Id), out int ownOfferPrice);
-
-            hasOwnPreviousOffer[household.Id] = hasOwnOffer;
-            ownPreviousOfferPrice[household.Id] = ownOfferPrice;
-
-            // 売り手の自分の錨は前日の提示価格ではなく前日の約定単価(帳簿、輸出を含む)。
-            // hasSettledは錨(§1.2)と頭打ち(§1.1)の両方に使う。母数は同じ(帳簿のSale、
-            // 品目で絞る、輸出を含む)。
-            bool hasSettled = MarketReference.TryPreviousDaySettledPrice(
-                world.Ledgers[household.Id], outputItemId, world.Now, out int settledPrice);
-
-            // 誰の観測かは世帯主(親方)である(GDD02c §1.2)。買い物に行くのが徒弟でも
-            // 値付けに使うのは世帯主の観測。Knowledgeの添字はNpcIdなのでHeadNpcIdで引く。
-            // #38: この控えは販売在庫0の世帯についても行う(sellableStock<=0のcontinueより上)。
-            // 移さないと、段5で工具を買った鍛冶(耐久は工房在庫へ入る=販売在庫が増える唯一の経路)の
-            // 閾在庫が「相場基準が無い日」の枝に落ちる(#38タスク仕様「決めたこと」)。
-            bool hasReference = MarketReference.TrySeller(
-                world.Knowledge[household.HeadNpcId],
-                outputItemId,
-                household.Id,
-                world.Now,
-                _definition.ObservationRetentionDays,
-                hasSettled,
-                settledPrice,
-                out int marketReference);
-
-            hasSellerReference[household.Id] = hasReference;
-            sellerReference[household.Id] = marketReference;
-
-            // 職業は世帯の現在の値を読む(#39の付け替えで変わる)。出荷目標在庫も現在の職業から導く。
-            // sellableStock<=0のcontinueより前に出す ── 順10(Metrics)の2欄が
-            // 販売在庫0の世帯についても読むため(W2-20 タスク仕様「呼び出し側を持たないコード」表)。
-            int shipmentTargetStock =
-                _definition.ShipmentTargetStock(household.Occupation, outputItemId);
-
-            world.Metrics.SellerHasNoReference[household.Id] = hasReference ? 0 : 1;
-            world.Metrics.SellerCoefficientCapped[household.Id] = OfferPrice.WasUnsoldCapApplied(
-                hasReference, sellableStock, shipmentTargetStock, household.IsBankrupt, hasSettled)
-                ? 1
-                : 0;
-
-            if (sellableStock <= 0)
-            {
-                // 販売在庫0の日は売り注文を出さない。出品すると店選択に在庫のない店が
-                // 候補として載る(GDD02c §1.3)。
-                continue;
-            }
-
-            int floorPrice = _definition.ExternalBuyPrice(outputItemId);
-
-            int price = hasReference
-                ? OfferPrice.Calculate(
-                    floorPrice, marketReference, sellableStock, shipmentTargetStock, household.IsBankrupt,
-                    hasSettled)
-                : floorPrice; // 相場基準が立たない(GDD02c §1)
-
-            newOffers.Add((new MarketKey(outputItemId, household.Id), price));
-        }
-
-        // 段2. Market.Clear() してから、段1 で積んだものを一括で書く。先にClear()すると
-        // 全売り手が自分の前日価格を失う(TDD01 §3.2が要求した一括書き込み)。
-        world.Market.Clear();
-
-        foreach (var offer in newOffers)
-        {
-            world.Market[offer.Key] = offer.Price;
-        }
-
-        // 段3. 観測の失効(GDD06 §3.1)。値付けの後・買い物の前に置く ── 段5a の
-        // ErrandPlanner(見積もり価格5.3)が「有効な記憶」を保持期間で二重に判定しないための前提
-        // (ErrandPlannerのdocコメント参照)。
-        Observations.Expire(world, _definition.ObservationRetentionDays);
-
-        // 段4. 全世帯ぶんのHouseholdDemandを作る。段5 の中へ畳まない ── 畳むと予算そのものが
-        // 世帯Idの走査順の関数になる(TDD01 §3.3)。
+        // 段4(夕)。朝の段4 と同じ式・同じ引数の出所(控えの欄)。段5b の中へ畳まない ── 畳むと
+        // 予算そのものが世帯Idの走査順の関数になる(TDD01 §3.3)。
         var demands = new HouseholdDemand[householdCount];
 
         foreach (var household in world.Households)
         {
+            int outputItemId = _definition.Recipes[(int)household.Occupation].Outputs[0].ItemId;
+
             var demand = _buyerDemand.Build(
-                world, household, hasOwnPreviousOffer[household.Id], ownPreviousOfferPrice[household.Id]);
+                world, household,
+                household.MemoHasPreviousOffer[outputItemId] == 1,
+                household.MemoPreviousOfferPrice[outputItemId]);
 
             demands[household.Id] = demand;
 
             // 順10(Metrics)の需要の3欄(W2-20 タスク仕様「呼び出し側を持たないコード」表)。
-            // BuyerDemand.Build の直後、demand.Lines を1回走査してまとめて求める。
+            // 夕方の段4 だけが書く ── 朝も書くと InputBlockedByFunds の 1 が夕方まで残る。
             int demandLines = 0;
             int demandLinesWithoutKnownPrice = 0;
             bool inputBlockedByCashCap = false;
@@ -242,61 +138,132 @@ public sealed class TradeSystem : ISimSystem
             }
         }
 
-        // 段5. 世帯Id昇順に、5a(外出の計画)→5b(購入)。段6・段7 でまとめて使うため、
-        // 行くと決めた区画(List<int>のまま。段6が中心を足す)・委託先・往復時間の合計を
-        // 世帯ごとに控える(TDD01 §3.3 / #38タスク仕様)。
+        // 段8 が引く購入の記録。世帯 × 用途((int)DemandPurpose) × 品目の約定個数。単位: 個。
+        // World に置かない(1日限りの中間値)。
+        var purchased = new int[householdCount][][];
+
+        for (int h = 0; h < householdCount; h++)
+        {
+            purchased[h] = new int[PurposeCount][];
+
+            for (int p = 0; p < PurposeCount; p++)
+            {
+                purchased[h][p] = new int[_definition.ItemCount];
+            }
+        }
+
+        // 段5b. 世帯Id昇順に購入。訪問は朝の段5a が決めており、World の計画の欄から読む。
+        foreach (var household in world.Households)
+        {
+            RunOneHouseholdsShopping(
+                world, household, demands[household.Id], household.PlannedErrandDistrictIds,
+                purchased[household.Id]);
+        }
+
+        // 段6・段7 が読む訪問区画は、世帯ごとに複製した列である。段6 が中心を足すのはこの複製で、
+        // World の PlannedErrandDistrictIds は書き換えない(時間割が中心行きを2回数えるため)。
         var visitedDistrictIdsByHousehold = new List<int>[householdCount];
-        var errandDelegateByHousehold = new ErrandDelegate[householdCount];
-        var totalTravelHoursByHousehold = new int[householdCount];
 
         foreach (var household in world.Households)
         {
-            // 5a. 外出の計画。ErrandLaborLossPermilleは0の日も必ず書く ── UnaffordableNecessityCount
-            // と同じ理由で、書かない日があると前日の損失が翌日以降も効き続ける。
-            var errand = OpportunityCost.SelectErrandDelegate(_definition, world, household);
-            var plan = _errandPlanner.Plan(world, household, demands[household.Id], errand);
-
-            household.ErrandLaborLossPermille = plan.LaborLossPermille;
-
-            // VisitedDistrictIdsの実体は必ずList<int>(ErrandPlanner.Planの構築どおり)。
-            // 段6が同じ実体へ中心を足す(#38タスク仕様「型をList<int>[]にする」)。
-            visitedDistrictIdsByHousehold[household.Id] = (List<int>)plan.VisitedDistrictIds;
-            errandDelegateByHousehold[household.Id] = errand;
-            totalTravelHoursByHousehold[household.Id] = plan.TotalTravelHours;
-
-            // 5b. 購入。訪問は5aが決めており、買えたかどうかで変わらない。
-            RunOneHouseholdsShopping(world, household, demands[household.Id], visitedDistrictIdsByHousehold[household.Id]);
+            visitedDistrictIdsByHousehold[household.Id] = new List<int>(household.PlannedErrandDistrictIds);
         }
 
-        // 段6(新設)。輸出。IsExportEnabledが偽なら段ごと飛ばす(GDD02d §2.1「状態ではない」)。
-        // 段5 の世帯ループへ畳まない ── 世帯間の取引が確定したあとに走る(GDD02d §2.3)。
+        // 段6. 輸出。IsExportEnabledが偽なら段ごと飛ばす(GDD02d §2.1「状態ではない」)。
+        // 段5b の世帯ループへ畳まない ── 世帯間の取引が確定したあとに走る(GDD02d §2.3)。
         if (_definition.IsExportEnabled)
         {
             foreach (var household in world.Households)
             {
+                // 委託先と往復時間の合計は、朝に書いた計画から引き直す。SelectErrandDelegate を
+                // 夕方に呼び直さない(朝と夕方で委託先が違う日がありうる契約を静かに作る)。
+                if (household.ErrandDelegateNpcId < 0)
+                {
+                    throw new InvalidOperationException(
+                        "外出の計画が無い(TradePlanningSystem が先に走っていない)。");
+                }
+
+                int delegateLaborPermille =
+                    _definition.LaborPermilleByRank[(int)world.Npcs[household.ErrandDelegateNpcId].Rank];
+
+                // ErrandPlanner.Plan の TotalTravelHours と同じ式。World に欄を足さない。
+                int totalTravelHours = 0;
+
+                foreach (int districtId in household.PlannedErrandDistrictIds)
+                {
+                    totalTravelHours += Errand.TravelHours(
+                        household.DistrictId, districtId, _definition.TravelHoursPerDistrict);
+                }
+
+                int outputItemId = _definition.Recipes[(int)household.Occupation].Outputs[0].ItemId;
+
                 RunOneHouseholdsExport(
-                    world, household, hasSellerReference[household.Id], sellerReference[household.Id],
-                    errandDelegateByHousehold[household.Id], totalTravelHoursByHousehold[household.Id],
+                    world, household,
+                    household.MemoHasSellerReference[outputItemId] == 1,
+                    household.MemoSellerReference[outputItemId],
+                    delegateLaborPermille, totalTravelHours,
                     visitedDistrictIdsByHousehold[household.Id]);
             }
         }
 
-        // 段7. 段5・段6 と別のループ(先に買った/輸出した世帯の観測が、後の世帯の買い物より前に
-        // 生まれないようにする。docコメント参照)。世帯Id昇順に。
+        // 段7. 段5b・段6 と別のループ(先に買った/輸出した世帯の観測が、後の世帯の買い物より前に
+        // 生まれないようにする)。世帯Id昇順に。
         foreach (var household in world.Households)
         {
             Observations.CollectAndShare(world, household, visitedDistrictIdsByHousehold[household.Id]);
             Observations.CollectWindow(_definition, world, household, visitedDistrictIdsByHousehold[household.Id]);
         }
+
+        // 段8. 購入した個数を Need から引く(GDD02b §8.1)。
+        SubtractPurchasesFromNeeds(world, purchased);
     }
 
     /// <summary>
-    /// 段5b の1世帯ぶんの買い物。<paramref name="visitedDistrictIds"/> は段5a
+    /// 段8. <see cref="World.Needs"/> を<b>格納順のまま</b>先頭から走査し、理由に応じた用途の購入個数を
+    /// 引く。0 以下になった要素は <c>RemoveAll</c> で消す(格納順は保たれる)。<c>NextNeedId</c> には触らない。
+    /// 世帯 × 理由の索引(Dictionary)は作らない ── 列挙順が不定になる。
+    /// </summary>
+    private static void SubtractPurchasesFromNeeds(World world, int[][][] purchased)
+    {
+        for (int i = 0; i < world.Needs.Count; i++)
+        {
+            var need = world.Needs[i];
+            var bought = purchased[need.TargetHouseholdId];
+            int itemId = need.ItemId;
+
+            // 理由ごとに数量の出所(どの在庫の不足か)が違うので、同じ購入を複数の Need から引いてよい
+            // (GDD02b §8.1 の表は購入を Need の間で配分していない)。
+            int subtract = need.ReasonCode switch
+            {
+                NeedReason.ProductionStopped => bought[(int)DemandPurpose.ProductionInput][itemId],
+                NeedReason.ToolsExhausted => bought[(int)DemandPurpose.Durable][itemId],
+                NeedReason.Distress => bought[(int)DemandPurpose.Necessity][itemId],
+                NeedReason.DistantStock =>
+                    bought[(int)DemandPurpose.ProductionInput][itemId]
+                    + bought[(int)DemandPurpose.Necessity][itemId]
+                    + bought[(int)DemandPurpose.Preference][itemId]
+                    + bought[(int)DemandPurpose.Durable][itemId],
+                _ => 0, // CannotExpandProduction は ‰人日で、買い物では埋まらない
+            };
+
+            if (subtract > 0)
+            {
+                world.Needs[i] = need with { Quantity = need.Quantity - subtract };
+            }
+        }
+
+        world.Needs.RemoveAll(static need => need.Quantity <= 0);
+    }
+
+    /// <summary>
+    /// 段5b の1世帯ぶんの買い物。<paramref name="visitedDistrictIds"/> は朝の段5a
     /// (<see cref="ErrandPlanner"/>)が既に決めた行き先であり、ここでは読むだけで書かない
-    /// (訪問は買えたかどうかで変わらない)。
+    /// (訪問は買えたかどうかで変わらない)。<paramref name="purchased"/> は用途 × 品目の約定個数で、
+    /// ここで足し込む。
     /// </summary>
     private void RunOneHouseholdsShopping(
-        World world, HouseholdState household, HouseholdDemand demand, IReadOnlyList<int> visitedDistrictIds)
+        World world, HouseholdState household, HouseholdDemand demand, IReadOnlyList<int> visitedDistrictIds,
+        int[][] purchased)
     {
         // 毎日上書きする(ConsumptionSystemがUnmetConsumptionを毎日上書きするのと同じ)。
         household.UnaffordableNecessityCount = 0;
@@ -317,9 +284,9 @@ public sealed class TradeSystem : ISimSystem
         // 決済順が変わり結果が変わる(#36引き継ぎ「並べ直さないこと」)。
         foreach (var line in demand.Lines)
         {
-            bool purchased = TryPurchaseLine(world, household, line, visitedDistrictIds);
+            bool bought = TryPurchaseLine(world, household, line, visitedDistrictIds, purchased);
 
-            if (purchased)
+            if (bought)
             {
                 boughtItem[line.ItemId] = true;
                 continue;
@@ -355,7 +322,8 @@ public sealed class TradeSystem : ISimSystem
     /// <see cref="TradeSettlement.ExecuteImport"/> を呼んで1個以上買えたら <c>true</c>。
     /// </summary>
     private bool TryPurchaseLine(
-        World world, HouseholdState household, DemandLine line, IReadOnlyList<int> visitedDistrictIds)
+        World world, HouseholdState household, DemandLine line, IReadOnlyList<int> visitedDistrictIds,
+        int[][] purchased)
     {
         // 2. 自区画と行った区画の店のうち実効価格が最小のものを選ぶ。0件ならこのlineは終わり
         // (Needは立てない、#40)。販売在庫は約定のたびに減るのでworldを毎回読み直す ──
@@ -453,6 +421,10 @@ public sealed class TradeSystem : ISimSystem
                 SellableStock.ReserveQuantity(_definition, seller!, line.ItemId));
         }
 
+        // 段8 の購入の記録。窓口からの輸入も足す(GDD02b §8.1「売り手が誰かは問わない」)。
+        // 輸出は足さない(売りである)。
+        purchased[(int)line.Purpose][line.ItemId] = checked(purchased[(int)line.Purpose][line.ItemId] + actualQuantity);
+
         // 順10(Metrics)のCurrentCounterpartyId(W2-20 タスク仕様「呼び出し側を持たないコード」表)。
         // 窓口(HouseholdState.ExternalMarketSellerId = int.MaxValue)も相手として記録する。
         // 同じ日に同じ品目を複数の相手から買った世帯は、最後に買った相手を採る(上書き)。
@@ -462,27 +434,28 @@ public sealed class TradeSystem : ISimSystem
     }
 
     /// <summary>
-    /// 段6 の1世帯ぶんの輸出(GDD02d §2.3)。段5 の後(世帯間の取引が確定したあと)に呼ばれる。
+    /// 段6 の1世帯ぶんの輸出(GDD02d §2.3)。段5b の後(世帯間の取引が確定したあと)に呼ばれる。
     /// </summary>
     /// <remarks>
-    /// <b>段5a が求めた <see cref="ErrandDelegate"/> と往復時間の合計を渡され、呼び直さない。</b>
-    /// いまは同じ値を返すが、呼び直す形は「段5a と段6 で委託先が違う日がありうる」という契約を
-    /// 静かに作る(#38タスク仕様)。<paramref name="visitedDistrictIds"/> は段5a の実体そのもので、
-    /// 中心へ持ち込んだ日はここで中心を足す(段7 の観測がこれを読む)。
+    /// <b>委託先の労働力係数‰ と往復時間の合計は、朝の計画から引き直した値を渡される。</b>
+    /// <see cref="OpportunityCost.SelectErrandDelegate"/> を夕方に呼び直す形は「朝と夕方で委託先が違う日が
+    /// ありうる」という契約を静かに作る(#38タスク仕様)。<paramref name="visitedDistrictIds"/> は
+    /// 世帯ごとに複製した列で、中心へ持ち込んだ日はここで中心を足す(段7 の観測がこれを読む)。
+    /// 別の外出で中心へ持ち込んだ世帯だけ <see cref="HouseholdState.ExportErrandTaken"/> を 1 にする。
     /// </remarks>
     private void RunOneHouseholdsExport(
         World world,
         HouseholdState seller,
         bool hasSellerReference,
         int sellerReference,
-        in ErrandDelegate errand,
+        int delegateLaborPermille,
         int totalTravelHours,
         List<int> visitedDistrictIds)
     {
         var recipe = _definition.Recipes[(int)seller.Occupation];
         int outputItemId = recipe.Outputs[0].ItemId; // 出力1件はコンストラクタが保証
 
-        // 販売在庫は段5 の後の値(工房在庫の出力品目から留保を引いた量。段1 と同じ
+        // 販売在庫は段5b の後の値(工房在庫の出力品目から留保を引いた量。朝の段1 と同じ
         // SellableStock を通す。W2-14)。
         int sellableStock = SellableStock.Of(_definition, seller, outputItemId);
 
@@ -515,14 +488,14 @@ public sealed class TradeSystem : ISimSystem
                 return;
             }
 
-            // 労働損失は加算である(段5a が書いた当日の合計に足す。GDD06 §3「外出ごとに切り上げて
+            // 労働損失は加算である(朝の段5a が書いた当日の合計に足す。GDD06 §3「外出ごとに切り上げて
             // から合計する」)。
             seller.ErrandLaborLossPermille = checked(seller.ErrandLaborLossPermille + Errand.LaborLossPermille(
-                errand.LaborPermille, travelHours, _definition.DisposableHours));
+                delegateLaborPermille, travelHours, _definition.DisposableHours));
 
-            // 訪問区画のリストは段5a のList<int>を持ち回っているので、ここで中心を足せば
-            // 段7 の観測がこれを読む。
+            // 複製の列へ中心を足す。段7 の観測がこれを読む。時間割のために別の外出だったことも残す。
             visitedDistrictIds.Add(District.ExternalMarketDistrictId);
+            seller.ExportErrandTaken = 1;
         }
 
         TradeSettlement.ExecuteExport(

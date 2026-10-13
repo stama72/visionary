@@ -695,6 +695,25 @@ public sealed class WorldDefinitionTests
     }
 
     /// <summary>
+    /// テスト表 #13(#257)。可処分時間Tは家業の時間帯(18 − 6 = 12時間)を超えられない
+    /// (GDD05 §1.5「往復時間の合計は T 以下なので、出発は6時より前にならない」の前提)。
+    /// 12は通り、13は拒まれる。
+    /// </summary>
+    [Fact]
+    public void WorldDefinitionRejectsDisposableHoursLongerThanTheWorkday()
+    {
+        Recipe Recipe() => MillerLikeRecipe(inputQuantity: 1, laborPermille: 1000);
+
+        Assert.Equal(12, WorldDefinition.EveningTradeHour - WorldDefinition.WorkdayStartHour);
+
+        var accepted = EconomySystemTestFixtures.BuildDefinition(Recipe(), disposableHours: 12);
+        Assert.Equal(12, accepted.DisposableHours);
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => EconomySystemTestFixtures.BuildDefinition(Recipe(), disposableHours: 13));
+    }
+
+    /// <summary>
     /// テスト表 #31。<c>TolerancePermille</c> が1200で、全用途の相場項がこれを使う(必需と嗜好で
     /// 同じ値になる)。<c>budgetRatioPermilleByPurpose</c> の引数が無いこと(コンパイルで担保)。
     /// </summary>

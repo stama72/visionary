@@ -868,4 +868,60 @@ public sealed class StateHasherTests
 
         Assert.NotEqual(marketHash, knowledgeHash);
     }
+
+    /// <summary>
+    /// テスト表 #14(#257)。計画3つ・控え4つの7欄は、1欄だけ変えてもハッシュが変わる(足し忘れで落ちる)。
+    /// 区画列は<b>並べ替えただけ</b>でも変わる ── 選んだ順が夕方の訪問順と時間割の並びを決めるので、
+    /// ソートしてから書くと別の世界が同じハッシュになる。
+    /// </summary>
+    [Theory]
+    [InlineData("ErrandDelegateNpcId")]
+    [InlineData("PlannedErrandDistrictIds")]
+    [InlineData("PlannedErrandDistrictIdsReordered")]
+    [InlineData("ExportErrandTaken")]
+    [InlineData("MemoHasPreviousOffer")]
+    [InlineData("MemoPreviousOfferPrice")]
+    [InlineData("MemoHasSellerReference")]
+    [InlineData("MemoSellerReference")]
+    public void HashChangesWhenAPlanOrMemoFieldChanges(string field)
+    {
+        var world = OneHouseholdWorld(itemCount: 3);
+        world.Households[0].PlannedErrandDistrictIds.AddRange(new[] { 1, 2 });
+        ulong before = StateHasher.Compute(world);
+
+        var household = world.Households[0];
+
+        switch (field)
+        {
+            case "ErrandDelegateNpcId":
+                household.ErrandDelegateNpcId = 0;
+                break;
+            case "PlannedErrandDistrictIds":
+                household.PlannedErrandDistrictIds.Add(3);
+                break;
+            case "PlannedErrandDistrictIdsReordered":
+                household.PlannedErrandDistrictIds.Clear();
+                household.PlannedErrandDistrictIds.AddRange(new[] { 2, 1 });
+                break;
+            case "ExportErrandTaken":
+                household.ExportErrandTaken = 1;
+                break;
+            case "MemoHasPreviousOffer":
+                household.MemoHasPreviousOffer[2] = 1;
+                break;
+            case "MemoPreviousOfferPrice":
+                household.MemoPreviousOfferPrice[2] = 7;
+                break;
+            case "MemoHasSellerReference":
+                household.MemoHasSellerReference[2] = 1;
+                break;
+            case "MemoSellerReference":
+                household.MemoSellerReference[2] = 7;
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(field), field, "未知の欄。");
+        }
+
+        Assert.NotEqual(before, StateHasher.Compute(world));
+    }
 }

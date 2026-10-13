@@ -37,7 +37,7 @@ public sealed class MetricsSystem : ISimSystem
     /// <summary>13。乱数は引かないが、登録に一意な系統が要る(12は OpportunityCost の予約)。</summary>
     public RandomStream Stream => RandomStream.Metrics;
 
-    public Cadence Cadence => Cadence.Daily(hour: 0);
+    public Cadence Cadence => Cadence.Daily(WorldDefinition.EveningTradeHour);
 
     public void Step(World world, SimContext context)
     {
