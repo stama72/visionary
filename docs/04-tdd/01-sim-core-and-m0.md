@@ -228,7 +228,7 @@ k = Mix(k ^ (ulong)entityId)     // エンティティ非依存の用途は enti
 
 - **移動は到着 tick を書くだけで、時間を進めない**([GDD02 §2.4](../03-gdd/02-economy.md)、#263 決定2)。時間は `Advance` だけが進める
 - **Need を聞くコマンドは、開示される Need を返すだけで World を書かない**(#263 決定4)。台詞の選択([GDD01 §3.3.1](../03-gdd/01-trust-and-conversation.md))は World を読まない別の部品であり、呼ぶのは Godot と Runner である
-- **コマンドは乱数を引かない。** `Step` の外で走るので、`SimContext` の系統を開くと §3.1 の「`Step` の外からの利用」で例外になる。M0 の売買規則はどれも乱数を要らない
+- **コマンドは乱数を引かない。** M0 の売買規則はどれも乱数を要らない。**これを守る機械は無い** — コマンドは `Step` の外で走り `SimContext` を持たないので、系統の検査も §3.1 の「`Step` の外からの利用」の歯止めも掛からない。public の `RandomSource.Open` を直接呼べば、どの系統でも開けてしまう(§3.1 の危険表「系統の借用」と同じ形)。**レビュー観点で守る。** コマンドに乱数が要るようになったら、系統の割り当てから設計し直す
 - **記帳する時刻は現在の tick(`World.Now`)である。** 取引は6〜17時に限る(GDD06 §6.4)ので、同じ日の18時の約定より前の時刻になり、帳簿の `OccurredAt` の非減少が保たれる
 
 **ドメインイベント**(シム→外部・ログ): `TradeExecuted`, `TrustChanged{from, to, delta, reason}`, `NeedCreated`, `PromiseBroken{e, penalty}`, `UnfairPriceSuspected{trade, detectorObservation}`, `PenaltyApplied` など。
