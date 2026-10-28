@@ -57,6 +57,10 @@ GDD06 §6.1 の数量は「**用途に使える資金**で払える数」であ�
 資金で払える数 = FloorDiv( line.AvailableFunds , 価格 )
 ```
 
+### 訂正(フェーズ2 の `IMPL-BLOCKED` を受けて)
+
+**凍結時の仕様は `PlayerSaleOutcome.CannotAfford`(価格 ≤ 予算だが資金で 0 個)を持ち、テスト #6 でそれを要求していた。到達できない。** 予算は現金上限で頭を押さえられ、現金上限は `FloorDiv(AvailableFunds, max(1日分, 1)) ≤ AvailableFunds` なので、予算以下の価格なら1個は必ず払える。GDD06 §6.1 の該当文(フェーズ1 が同じブランチで書いた)も同じ誤りだったので直した。値を外し、手順7 を番人にし、テスト #6 を差し替えた。**実装済みの `CannotAfford` は外すこと。**
+
 ### 段階の境目は `PlayerSale` の定数に置く
 
 ```csharp
@@ -124,8 +128,8 @@ public enum PlayerSaleOutcome
     NoNeed = 2,               // 開示される Need が (世帯, 品目) に無い。1日1回に数えない
     AlreadyOfferedToday = 3,  // 同じ (世帯, 品目) に今日すでに値を出した
     OverBudget = 4,           // 価格 > 予算。1日1回に数える
-    CannotAfford = 5,         // 価格 ≤ 予算だが、用途に使える資金で払える数が 0。1日1回に数える
 }
+// 「価格 ≤ 予算だが資金で 0 個」は値を持たない。起きないからである(手順7。GDD06 §6.1)
 
 public readonly record struct PlayerSaleResult
 {
@@ -154,7 +158,7 @@ public sealed class PlayerSale
 4. **記録する。** `household.PlayerOfferDayIndex[itemId] = (int)world.Now.DayIndex`(checked)。**ここより後のどの結果でも記録は残る**
 5. **予算を作り直し、行を選ぶ。** 上の「予算はコマンドの中で…」の形で `demand` を作る。行は: 工具切れ → `Purpose == Durable` の行 / 生産停止 → `Purpose == ProductionInput && ItemId == itemId` の行 / 遠方在庫 → `ItemId == itemId` の**最初の**行(`demand.Lines` の並びがそのまま走査順)。見つからなければ `InvalidOperationException`(Need があるのに需要の行が無いのはモデルの欠陥である)
 6. **価格のゲート。** `unitPrice > line.Budget` なら `OverBudget`。**ちょうど等しければ通る**(GDD06 §6.1「価格 ≤ 予算」)
-7. **数量。** `quantity = min(offeredQuantity, need.Quantity, FloorDiv(line.AvailableFunds, unitPrice))`。0 なら `CannotAfford`
+7. **数量。** `quantity = min(offeredQuantity, need.Quantity, FloorDiv(line.AvailableFunds, unitPrice))`。**手順6 を通った後は必ず 1 以上である**(価格 ≤ 予算 ≤ 現金上限 = `FloorDiv(AvailableFunds, max(1日分, 1))` ≤ `AvailableFunds`。GDD06 §6.1)。0 なら `InvalidOperationException`(予算の式か `AvailableFunds` の設定が壊れている。正常系では発火しない番人)
 8. **約定。** `TradeSettlement.ExecutePlayerSale(world, household, line.Purpose, itemId, quantity, unitPrice, definition.AcquisitionCostSmoothingPermille)`
 9. **Need の差し引き。** `NeedDeduction.SubtractPurchase(world, householdId, line.Purpose, itemId, quantity)`
 10. **段階。** `GratitudeOf(SurplusPermille(Evaluation(line), unitPrice))`。**`line` は手順5 で作った、約定前の行である**(値を出した時点の評価額。GDD01 §3.6)。約定後に作り直さない
@@ -223,7 +227,7 @@ public static class NeedDeduction
 | 3 | `Evaluation_ExcludesCashCapButKeepsProfitCap` | (a) §1 の工具の例で `Evaluation = 522`(`Budget = 300`)。(b) `HasProfitCap = true, ProfitCap = 200`、第1項 522 → 200。(c) `HasProfitCap = false, ProfitCap = 0` → 522 | 評価額に現金上限を入れる / 利潤上限を外す / `HasProfitCap` を見ずに `ProfitCap` を min に入れる | **核心**: `Evaluation` が `line.Budget` を返す / 赤((a)) |
 | 4 | `Execute_AcceptsAtExactlyTheBudgetAndRejectsOneAbove` | 同じ状態の世界を2つ作り、片方に `unitPrice = line.Budget` → `Accepted`、もう片方に `Budget + 1` → `OverBudget`(`Quantity = 0`、在庫・資金・帳簿・Need が不変) | 価格のゲートの不等号 | **核心**: 手順6 の `>` を `>=` に / 赤 |
 | 5 | `Execute_QuantityIsBoundByOfferNeedAndPurposeFunds` | 3つの場合でそれぞれ別の項が最小になる: 提示数量 / Need の数量 / `FloorDiv(AvailableFunds, 価格)`。**3つ目は、必需の取り置きで `AvailableFunds < LiquidFunds` になる生産の入力の行で作る**(流動資金で切ると1個以上多く売れる値にする) | 数量の上限を流動資金で切る / Need の数量を見ない | **核心**: 手順7 の `line.AvailableFunds` を `household.LiquidFunds` に / 赤 |
-| 6 | `Execute_CannotAffordWhenPurposeFundsBuyZero` | `AvailableFunds < 価格 ≤ Budget` の状態 → `CannotAfford`、`PlayerOfferDayIndex[item]` = 当日、資金・在庫・帳簿・Need は不変 | 資金で 0 のときに約定する(0 個の帳簿行・例外)/ 記録しない | — |
+| 6 | `Execute_PriceAtBudgetAlwaysAffordsAtLeastOne` | 工具(1日分の数量 1 なので `CashCap = AvailableFunds`)で、現金上限が予算を決めている状態(`Budget == CashCap == AvailableFunds`)を作り、`unitPrice = Budget`・提示数量 2・Need の数量 2 → `Accepted`・`Quantity = 1`・買い手の流動資金が `LiquidFunds − Budget` になる | 予算ちょうどで用途の資金を使い切る取引を拒む(番人の条件を `quantity <= 1` などで書き違える・資金の上限を `AvailableFunds − 1` で取る)。**切り上げと切り捨ての取り違えは捕まえない**(`AvailableFunds / 価格` が割り切れる。そちらは #5 の3つ目が持つ) | — |
 | 7 | `Execute_SecondOfferOnTheSameDayIsRefusedRegardlessOfTheFirstOutcome` | 0日目に `OverBudget` → 同日に予算以下の値で `AlreadyOfferedToday`(状態不変)。翌日(`Now` を 24 進める)には通る。同日でも別品目は通る | 1日1回を NPC 単位・品目なしで数える / 成立したときだけ記録する / 日をまたいで残る | **核心**: 手順4 を手順7 の後(成立したときだけ記録)へ動かす / 赤 |
 | 8 | `Execute_NoNeedDoesNotConsumeTheDailyOffer` | (a) Need が無い品目 → `NoNeed`、`PlayerOfferDayIndex[item] == -1`。(b) 困窮だけ・増産できないだけの (世帯, 品目) → `NoNeed` | 開示しない理由を相手にする / Need の検査の前に記録する | **核心**: 手順3・4 を手順2 の前へ動かす / 赤((a)) |
 | 9 | `Execute_PrefersTheReasonThatNamesThePurpose` | 薪(必需と生産の入力の両方に行がある品目)で: (a) 生産停止 + 遠方在庫 → `Purpose = ProductionInput`、工房在庫に入り、**2件とも**数量が減る。(b) 遠方在庫だけ → `Purpose = Necessity`(走査順で最初の行)、世帯在庫に入り、遠方在庫だけ減る。(c) 工具で工具切れ + 遠方在庫 → `Purpose = Durable` | 優先順の取り違え / 遠方在庫で最後の行を取る / 当てた Need しか引かない | **核心**: 手順2 の優先順で遠方在庫を生産停止より先に / 赤((a)) |
