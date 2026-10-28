@@ -256,6 +256,32 @@ public sealed class PlayerSaleTests
     }
 
     /// <summary>
+    /// テスト表 #6。工具(1日分の数量 1)は現金上限 = 用途に使える資金。予算がそれで決まる状態で
+    /// 価格 = 予算なら、用途の資金を使い切る 1 個が必ず成立する(番人は発火しない)。
+    /// </summary>
+    [Fact]
+    public void Execute_PriceAtBudgetAlwaysAffordsAtLeastOne()
+    {
+        // 必需の取り置き 108 を除いた用途に使える資金が 200 になる流動資金。
+        var world = MakeWorld(funds: 308);
+        AddNeed(world, 0, NeedReason.ToolsExhausted, Item.Tools, 2);
+
+        var line = LineOf(world, DemandPurpose.Durable, Item.Tools);
+
+        Assert.Equal(200, line.AvailableFunds);
+        Assert.Equal(line.AvailableFunds, line.CashCap);
+        Assert.Equal(line.CashCap, line.Budget);
+
+        var result = new PlayerSale(Definition).Execute(
+            world, 0, Item.Tools, unitPrice: line.Budget, offeredQuantity: 2);
+
+        Assert.Equal(PlayerSaleOutcome.Accepted, result.Outcome);
+        Assert.Equal(1, result.Quantity);
+        Assert.Equal(line.Budget, result.Payment);
+        Assert.Equal(308 - line.Budget, world.Households[0].LiquidFunds);
+    }
+
+    /// <summary>
     /// テスト表 #7。1日1回は (世帯, 品目) ごとで、最初の結果(ここでは OverBudget)にかかわらず数え、
     /// 翌日には戻る。同じ日でも別の品目は通る。
     /// </summary>

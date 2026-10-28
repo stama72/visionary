@@ -17,8 +17,7 @@ public enum PlayerSaleOutcome
     /// <summary>価格 &gt; 予算。1日1回に数える。</summary>
     OverBudget = 4,
 
-    /// <summary>価格 ≤ 予算だが、用途に使える資金で払える数が 0。1日1回に数える。</summary>
-    CannotAfford = 5,
+    // 「価格 ≤ 予算だが資金で 0 個」は値を持たない。起きないからである(Execute の手順7。GDD06 §6.1)。
 }
 
 /// <summary><see cref="PlayerSale.Execute"/> の結果。</summary>
@@ -136,7 +135,9 @@ public sealed class PlayerSale
     /// <exception cref="ArgumentOutOfRangeException">
     /// 世帯 Id・品目 Id が範囲外、<paramref name="unitPrice"/> または <paramref name="offeredQuantity"/> が1未満。
     /// </exception>
-    /// <exception cref="InvalidOperationException">Need があるのに需要の行が無い(モデルの欠陥)。</exception>
+    /// <exception cref="InvalidOperationException">
+    /// Need があるのに需要の行が無い、または価格 ≤ 予算なのに払える数が 0(いずれもモデルの欠陥)。
+    /// </exception>
     public PlayerSaleResult Execute(World world, int householdId, int itemId, int unitPrice, int offeredQuantity)
     {
         ArgumentNullException.ThrowIfNull(world);
@@ -245,15 +246,13 @@ public sealed class PlayerSale
             Math.Min(offeredQuantity, chosen.Quantity),
             IntegerMath.FloorDiv(line.AvailableFunds, unitPrice));
 
+        // 手順6 を通った後は必ず 1 以上: 価格 ≤ 予算 ≤ 現金上限 = FloorDiv(AvailableFunds, max(1日分, 1))
+        // ≤ AvailableFunds。0 になるなら予算の式か AvailableFunds の設定が壊れている(正常系では発火しない番人)。
         if (quantity < 1)
         {
-            return new PlayerSaleResult
-            {
-                Outcome = PlayerSaleOutcome.CannotAfford,
-                NeedId = chosen.Id,
-                Purpose = line.Purpose,
-                UnitPrice = unitPrice,
-            };
+            throw new InvalidOperationException(
+                $"価格 {unitPrice} ≤ 予算 {line.Budget} なのに払える数が {quantity}" +
+                $"(用途に使える資金 {line.AvailableFunds})。予算の式か AvailableFunds が壊れている。");
         }
 
         // 10(先に計算). 段階は約定前の行から出す(値を出した時点の評価額。約定後に作り直さない)。
