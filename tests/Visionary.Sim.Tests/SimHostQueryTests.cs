@@ -127,6 +127,10 @@ public sealed class SimHostQueryTests
     /// 並びまで一致。その日の <c>World.Needs</c> に開示されない理由の Need が1件以上、開示される Need も1件以上ある。
     /// プレイヤーは中心に居るまま(居合わせていない世帯の Need も入る)。
     /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-10-29、<c>mutator</c> が使い捨てworktreeで測定、基点コミット <c>788d82d</c>)。</b>
+    /// M3: <c>TradableNeeds()</c> を <c>World.Needs</c> 全件の Need Id 昇順に書き換える → 赤(期待どおり)。
+    /// </remarks>
     [Fact]
     public void TradableNeedsConcatenateTheDisclosedNeedsPerHouseholdInIdOrder()
     {
@@ -210,6 +214,11 @@ public sealed class SimHostQueryTests
     /// D0T06 に 4→0 へ移動(到着 D0T08)。D0T07 は移動中で行き先 0・到着 D0T08。D0T08 は到着済みで
     /// 行き先 −1・到着 null(<c>MoveDestinationDistrictId</c> は 0 のまま残っている)。
     /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-10-29、<c>mutator</c> が使い捨てworktreeで測定、基点コミット <c>788d82d</c>)。</b>
+    /// M4: <c>Player()</c> の <c>loc.InTransit ?</c> を <c>MoveDestinationDistrictId != -1 ?</c> に変える
+    /// (行き先・到着の2か所とも)→ 赤(期待どおり)。
+    /// </remarks>
     [Fact]
     public void PlayerViewFollowsTheMoveAndReportsArrivalWithoutDestination()
     {

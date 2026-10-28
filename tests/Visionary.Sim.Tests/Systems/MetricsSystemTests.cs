@@ -766,6 +766,13 @@ public sealed class MetricsSystemTests
     /// economy は <c>ProfitTotal</c> だけが v 大きい。A は NPC 同士の購入が無く、B は NPC への売りが無い世帯にする
     /// (<c>active_buyer_count</c> / <c>active_seller_count</c> の差で出る)。
     /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-10-29、<c>mutator</c> が使い捨てworktreeで測定、基点コミット <c>788d82d</c>)。</b>
+    /// M5: 相手 <c>PlayerId</c> の <c>Purchase</c> 行の除外を外し、通常の <c>Purchase</c> と同じに数える →
+    /// 赤(<c>PriceRow</c> の比較で落ちる。期待どおり)。
+    /// M6: 相手 <c>PlayerId</c> の <c>Sale</c> 分岐で <c>activeSeller</c> を立てる →
+    /// 赤(<c>TradesRow</c> の比較で落ちる。期待どおり)。
+    /// </remarks>
     [Fact]
     public void RowsWithThePlayerAreLeftOutOfEverythingExceptHouseholdSales()
     {

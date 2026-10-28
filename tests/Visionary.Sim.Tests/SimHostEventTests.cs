@@ -101,6 +101,11 @@ public sealed class SimHostEventTests
     /// 窓口の相手は <c>ExternalMarketSellerId</c>、世帯から買うの相手は売り手の世帯 Id。
     /// 世帯へ売る以外は <c>Gratitude == null</c>・<c>NeedId == -1</c>。
     /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-10-29、<c>mutator</c> が使い捨てworktreeで測定、基点コミット <c>788d82d</c>)。</b>
+    /// M1: <c>PlayerCommandExecutor</c> の <c>BuyFromWindow</c> の Accepted 経路の
+    /// <c>EventLog.Add</c> を削除 → 赤(期待どおり)。
+    /// </remarks>
     [Fact]
     public void AllFourTradeDirectionsEmitEventsInExecutionOrderWithTheirCounterparties()
     {
@@ -199,6 +204,11 @@ public sealed class SimHostEventTests
     /// <summary>
     /// 【核心】#4。読み出し位置。1件 → <c>DrainEvents()</c> 1件 → 0件 → 2件発行 → 2件(買い・売りの順)。
     /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-10-29、<c>mutator</c> が使い捨てworktreeで測定、基点コミット <c>788d82d</c>)。</b>
+    /// M2: <c>SimHost.DrainEvents</c> の <c>_drainedEventCount = log.Count;</c> を削除 → 赤(期待どおり)。
+    /// 削るとフィールドが未代入になり CS0649 になるため、<c>TreatWarningsAsErrors</c> を外して測定した。
+    /// </remarks>
     [Fact]
     public void DrainEventsReturnsOnlyEventsAddedSinceTheLastCallInOrder()
     {
