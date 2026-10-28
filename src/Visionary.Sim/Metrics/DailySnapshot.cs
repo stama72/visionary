@@ -26,7 +26,8 @@ public readonly record struct EconomyRow(
     int DemandLines,
     int DemandLinesWithoutKnownPrice,
     int HouseholdsWithoutKnownPrice,
-    int ProfitTotal);
+    int ProfitTotal,
+    int PlayerFunds);   // プレイヤーの所持金。単位: 貨幣。MoneyTotal には含まない(TDD01 §4.2)
 
 /// <summary><c>prices.csv</c> の1行(品目1件ぶん)。全品目・全日を出す。</summary>
 public readonly record struct PriceRow(
