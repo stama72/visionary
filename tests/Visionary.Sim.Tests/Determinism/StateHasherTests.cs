@@ -49,6 +49,13 @@ public sealed class StateHasherTests
     /// 1つずつ変えると、それぞれハッシュが変わる。<b>5つとも別々に見る</b> ── どれかの書き忘れが
     /// 他の欄の変化に隠れない。
     /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-10-28、<c>mutator</c> が使い捨てworktreeで測定、対象コミット <c>ab4a39c</c>、
+    /// 全 787 件を変異ごとに実行)。</b>
+    /// M4: <c>StateHasher</c> の Player 区分から <c>MoveArrivalTick</c> の <c>WriteInt64</c> を削除 → 赤。
+    /// 落ちたのは <c>HashChangesWhenAPlayerFieldChanges(field: "MoveArrivalTick")</c> のみ。
+    /// 期待と実測の食い違いは無かった。
+    /// </remarks>
     [Theory]
     [InlineData("Funds")]
     [InlineData("InventoryElement")]

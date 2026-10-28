@@ -200,6 +200,14 @@ public sealed class TradePipelineTests
     /// (4) 中心へ戻り、所持品のうち都市生産品をぜんぶ窓口へ売る。(5) 翌日の0時まで進める。
     /// <b>4方向(窓口から買う・窓口へ売る・世帯から買う・世帯へ売る)の Accepted が1件以上</b>を走行後に表明する
     /// ── 0件のまま緑になると、その方向の項を誰も見ないまま残る(#261 全般アドバイザー指摘1)。
+    /// <para>
+    /// <b>変異の実測(2026-10-28、<c>mutator</c> が使い捨てworktreeで測定、対象コミット <c>ab4a39c</c>、
+    /// 全 787 件を変異ごとに実行)。</b>
+    /// M5: <c>BuyFromWindow</c> の <c>player.Funds -= payment;</c> を削除 → 赤。落ちたのはこのテストのほか
+    /// <c>BuyFromWindowUsesTheSeasonalPriceCutsByFundsAndWritesNoLedger</c>。
+    /// M1(<c>PlayerState.LocationAt</c> の <c>&gt;=</c> を <c>&gt;</c> に)でもこのテストは落ちた。
+    /// 期待と実測の食い違いは無かった。
+    /// </para>
     /// </remarks>
     [Fact]
     public void MoneyChangesOnlyByTheExternalLedger()

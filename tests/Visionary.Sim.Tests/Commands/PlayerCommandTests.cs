@@ -78,6 +78,17 @@ public sealed class PlayerCommandTests
     /// 【核心】#2。D0T07(移動中)は <c>InTransit</c>、到着 tick ちょうどの D0T08 は通る。
     /// 到着の比較が <c>&gt;</c> だと D0T08 も <c>InTransit</c> になる。
     /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-10-28、<c>mutator</c> が使い捨てworktreeで測定、対象コミット <c>ab4a39c</c>、
+    /// 全 787 件を変異ごとに実行)。</b>
+    /// M1: <c>PlayerState.LocationAt</c> の <c>now.Value &gt;= MoveArrivalTick</c> を <c>&gt;</c> にする → 赤。
+    /// 落ちたのはこのテストのほか <c>MoveAfterArrivalNormalizesTheDepartureDistrict</c> /
+    /// <c>MoveToTheCurrentLocationIsRejectedAndChangesNothing</c> /
+    /// <c>PresenceIsCheckedAgainstTheHouseholdDistrictOrTheCentreForTheWindow</c> /
+    /// <c>TradePipelineTests.MoneyChangesOnlyByTheExternalLedger</c>。
+    /// M2(#3 の変異。<see cref="NothingTradesWhileInTransitEvenAtTheDeparture"/> 参照)でもこのテストは落ちた。
+    /// 期待と実測の食い違いは無かった。
+    /// </remarks>
     [Fact]
     public void ArrivalTickItselfCountsAsArrived()
     {
@@ -98,6 +109,14 @@ public sealed class PlayerCommandTests
     /// 【核心】#3。移動中は出発地(中心)の窓口でも取引できない。検査の段2 を消すと、
     /// 出発地の <c>DistrictId</c> だけを見て Accepted になる。
     /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-10-28、<c>mutator</c> が使い捨てworktreeで測定、対象コミット <c>ab4a39c</c>、
+    /// 全 787 件を変異ごとに実行)。</b>
+    /// M2: <c>PlayerCommandExecutor.CheckTransitHoursAndPresence</c> の段2(<c>InTransit</c>)の検査を削除
+    /// (<c>Move</c> 自身の <c>InTransit</c> 検査は残す)→ 赤。落ちたのはこのテストのほか
+    /// <c>ArrivalTickItselfCountsAsArrived</c> / <c>ChecksRunInTheSpecifiedOrder</c>。
+    /// 期待と実測の食い違いは無かった。
+    /// </remarks>
     [Fact]
     public void NothingTradesWhileInTransitEvenAtTheDeparture()
     {
@@ -180,6 +199,13 @@ public sealed class PlayerCommandTests
     /// 【核心】#8。時間帯の境界: D0T05 は拒否、D0T06 と D0T17 は通る、D0T18 は拒否。
     /// 段3 の <c>&lt; EveningTradeHour</c> を <c>&lt;=</c> にすると D0T18 が通る。
     /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-10-28、<c>mutator</c> が使い捨てworktreeで測定、対象コミット <c>ab4a39c</c>、
+    /// 全 787 件を変異ごとに実行)。</b>
+    /// M3: 拒否側の判定 <c>hour &gt;= EveningTradeHour</c> を <c>hour &gt; EveningTradeHour</c> にする
+    /// (上の「<c>&lt;</c> を <c>&lt;=</c> に」と同じ境界)→ 赤。落ちたのはこのテストのみ。
+    /// 期待と実測の食い違いは無かった。
+    /// </remarks>
     [Fact]
     public void TradingHoursAreSixInclusiveToEighteenExclusive()
     {
