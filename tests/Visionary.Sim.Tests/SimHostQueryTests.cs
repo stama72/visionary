@@ -130,18 +130,17 @@ public sealed class SimHostQueryTests
     [Fact]
     public void TradableNeedsConcatenateTheDisclosedNeedsPerHouseholdInIdOrder()
     {
+        // 9a(レビュー1巡)。正しい列が、(a) 開示される Need 全体の Need Id 昇順とも、(b) World.Needs を理由で
+        // 絞っただけの列とも異なる日を選ぶ(day 1 は世帯 Id 順・Need Id 順・World.Needs 順が一致しやすい)。
+        // シード 1 の60日内に見つかる(見つからなければここで落ちる)。
         var host = FindDay6(h =>
             h.World.Needs.Any(n => !IsDisclosedReason(n.ReasonCode))
-            && h.World.Needs.Any(n => IsDisclosedReason(n.ReasonCode)));
+            && h.World.Needs.Any(n => IsDisclosedReason(n.ReasonCode))
+            && OrderPremiseHolds(h.World, ExpectedTradableNeeds(h.World)));
         Assert.NotNull(host);
         Assert.Equal(Center, host.World.Player.LocationAt(host.Now).DistrictId);
 
-        var expected = new List<Need>();
-
-        for (int householdId = 0; householdId < host.World.Households.Length; householdId++)
-        {
-            expected.AddRange(DisclosedNeeds.Of(host.World, householdId));
-        }
+        var expected = ExpectedTradableNeeds(host.World);
 
         var actual = host.Query.TradableNeeds();
 
@@ -151,6 +150,27 @@ public sealed class SimHostQueryTests
 
         // 居合わせていない世帯の Need も入る。
         Assert.Contains(actual, need => host.World.Households[need.TargetHouseholdId].DistrictId != Center);
+    }
+
+    private static List<Need> ExpectedTradableNeeds(World world)
+    {
+        var expected = new List<Need>();
+
+        for (int householdId = 0; householdId < world.Households.Length; householdId++)
+        {
+            expected.AddRange(DisclosedNeeds.Of(world, householdId));
+        }
+
+        return expected;
+    }
+
+    /// <summary>正しい列が、開示 Need 全体の Id 昇順とも、World.Needs を絞っただけの列とも異なる。</summary>
+    private static bool OrderPremiseHolds(World world, List<Need> expected)
+    {
+        var disclosed = world.Needs.Where(n => IsDisclosedReason(n.ReasonCode)).ToList();
+        var byId = disclosed.OrderBy(n => n.Id).ToList();
+
+        return !expected.SequenceEqual(byId) && !expected.SequenceEqual(disclosed);
     }
 
     private static bool IsDisclosedReason(NeedReason reason) =>
