@@ -18,6 +18,12 @@
 - **止まった**: テスト #6(`CannotAfford`)の状態が作れない。`CashCap = FloorDiv(AvailableFunds, max(daily,1)) ≤ AvailableFunds` なので `価格 ≤ Budget` なら `FloorDiv(AvailableFunds, 価格) ≥ 1`。手順7 の `quantity < 1` は到達不能(防御として実装は残してある)。GDD06 §6.1(275行「予算以下だったが資金で払える数が 0 だった値は数える」)がこの場合の存在を前提にしているので、フェーズ2 では裁かず `IMPL-BLOCKED` で止めた
 - 決めた: `NeedId` は `NoNeed` 以外で当てた Need の Id(`AlreadyOfferedToday` を含む)/ `Purpose` は `OverBudget`・`CannotAfford` で当てた行の用途、`NoNeed`・`AlreadyOfferedToday` は既定値 / `Subtracts` の用途の検査を理由の switch の前に置く / 段8 は `PurposeCount` 回のループで `Subtracts` の和 / テストの世界は 1日目 10時(`Now.Value = 34`)から始める(相場基準の観測が前日までしか効かないため。境界の関係は仕様の例と同じ)。#15 は `StateHasherTests.cs` に置いた
 
+2回目(`eb939d5` の訂正を受けて `dc8841c`): 止まって報告 0 件 / 決めて報告 1 件(テスト #6 の数値: `funds: 308` で必需の取り置き 108 を引き、工具の `AvailableFunds = CashCap = Budget = 200`。前提は assert で固定)。
+
+## 停止(フェーズ2・2回目)
+
+1巡目の I-b-1 で `SPEC-OUTSIDE`。**手順5 の「Need があるのに需要の行が無いのはモデルの欠陥」は誤り。** 職業付け替えの翌日に正常系で踏む: 前日 18時に資金不足で入力を買えず `UnfilledPurchase` が積まれる → 0時に `HouseholdSystem` が付け替え(`UnfilledPurchase` は消さない)→ 同じ 0時の `NeedGenerationSystem` が旧入力品目に遠方在庫の Need を立てる(開示される)→ プレイヤーが値を出すと、新職業のレシピで組んだ `Build` に行が無く `InvalidOperationException`。そのうえ手順4 の記録が残ったまま例外が上がる。付け替え先にも行がある品目(薪)は落ちず、黙って用途が変わる。直し先の候補(Need 生成で旧入力を落とす / `NoNeed` に寄せる / 結果値を足す / #263 に握らせる)は、いずれも GDD06 §6.1 か GDD02b §8.1・GDD06 §3.1 に及ぶ。
+
 ## 直さないと決めた指摘(フェーズ2)
 
 | 巡 | 象限 | 指摘 | 直さない理由 |
@@ -27,5 +33,6 @@
 
 | 巡 | 守備範囲 | 象限I | 象限II | 疑い |
 | -- | -------- | ----- | ------ | ---- |
+| 1 | 1巡目の既定 | 1(I-b-1、上の停止) | 0 | 0 |
 
 ## `mutator` の件数(フェーズ2)
