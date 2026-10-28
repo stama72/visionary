@@ -16,6 +16,7 @@
 | 3 | 買い手側だけを動かす約定 `TradeSettlement.ExecutePlayerSale`(帳簿の相手はプレイヤーの予約 Id、仕入れ移動平均は用途で更新) | TDD01 §3.2 / GDD06 §6.1 |
 | 4 | Need の差し引きの対応表を `NeedDeduction` に切り出し、夕方の段8 とプレイヤーの販売の両方がそれを通る | GDD02b §8.1 / TDD01 §3.3 段8 |
 | 5 | `HouseholdState.PlayerOfferDayIndex`(プレイヤーが最後に値を出した日)とハッシュへの追加 | TDD01 §3.2・§3.8 |
+| 6 | 遠方在庫の Need を、順4 の時点の職業で需要の行がある品目にだけ立てる(`BuyerDemand.HasDemandLine` を `NeedGenerationSystem` が読む) | GDD02b §8.1 |
 
 ## フェーズ1 で決めたこと
 
@@ -61,6 +62,10 @@ GDD06 §6.1 の数量は「**用途に使える資金**で払える数」であ�
 
 **凍結時の仕様は `PlayerSaleOutcome.CannotAfford`(価格 ≤ 予算だが資金で 0 個)を持ち、テスト #6 でそれを要求していた。到達できない。** 予算は現金上限で頭を押さえられ、現金上限は `FloorDiv(AvailableFunds, max(1日分, 1)) ≤ AvailableFunds` なので、予算以下の価格なら1個は必ず払える。GDD06 §6.1 の該当文(フェーズ1 が同じブランチで書いた)も同じ誤りだったので直した。値を外し、手順7 を番人にし、テスト #6 を差し替えた。**実装済みの `CannotAfford` は外すこと。**
 
+### 訂正2(フェーズ2 の `SPEC-OUTSIDE` を受けて)
+
+**手順5 の「Need があるのに需要の行が無いのはモデルの欠陥」は、凍結時点では誤りだった。** 職業の付け替えの翌日に、正常系で踏む。前日 18時に入力を買えず `UnfilledPurchase` が積まれる。0時の順3 で職業が付け替わっても、`UnfilledPurchase` は消えない。同じ 0時の順4 が、旧入力の品目に遠方在庫の Need を立てる。この Need は開示されるが、新職業の `Build` にはその品目の行が無い。**開発者の裁定で、Need の生成側を直した**(GDD02b §8.1 に条件を足した)。直した後は手順5 の例外が本物の番人になる。下の「作るもの 6」とテスト #16・#17 を足した。
+
 ### 段階の境目は `PlayerSale` の定数に置く
 
 ```csharp
@@ -79,6 +84,7 @@ public const int DeepGratitudeThresholdPermille = 400;   // 単位: ‰。400 = 
 - `TradeSettlement.ExecutePlayerSale`(新規)
 - `DemandLine.AvailableFunds`(新しい欄)と `BuyerDemand.BuildLine` での設定
 - `HouseholdState.PlayerId`・`HouseholdState.PlayerOfferDayIndex` と、`StateHasher` への追加・`StateHasherCoverageTests` の期待一覧の更新
+- `BuyerDemand.HasDemandLine`(新規の静的メソッド)と、`NeedGenerationSystem.CollectDistantStock` の条件の追加(訂正2)
 
 **含まない:**
 
@@ -96,6 +102,8 @@ public const int DeepGratitudeThresholdPermille = 400;   // 単位: ‰。400 = 
 | `DisclosedNeeds` の3理由(生産停止・工具切れ・遠方在庫) | GDD01 §6.1 | 一致。`PlayerSale` は `DisclosedNeeds.Of` を**呼ばない**(Id 昇順に並べ替えた列は要らない)が、同じ3理由に絞る |
 | `TradeSystem` 段8 の差し引き(理由 → 引く用途の対応、0 以下で `RemoveAll`、格納順のまま走査) | GDD02b §8.1 の表 / TDD01 §3.3 段8 | 一致。**本タスクは対応表を `NeedDeduction.Subtracts` へ移すだけで、結果は変えない** |
 | `TradeSettlement.Execute` / `ExecuteImport` / `ExecuteExport` | TDD01 §3.2 / GDD02b §3.2 | 変えない。`ExecutePlayerSale` が `ExecuteImport` と同じ形で買い手側だけを動かす |
+| `NeedGenerationSystem` の遠方在庫以外の4理由と、組み直し・Id の引き継ぎ | GDD02b §8.1 | 変えない。**遠方在庫の条件だけを変える**(訂正2)。`HouseholdSystem` の付け替えが `UnfilledPurchase` を消さないことも変えない |
+| `TradeSystem` が `UnfilledPurchase` を書く規則(行単位で積み、1個でも買えた品目を 0 に戻す) | GDD02b §8.1 / GDD06 §3.1 | 変えない |
 
 ## 作るもの
 
@@ -203,6 +211,19 @@ public static class NeedDeduction
 - 単位: 日の通し番号(`Tick.DayIndex`)。毎日戻すシステムは作らない(TDD01 §3.8)
 - `StateHasher` の Households 区分に、既存の欄の**後ろ**に足す(区分タグは動かさない)。`StateHasherCoverageTests` の `HouseholdState` の期待一覧に足す
 
+### 6. 遠方在庫の条件(GDD02b §8.1。訂正2)
+
+```csharp
+/// その職業の世帯が、その品目に需要の行を持つか。Build が行を作る条件と同じ:
+/// 必需の目標在庫の日数 > 0 / 嗜好の目標在庫の日数 > 0 / 工具 / その職業のレシピの入力。
+public static bool HasDemandLine(WorldDefinition definition, Occupation occupation, int itemId);
+```
+
+- `BuyerDemand` の静的メソッドとして置く。**`Build` の4つのループの条件はそのまま変えない**(条件が2か所に書かれるので、テスト #17 が一致を見る)
+- `NeedGenerationSystem.CollectDistantStock` は、`household.UnfilledPurchase[itemId] > 0` **かつ** `BuyerDemand.HasDemandLine(definition, household.Occupation, itemId)` のときだけ Need を足す。**`household.Occupation` は順3 の付け替えの後の値である**(順4 が読む時点の職業)
+- **`UnfilledPurchase` 自体は消さない**(書くのは順5 だけ。TDD01 §3.8)
+- **経済の軌跡は変わらない。** `World.Needs` を読むのは段8 の差し引き・`DisclosedNeeds`(台詞)・`StateHasher`・本タスクの `PlayerSale` だけで(`grep` で確認)、どれも価格・在庫・資金に戻らない。付け替えの翌日に限り、Need の件数・Id の払い出し・状態ハッシュが変わる
+
 ## 呼び出し側を持たないコード(規則7)
 
 本タスクの `PlayerSale.Execute` は**パイプラインのどのシステムからも呼ばれない。** 呼ぶのは #263 のコマンドである。
@@ -237,6 +258,8 @@ public static class NeedDeduction
 | 13 | `Execute_RejectsInvalidArguments` | `unitPrice = 0`、`offeredQuantity = 0`、範囲外の世帯 Id・品目 Id → `ArgumentOutOfRangeException`、状態不変 | 0 円・0 個を Result や約定で通す | — |
 | 14 | `NeedDeduction_SubtractsMatchesTheTable` | 5理由 × 4用途の20組すべてを GDD02b §8.1 の表と照合 | 対応表の写し間違い | **核心**: 遠方在庫の行から `Preference` を外す / 赤 |
 | 15 | `StateHasher_ChangesWhenPlayerOfferDayIndexChanges` | 同じ世界の2つの複製で `PlayerOfferDayIndex[0]` だけ違う → ハッシュが異なる | ハッシュへ入れ忘れる(期待一覧は足したが `StateHasher` に書かない) | — |
+| 16 | `NeedGeneration_DoesNotRaiseDistantStockForAnItemTheCurrentOccupationDoesNotDemand`(`NeedGenerationSystemTests.cs`) | 世帯の職業を、旧入力 X を入力に持たない職業へ書き換え、`UnfilledPurchase[X] > 0` のまま順4 を走らせる → X に遠方在庫が立たない。**同じ状態で職業を戻すと立つ**(条件以外で落ちていないことの対照)。薪のように付け替え先にも行がある品目は立つ | 条件を足し忘れる / 付け替え前の職業で判定する | **核心**: `CollectDistantStock` の `HasDemandLine` の条件を外す / 赤 |
+| 17 | `HasDemandLine_AgreesWithBuild`(`BuyerDemandTests.cs`) | 全職業 × 全品目で、`HasDemandLine` が真 ⇔ その職業の世帯で `Build` の `Lines` にその品目の行がある | 2か所の条件がずれる(工具を落とす・嗜好を落とす) | — |
 
 - **段8 の既存テスト(`TradeScheduleTests` / `TradeSystemTests` の差し引き)が緑のままであること**が、#4 の置き換えの保護である。新しいテストは足さない
 - **#9 の「薪」は、必需と生産の入力の両方に行を持つ職業の世帯で作る**(行が1つしか無い品目では (b) が `Purpose` の取り違えを捕まえない)
