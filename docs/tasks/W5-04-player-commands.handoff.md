@@ -10,3 +10,11 @@
 - **到着を処理するシステムを置き、到着 tick に `DistrictId` を書き換える** — 順1〜9 が `Player` を読まない規約(TDD01 §3.2)に例外を作る。`LocationAt` の純関数で足りる。**失われる保護**: 到着済みの状態が「出発地 + 過去の到着 tick」のまま残るので、同じ場所に居る2つの世界のハッシュが違いうる(次の移動が正規化するまで)。比較は同一台本どうしなので実害は無い
 - **初期所持金を `WorldDefinition` のコンストラクタ引数にする** — 引数を足すと既存の定義の生成箇所すべてに波及する。GDD02 §2.4 は難度の定数としか言っていない。#264 が振りたくなったら引数にする
 - **`World` を `SimHost` の公開プロパティにする** — Godot が `Query`(#275)を通らずに `World` を読み書きできてしまう。internal + `InternalsVisibleTo` にした
+
+## フェーズ2(1回目の走行。`SPEC-OUTSIDE` で停止)
+
+- **implementer の件数**: 初回 止まった 0 / 決めて報告 5(凍結一覧 `StateHasherCoverageTests` に Player 区分を足した / `TryOfferPrice` が false のとき `NoOffer` / `ExecuteExport` の本体を `SettleSellerSideOnly` に抜き出して共用 / `SimPipeline` を public static / `PlayerCommandExecutor` を internal の別クラスに)。1巡目の修正 止まった 0 / 決めて報告 1(R1 は上限 2 以上の世帯をループで探し、無ければ `Assert.Fail`)
+- **巡ごとの件数**: 1巡目 象限I 3件(I-a 2 → 直した `4ddff39`、I-b-1 1 → 停止)、象限II 0
+- **停止の理由**: 1巡目 I-b-1 — TDD01 §3.4(`2acf3b0` で追加)の「`SimContext` の系統を開くと §3.1 の『`Step` の外からの利用』で例外になる」は広い保証。コマンドは `SimContext` を持たず、乱数を引くなら public の `RandomSource.Open` を直接呼べるので、系統の検査もこの歯止めも働かない。訂正先が TDD なのでフェーズ1 へ戻す。レビュアーの案は「一文を外す」か「`SimContext` を持たないので歯止めは無い。レビュー観点で守る」に狭める
+- **再開時**: 2巡目から。前巡の象限I は上の3件(I-a 2件は R1・R2 で対応済み)
+- 先回しの実測(Release、JIT 後): シード1〜5 で 26 / 27 / 27 / 27 / 34 ms(1周目は 85 / 24 / 26 / 23 / 35 ms、シード1 は初回 JIT 込み)
