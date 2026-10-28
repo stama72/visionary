@@ -13,6 +13,11 @@
 
 ## implementer の件数(フェーズ2)
 
+1回目(`c23dfe2` 実装 / `7143ecf` テスト): 止まって報告 1 件 / 決めて報告 5 件。
+
+- **止まった**: テスト #6(`CannotAfford`)の状態が作れない。`CashCap = FloorDiv(AvailableFunds, max(daily,1)) ≤ AvailableFunds` なので `価格 ≤ Budget` なら `FloorDiv(AvailableFunds, 価格) ≥ 1`。手順7 の `quantity < 1` は到達不能(防御として実装は残してある)。GDD06 §6.1(275行「予算以下だったが資金で払える数が 0 だった値は数える」)がこの場合の存在を前提にしているので、フェーズ2 では裁かず `IMPL-BLOCKED` で止めた
+- 決めた: `NeedId` は `NoNeed` 以外で当てた Need の Id(`AlreadyOfferedToday` を含む)/ `Purpose` は `OverBudget`・`CannotAfford` で当てた行の用途、`NoNeed`・`AlreadyOfferedToday` は既定値 / `Subtracts` の用途の検査を理由の switch の前に置く / 段8 は `PurposeCount` 回のループで `Subtracts` の和 / テストの世界は 1日目 10時(`Now.Value = 34`)から始める(相場基準の観測が前日までしか効かないため。境界の関係は仕様の例と同じ)。#15 は `StateHasherTests.cs` に置いた
+
 ## 直さないと決めた指摘(フェーズ2)
 
 | 巡 | 象限 | 指摘 | 直さない理由 |
