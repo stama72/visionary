@@ -242,7 +242,7 @@ public sealed class SimHost
 | 20 | 記帳時刻の非減少 | D0T10 に世帯 s から買い(テスト 15 の形)、`Advance` で D1T00 まで回す。s の帳簿の当日の行は `OccurredAt` が非減少で、プレイヤーとの行は D0T10、NPC との行は D0T18(**s は、同じシードで D0T18 に NPC との行が立つ世帯から選ぶ**。立たない世帯だと非減少が空虚に通る) | コマンドが記帳時刻を当日の18時や翌日にする(`MarketReference.TryPreviousDaySettledPrice` の打ち切りが壊れる。TDD01 §3.4) | |
 | 21 | 先回し | `SimHost(M0, 1, startDay: 15)` の `Now` = D15T00、ハッシュが `SimHost(M0, 1)` + `Advance(360)` と一致 | 開始日 × 24 を忘れる / 先回しで別の乱数源を使う | |
 | 22 | 先回しの引数 | `startDay: -1` → `ArgumentOutOfRangeException`。`startDay: 0` → `Now` = D0T00 | 負の開始日を黙って 0 に丸める | |
-| 23 | 決定論 | 同じシード・同じコマンド列を2つの `SimHost` に流すと、各日の終わりのハッシュが一致 | コマンドが列挙順の保証されないコレクションを使う | |
+| 23 | 決定論 | 同じシード・同じコマンド列を2つの `SimHost` に流すと、各日の終わりのハッシュが一致 | ~~コマンドが列挙順の保証されないコレクションを使う~~ → 2つのホストが共有する静的な可変状態を、コマンドが読み書きする(**2巡目 I-b-1 で狭めた**: 同じプロセスの中では `Dictionary` の列挙順は挿入順が同じなら一致するので、このテストは列挙順への依存を捕まえない。列挙順はレビュー観点で守る) | |
 | 24 | パイプラインの移設 | `SimPipeline.Build` の系統の並びが、移設前の `Program.BuildPipeline` と同じ(`Production`, `Consumption`, `Household`, `NeedGeneration`, `TradePlanning`, `Trade`, `Metrics` の系統) | 並びを変える / 抜ける | |
 | 25 | `Execute` の呼び出し側の誤り | `null` → `ArgumentNullException`。未知の `ICommand` 実装 → `ArgumentException` | 未知の型を黙って Accepted にする | |
 | 26 | ハッシュに Player が乗る | 所持金・所持品の1要素・`DistrictId`・`MoveDestinationDistrictId`・`MoveArrivalTick` を1つずつ変えると、それぞれハッシュが変わる | 区分を書き忘れる / 5つのうちどれかを入れ忘れる | **核心**: `StateHasher` の Player 区分から `MoveArrivalTick` の書き込みを消す / 赤 |
