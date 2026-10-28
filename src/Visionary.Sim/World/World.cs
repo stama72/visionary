@@ -69,6 +69,8 @@ public sealed class World
             Ledgers[householdId] = new List<LedgerEntry>();
         }
 
+        Player = new PlayerState(itemCount);
+
         Market = new SortedDictionary<MarketKey, int>();
         TrustLedger = new SortedDictionary<TrustKey, TrustScore>();
         Needs = new List<Need>();
@@ -89,6 +91,12 @@ public sealed class World
 
     /// <summary>Id 昇順。添字 = 世帯Id(TDD01 §3.2)。</summary>
     public HouseholdState[] Households { get; }
+
+    /// <summary>
+    /// プレイヤー(TDD01 §3.2)。順1〜9 のシステムは読まない ── 読み書きするのは
+    /// <c>Visionary.Sim.Commands</c> のコマンドだけである。
+    /// </summary>
+    public PlayerState Player { get; }
 
     /// <summary>品目 × 売り手世帯 → 提示価格。Id昇順の疎構造(TDD01 §3.2 / GDD02c §1)。</summary>
     public SortedDictionary<MarketKey, int> Market { get; }

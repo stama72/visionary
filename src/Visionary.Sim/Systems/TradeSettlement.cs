@@ -261,6 +261,36 @@ public static class TradeSettlement
     public static void ExecuteExport(
         World world, HouseholdState seller, int itemId, int quantity, int unitPrice, int sellerReserveQuantity)
     {
+        SettleSellerSideOnly(
+            world, seller, HouseholdState.ExternalMarketSellerId, itemId, quantity, unitPrice,
+            sellerReserveQuantity);
+    }
+
+    /// <summary>
+    /// プレイヤーが世帯から買う約定(GDD06 §6.2 / TDD01 §3.2)。<b>売り手側だけ動かす。</b>
+    /// 帳簿の相手は <see cref="HouseholdState.PlayerId"/>。仕入れ移動平均は更新しない(売りであり、
+    /// 原価の観測ではない)。プレイヤーの所持金・所持品は呼び出し側(#263 のコマンド)が動かす。
+    /// <see cref="ExecuteExport"/> と同じ番人(W2-14)。
+    /// </summary>
+    /// <param name="sellerReserveQuantity">売り手の留保量。単位: 個。</param>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="quantity"/> または <paramref name="unitPrice"/> が0以下。
+    /// </exception>
+    /// <exception cref="InvalidOperationException">この約定を適用すると売り手の工房在庫が留保量を割る。</exception>
+    public static void ExecutePlayerPurchase(
+        World world, HouseholdState seller, int itemId, int quantity, int unitPrice, int sellerReserveQuantity)
+    {
+        SettleSellerSideOnly(
+            world, seller, HouseholdState.PlayerId, itemId, quantity, unitPrice, sellerReserveQuantity);
+    }
+
+    /// <summary>
+    /// <see cref="ExecuteExport"/> と <see cref="ExecutePlayerPurchase"/> の共通の本体。相手 Id だけが違う。
+    /// </summary>
+    private static void SettleSellerSideOnly(
+        World world, HouseholdState seller, int counterpartyId, int itemId, int quantity, int unitPrice,
+        int sellerReserveQuantity)
+    {
         ArgumentNullException.ThrowIfNull(world);
         ArgumentNullException.ThrowIfNull(seller);
 
@@ -290,7 +320,7 @@ public static class TradeSettlement
 
         world.Ledgers[seller.Id].Add(new LedgerEntry
         {
-            CounterpartyId = HouseholdState.ExternalMarketSellerId,
+            CounterpartyId = counterpartyId,
             ItemId = itemId,
             Quantity = quantity,
             UnitPrice = unitPrice,

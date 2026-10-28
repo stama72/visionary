@@ -1,4 +1,6 @@
+using Visionary.Sim.Commands;
 using Visionary.Sim.Determinism;
+using Visionary.Sim.Dialogue;
 using Visionary.Sim.Randomness;
 using Visionary.Sim.Systems;
 using Visionary.Sim.Time;
@@ -183,64 +185,178 @@ public sealed class TradePipelineTests
     }
 
     /// <summary>
-    /// 【核心】テスト表 #17(#38)。M0・60日・シード1: Σ(流動資金の変化) ==
-    /// Σ(外部 <c>Sale</c> の額) − Σ(外部 <c>Purchase</c> の額)。GDD02d §4.1 の恒等式そのもの。
+    /// 【核心】テスト表 #17(#38)を W5-04 テスト表 #28 で書き直したもの(GDD02d §4.1)。<c>SimHost</c> を通して
+    /// プレイヤーを毎日動かし、毎日の終わり(翌日の0時)に
+    /// <c>(Σ世帯の流動資金 − 初日の Σ) + (所持金 − 2,400) ==
+    /// (世帯の輸出 − 輸入) + (窓口へ売った Payment の累計 − 窓口から買った Payment の累計)</c> を表明する。
+    /// 世帯の輸出入は相手 = <see cref="HouseholdState.ExternalMarketSellerId"/> の行だけ
+    /// (プレイヤーとの行は相手が <see cref="HouseholdState.PlayerId"/> なので混ざらない)。
+    /// 窓口の約定は帳簿に残らないので、<c>Result.Payment</c> の累計で数える。
     /// </summary>
     /// <remarks>
-    /// <b>変異の実測(2026-09-21、<c>mutator</c> が使い捨てworktreeで測定、対象コミット
-    /// <c>39e367a</c>、M-3)。</b><c>TradeSettlement.ExecuteExport</c> の記帳を落とす
-    /// (資金と在庫だけ動かす)変異は期待どおり赤になった。
+    /// <b>台本</b>(シード1・60日)。各日 d について: (1) 6時まで進める。(2) 世帯 Id 昇順で最初の開示 Need
+    /// (Id 昇順の先頭)の品目を窓口から買い(最大3個)、その世帯の区画へ行って <c>AskNeeds</c> し、価格 1 で
+    /// 所持品ぜんぶを売る。(3) いまの区画に居る世帯のうち、提示価格と販売在庫(1以上)がある最初の世帯から1個買う。
+    /// (4) 中心へ戻り、所持品のうち都市生産品をぜんぶ窓口へ売る。(5) 翌日の0時まで進める。
+    /// <b>4方向(窓口から買う・窓口へ売る・世帯から買う・世帯へ売る)の Accepted が1件以上</b>を走行後に表明する
+    /// ── 0件のまま緑になると、その方向の項を誰も見ないまま残る(#261 全般アドバイザー指摘1)。
     /// </remarks>
     [Fact]
     public void MoneyChangesOnlyByTheExternalLedger()
     {
         var definition = WorldDefinition.M0;
-        var world = WorldGenerator.Generate(definition, new RandomSource(1));
+        var host = new SimHost(definition, 1);
+        var world = host.World;
 
-        long initialFundsTotal = 0;
-        foreach (var household in world.Households)
+        long initialHouseholdFunds = world.Households.Sum(household => (long)household.LiquidFunds);
+
+        long windowSold = 0;
+        long windowBought = 0;
+        int acceptedBuyFromWindow = 0;
+        int acceptedSellToWindow = 0;
+        int acceptedBuyFromHousehold = 0;
+        int acceptedSellToHousehold = 0;
+
+        for (int day = 0; day < 60; day++)
         {
-            initialFundsTotal += household.LiquidFunds;
-        }
+            host.Advance(WorldDefinition.WorkdayStartHour);
 
-        var scheduler = new SimScheduler(FullPipeline(definition), new RandomSource(1));
-        scheduler.Advance(world, ticks: 60 * 24);
-
-        long finalFundsTotal = 0;
-        foreach (var household in world.Households)
-        {
-            finalFundsTotal += household.LiquidFunds;
-        }
-
-        long externalSaleTotal = 0;
-        long externalPurchaseTotal = 0;
-        bool anyExternalEntry = false;
-
-        foreach (var household in world.Households)
-        {
-            foreach (var entry in world.Ledgers[household.Id])
+            // (2) 開示 Need を持つ最初の世帯。
+            foreach (var household in world.Households)
             {
-                if (entry.CounterpartyId != HouseholdState.ExternalMarketSellerId)
+                var needs = DisclosedNeeds.Of(world, household.Id);
+
+                if (needs.Count == 0)
                 {
                     continue;
                 }
 
-                anyExternalEntry = true;
-                long amount = (long)entry.Quantity * entry.UnitPrice;
+                int itemId = needs[0].ItemId;
 
-                if (entry.Direction == LedgerDirection.Sale)
+                var bought = host.Execute(new BuyFromWindowCommand(itemId, Math.Min(needs[0].Quantity, 3)));
+
+                if (bought.Status == CommandStatus.Accepted)
                 {
-                    externalSaleTotal += amount;
+                    acceptedBuyFromWindow++;
+                    windowBought += bought.Payment;
                 }
-                else
+
+                if (household.DistrictId != District.ExternalMarketDistrictId)
                 {
-                    externalPurchaseTotal += amount;
+                    TravelTo(host, household.DistrictId);
+                }
+
+                Assert.Equal(CommandStatus.Accepted, host.Execute(new AskNeedsCommand(household.Id)).Status);
+
+                var sold = host.Execute(new SellToHouseholdCommand(
+                    household.Id, itemId, 1, world.Player.Inventory[itemId]));
+
+                if (sold.Status == CommandStatus.Accepted)
+                {
+                    acceptedSellToHousehold++;
+                }
+
+                break;
+            }
+
+            // (3) いまの区画の売り手から1個。
+            int here = world.Player.LocationAt(world.Now).DistrictId;
+
+            foreach (var household in world.Households)
+            {
+                int outputItemId = definition.Recipes[(int)household.Occupation].Outputs[0].ItemId;
+
+                if (household.DistrictId == here
+                    && world.Market.ContainsKey(new MarketKey(outputItemId, household.Id))
+                    && SellableStock.Of(definition, household, outputItemId) >= 1)
+                {
+                    var purchase = host.Execute(new BuyFromHouseholdCommand(household.Id, outputItemId, 1));
+
+                    if (purchase.Status == CommandStatus.Accepted)
+                    {
+                        acceptedBuyFromHousehold++;
+                    }
+
+                    break;
                 }
             }
+
+            // (4) 中心へ戻り、都市生産品を窓口へ。
+            if (here != District.ExternalMarketDistrictId)
+            {
+                TravelTo(host, District.ExternalMarketDistrictId);
+            }
+
+            for (int itemId = 0; itemId < definition.ItemCount; itemId++)
+            {
+                if (definition.IsPrimaryItem(itemId) || world.Player.Inventory[itemId] == 0)
+                {
+                    continue;
+                }
+
+                var sold = host.Execute(new SellToWindowCommand(itemId, world.Player.Inventory[itemId]));
+
+                if (sold.Status == CommandStatus.Accepted)
+                {
+                    acceptedSellToWindow++;
+                    windowSold += sold.Payment;
+                }
+            }
+
+            // (5) 翌日の0時まで。
+            host.Advance(checked((int)(Tick.FromDays(day + 1).Value - host.Now.Value)));
+
+            // (6) 毎日の終わりの恒等式。
+            long householdFundsChange = world.Households.Sum(household => (long)household.LiquidFunds)
+                - initialHouseholdFunds;
+            long playerFundsChange = world.Player.Funds - WorldDefinition.PlayerInitialFunds;
+
+            long externalSale = 0;
+            long externalPurchase = 0;
+
+            foreach (var household in world.Households)
+            {
+                foreach (var entry in world.Ledgers[household.Id])
+                {
+                    if (entry.CounterpartyId != HouseholdState.ExternalMarketSellerId)
+                    {
+                        continue;
+                    }
+
+                    long amount = (long)entry.Quantity * entry.UnitPrice;
+
+                    if (entry.Direction == LedgerDirection.Sale)
+                    {
+                        externalSale += amount;
+                    }
+                    else
+                    {
+                        externalPurchase += amount;
+                    }
+                }
+            }
+
+            Assert.True(
+                householdFundsChange + playerFundsChange
+                    == (externalSale - externalPurchase) + (windowSold - windowBought),
+                $"D{day + 1}T00: 世帯の資金変化({householdFundsChange}) + プレイヤーの資金変化({playerFundsChange})"
+                    + $" != 世帯の輸出入({externalSale - externalPurchase}) + 窓口との売買({windowSold - windowBought})。");
         }
 
-        Assert.Equal(finalFundsTotal - initialFundsTotal, externalSaleTotal - externalPurchaseTotal);
-        Assert.True(anyExternalEntry, "60日回しても外部の約定が1件も無い(値の問題の可能性)。");
+        // 4方向が空振りしていない(0件のまま緑になって、その方向の項を誰も見ないのを防ぐ)。
+        Assert.True(acceptedBuyFromWindow >= 1, "窓口から買うが一度も Accepted にならなかった(値の問題の可能性)。");
+        Assert.True(acceptedSellToWindow >= 1, "窓口へ売るが一度も Accepted にならなかった(値の問題の可能性)。");
+        Assert.True(acceptedBuyFromHousehold >= 1, "世帯から買うが一度も Accepted にならなかった(値の問題の可能性)。");
+        Assert.True(acceptedSellToHousehold >= 1, "世帯へ売るが一度も Accepted にならなかった(値の問題の可能性)。");
+    }
+
+    /// <summary>移動して到着まで進める(<c>Move</c> は時間を進めない)。</summary>
+    private static void TravelTo(SimHost host, int districtId)
+    {
+        var move = host.Execute(new MoveCommand(districtId));
+
+        Assert.Equal(CommandStatus.Accepted, move.Status);
+        host.Advance(checked((int)(move.ArrivalAt!.Value.Value - host.Now.Value)));
     }
 
     /// <summary>

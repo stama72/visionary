@@ -41,6 +41,9 @@ public static class WorldGenerator
         // ISimSystemではないのでSimContextを通らず、RandomSource.Openを直接呼ぶ(仕様)。
         var rng = random.Open(RandomStream.WorldGen, Tick.Zero);
 
+        // 乱数を引かない(WorldGen 系統の消費列を変えない)。
+        world.Player.Funds = WorldDefinition.PlayerInitialFunds;
+
         int[] districts = AssignDistricts(ref rng, definition.HouseholdCount);
         Occupation[] occupations = AssignOccupations(ref rng, districts, definition);
 
