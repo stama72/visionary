@@ -772,4 +772,48 @@ public sealed class BuyerDemandTests
 
         Assert.True(anySummerPrimaryLine, "夏の1次産品の行が1件も無い(値の問題の可能性)。");
     }
+
+    /// <summary>
+    /// W5-03 テスト #17。<see cref="BuyerDemand.HasDemandLine"/> が真 ⇔ その職業の世帯で
+    /// <see cref="BuyerDemand.Build"/> の <c>Lines</c> にその品目の行がある(全職業 × 全品目)。
+    /// 条件が2か所に書かれているので、ずれたら落ちる。
+    /// </summary>
+    [Fact]
+    public void HasDemandLine_AgreesWithBuild()
+    {
+        var definition = BuildDefinition();
+        var buyerDemand = new BuyerDemand(definition);
+        int checkedTrue = 0;
+        int checkedFalse = 0;
+
+        foreach (var occupation in Enum.GetValues<Occupation>())
+        {
+            var world = EconomySystemTestFixtures.BuildWorldWithOneHousehold(new[] { NpcRank.Master });
+            var household = world.Households[0];
+            household.Occupation = occupation;
+
+            var demand = buyerDemand.Build(
+                world, household, hasPreviousOutputOfferPrice: false, previousOutputOfferPrice: 0);
+
+            for (int itemId = 0; itemId < definition.ItemCount; itemId++)
+            {
+                bool hasLine = demand.Lines.Any(line => line.ItemId == itemId);
+
+                Assert.Equal(hasLine, BuyerDemand.HasDemandLine(definition, occupation, itemId));
+
+                if (hasLine)
+                {
+                    checkedTrue++;
+                }
+                else
+                {
+                    checkedFalse++;
+                }
+            }
+        }
+
+        // 両方の向きを踏んでいる(全部真・全部偽の定義では何も見ていない)。
+        Assert.True(checkedTrue > 0);
+        Assert.True(checkedFalse > 0);
+    }
 }

@@ -27,6 +27,23 @@ public sealed class StateHasherTests
     private static World OneHouseholdWorld(int itemCount = 0) =>
         new(npcCount: 1, householdCount: 1, itemCount: itemCount);
 
+    /// <summary>
+    /// テスト表 #15(#253)。同じ世界の2つの複製で <c>PlayerOfferDayIndex[0]</c> だけが違えばハッシュが
+    /// 異なる(期待一覧に足して <c>StateHasher</c> に書き忘れると落ちる)。複製は同じ手順で2回作る。
+    /// </summary>
+    [Fact]
+    public void StateHasher_ChangesWhenPlayerOfferDayIndexChanges()
+    {
+        var left = OneHouseholdWorld(itemCount: 3);
+        var right = OneHouseholdWorld(itemCount: 3);
+
+        Assert.Equal(StateHasher.Compute(left), StateHasher.Compute(right));
+
+        right.Households[0].PlayerOfferDayIndex[0] = 0;
+
+        Assert.NotEqual(StateHasher.Compute(left), StateHasher.Compute(right));
+    }
+
     [Fact]
     public void HashChangesWhenClockAdvances()
     {

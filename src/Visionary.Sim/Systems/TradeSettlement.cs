@@ -151,6 +151,47 @@ public static class TradeSettlement
         int unitEffectivePrice,
         int acquisitionCostSmoothingPermille)
     {
+        SettleBuyerSideOnly(
+            world, buyer, HouseholdState.ExternalMarketSellerId, purpose, itemId, quantity,
+            unitEffectivePrice, acquisitionCostSmoothingPermille);
+    }
+
+    /// <summary>
+    /// プレイヤーが世帯へ売る約定(GDD06 §6.1 / TDD01 §3.2)。<b>買い手側だけ動かす。</b>プレイヤーは
+    /// 世帯在庫・帳簿を持たない(所持金・所持品は #263 の <c>Player</c> 区分が呼び出し側で動かす)。
+    /// 帳簿の相手は <see cref="HouseholdState.PlayerId"/>。仕入れ移動平均は <see cref="ExecuteImport"/>
+    /// と同じく生産の入力と耐久のときだけ更新する(#261 決定3)。
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="quantity"/> または <paramref name="unitPrice"/> が0以下。
+    /// </exception>
+    public static void ExecutePlayerSale(
+        World world,
+        HouseholdState buyer,
+        DemandPurpose purpose,
+        int itemId,
+        int quantity,
+        int unitPrice,
+        int acquisitionCostSmoothingPermille)
+    {
+        SettleBuyerSideOnly(
+            world, buyer, HouseholdState.PlayerId, purpose, itemId, quantity,
+            unitPrice, acquisitionCostSmoothingPermille);
+    }
+
+    /// <summary>
+    /// <see cref="ExecuteImport"/> と <see cref="ExecutePlayerSale"/> の共通の本体。相手 Id だけが違う。
+    /// </summary>
+    private static void SettleBuyerSideOnly(
+        World world,
+        HouseholdState buyer,
+        int counterpartyId,
+        DemandPurpose purpose,
+        int itemId,
+        int quantity,
+        int unitEffectivePrice,
+        int acquisitionCostSmoothingPermille)
+    {
         ArgumentNullException.ThrowIfNull(world);
         ArgumentNullException.ThrowIfNull(buyer);
 
@@ -180,7 +221,7 @@ public static class TradeSettlement
 
         world.Ledgers[buyer.Id].Add(new LedgerEntry
         {
-            CounterpartyId = HouseholdState.ExternalMarketSellerId,
+            CounterpartyId = counterpartyId,
             ItemId = itemId,
             Quantity = quantity,
             UnitPrice = unitEffectivePrice,

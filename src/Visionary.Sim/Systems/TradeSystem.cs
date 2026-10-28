@@ -233,18 +233,16 @@ public sealed class TradeSystem : ISimSystem
 
             // 理由ごとに数量の出所(どの在庫の不足か)が違うので、同じ購入を複数の Need から引いてよい
             // (GDD02b §8.1 の表は購入を Need の間で配分していない)。
-            int subtract = need.ReasonCode switch
+            // 対応表は NeedDeduction.Subtracts が持つ(プレイヤーの販売と共有)。
+            int subtract = 0;
+
+            for (int p = 0; p < PurposeCount; p++)
             {
-                NeedReason.ProductionStopped => bought[(int)DemandPurpose.ProductionInput][itemId],
-                NeedReason.ToolsExhausted => bought[(int)DemandPurpose.Durable][itemId],
-                NeedReason.Distress => bought[(int)DemandPurpose.Necessity][itemId],
-                NeedReason.DistantStock =>
-                    bought[(int)DemandPurpose.ProductionInput][itemId]
-                    + bought[(int)DemandPurpose.Necessity][itemId]
-                    + bought[(int)DemandPurpose.Preference][itemId]
-                    + bought[(int)DemandPurpose.Durable][itemId],
-                _ => 0, // CannotExpandProduction は ‰人日で、買い物では埋まらない
-            };
+                if (NeedDeduction.Subtracts(need.ReasonCode, (DemandPurpose)p))
+                {
+                    subtract += bought[p][itemId];
+                }
+            }
 
             if (subtract > 0)
             {

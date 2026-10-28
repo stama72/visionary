@@ -50,6 +50,14 @@ public readonly record struct DemandLine
     /// <b>第1項(基礎値)は常にある</b>(決定11)。
     /// </summary>
     public int Budget { get; init; }
+
+    /// <summary>
+    /// 用途に使える資金(母数。<see cref="BuyerBudget.AvailableFunds"/> の結果で、<see cref="CashCap"/> の
+    /// 元になった値)。単位: 貨幣。プレイヤーの販売の数量上限(GDD06 §6.1)が読む。
+    /// <see cref="HouseholdDemand.NecessityReserve"/> / <see cref="HouseholdDemand.WorkingCapital"/> から
+    /// 組み直してはならない ── 耐久と生産の入力の行は運転資金0で呼ぶので、合計から組むと食い違う。
+    /// </summary>
+    public int AvailableFunds { get; init; }
 }
 
 /// <summary>世帯1戸ぶんの需要(GDD02c §2 / GDD02b §3・§5)。</summary>
@@ -84,6 +92,33 @@ public sealed class BuyerDemand
         ArgumentNullException.ThrowIfNull(definition);
 
         _definition = definition;
+    }
+
+    /// <summary>
+    /// その職業の世帯が、その品目に需要の行を持つか(GDD02b §8.1)。<see cref="Build"/> が行を作る条件と
+    /// 同じ: 必需の目標在庫の日数 &gt; 0 / 嗜好の目標在庫の日数 &gt; 0 / 工具(耐久) / その職業のレシピの入力。
+    /// 条件が <see cref="Build"/> と2か所に書かれるので、<c>HasDemandLine_AgreesWithBuild</c> が一致を見る。
+    /// </summary>
+    public static bool HasDemandLine(WorldDefinition definition, Occupation occupation, int itemId)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+
+        if (definition.NecessityTargetStockDays[itemId] > 0
+            || definition.PreferenceTargetStockDays[itemId] > 0
+            || itemId == Item.Tools)
+        {
+            return true;
+        }
+
+        foreach (var input in definition.Recipes[(int)occupation].Inputs)
+        {
+            if (input.ItemId == itemId)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>世帯の (用途, 品目) の組をすべて作る。</summary>
@@ -333,6 +368,7 @@ public sealed class BuyerDemand
             StockPressurePermille = stockPressure,
             BaseValue = baseValue,
             Budget = budget,
+            AvailableFunds = availableFunds,
         };
     }
 }

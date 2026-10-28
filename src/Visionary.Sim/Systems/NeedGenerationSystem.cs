@@ -223,7 +223,9 @@ public sealed class NeedGenerationSystem : ISimSystem
         {
             int unfilled = household.UnfilledPurchase[itemId];
 
-            if (unfilled <= 0)
+            // 順3 の付け替え後の職業で、需要の行が無い品目には立てない(旧入力の未充足が残る日がある。
+            // 立てると開示されるのに PlayerSale が行を見つけられない。GDD02b §8.1)。
+            if (unfilled <= 0 || !BuyerDemand.HasDemandLine(_definition, household.Occupation, itemId))
             {
                 continue;
             }
