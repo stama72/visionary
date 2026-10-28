@@ -44,6 +44,73 @@ public sealed class StateHasherTests
         Assert.NotEqual(StateHasher.Compute(left), StateHasher.Compute(right));
     }
 
+    /// <summary>
+    /// 【核心】W5-04 テスト表 #26。Player 区分の5欄(所持金・所持品の1要素・区画・行き先・到着 tick)を
+    /// 1つずつ変えると、それぞれハッシュが変わる。<b>5つとも別々に見る</b> ── どれかの書き忘れが
+    /// 他の欄の変化に隠れない。
+    /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-10-28、<c>mutator</c> が使い捨てworktreeで測定、対象コミット <c>ab4a39c</c>、
+    /// 全 787 件を変異ごとに実行)。</b>
+    /// M4: <c>StateHasher</c> の Player 区分から <c>MoveArrivalTick</c> の <c>WriteInt64</c> を削除 → 赤。
+    /// 落ちたのは <c>HashChangesWhenAPlayerFieldChanges(field: "MoveArrivalTick")</c> のみ。
+    /// 期待と実測の食い違いは無かった。
+    /// </remarks>
+    [Theory]
+    [InlineData("Funds")]
+    [InlineData("InventoryElement")]
+    [InlineData("DistrictId")]
+    [InlineData("MoveDestinationDistrictId")]
+    [InlineData("MoveArrivalTick")]
+    public void HashChangesWhenAPlayerFieldChanges(string field)
+    {
+        var world = OneHouseholdWorld(itemCount: 9);
+        var player = world.Player;
+        ulong before = StateHasher.Compute(world);
+
+        switch (field)
+        {
+            case "Funds":
+                player.Funds = 7;
+                break;
+            case "InventoryElement":
+                player.Inventory[5] = 3;
+                break;
+            case "DistrictId":
+                player.DistrictId = 0;
+                break;
+            case "MoveDestinationDistrictId":
+                player.MoveDestinationDistrictId = 0;
+                break;
+            case "MoveArrivalTick":
+                player.MoveArrivalTick = 9;
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(field), field, "未知の欄。");
+        }
+
+        Assert.NotEqual(before, StateHasher.Compute(world));
+    }
+
+    /// <summary>
+    /// W5-04 テスト表 #27。<c>WorldGenerator.Generate</c> 直後のプレイヤー: 所持金 2,400・所持品すべて 0・
+    /// 区画 4(中心)・行き先 −1・到着 0。
+    /// </summary>
+    [Fact]
+    public void GeneratedWorldStartsThePlayerAtTheCentreWithTheInitialFunds()
+    {
+        var definition = WorldDefinition.M0;
+        var world = WorldGenerator.Generate(definition, new RandomSource(1));
+        var player = world.Player;
+
+        Assert.Equal(2400, player.Funds);
+        Assert.Equal(definition.ItemCount, player.Inventory.Length);
+        Assert.All(player.Inventory, count => Assert.Equal(0, count));
+        Assert.Equal(4, player.DistrictId);
+        Assert.Equal(-1, player.MoveDestinationDistrictId);
+        Assert.Equal(0L, player.MoveArrivalTick);
+    }
+
     [Fact]
     public void HashChangesWhenClockAdvances()
     {

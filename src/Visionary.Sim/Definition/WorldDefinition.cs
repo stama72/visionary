@@ -36,6 +36,12 @@ public sealed class WorldDefinition
     /// <remarks><see cref="WorkdayStartHour"/> と同じ理由でコンストラクタの引数にしない。</remarks>
     public const int EveningTradeHour = 18;
 
+    /// <summary>
+    /// プレイヤーの初期所持金。単位: 貨幣(GDD02 §2.4)。世帯の初期資金(<see cref="InitialLiquidFunds"/>)とは
+    /// 別の定数。<see cref="WorkdayStartHour"/> と同じ理由でコンストラクタの引数にしない。
+    /// </summary>
+    public const int PlayerInitialFunds = 2400;
+
     /// <summary>品目数(GDD02 §2.2)。</summary>
     public int ItemCount { get; }
 

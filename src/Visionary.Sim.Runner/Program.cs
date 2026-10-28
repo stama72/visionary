@@ -238,20 +238,11 @@ internal static class Program
     }
 
     /// <summary>
-    /// TDD01 §3.3 の登録順(順1〜順5、順10)。順6〜順9(Promise / Trust /
-    /// UnfairPriceDetection / Rumor)は W3・W4 で実装されるまで存在しないので登録しない。
-    /// 順0(OpportunityCost)は M0 ではシステムを持たない(同節)。
+    /// TDD01 §3.3 の登録順。本体は <see cref="SimPipeline.Build"/> へ移した(TDD01 §3.5)。
+    /// 既存のテストが呼んでいるため残す。
     /// </summary>
-    internal static ISimSystem[] BuildPipeline(WorldDefinition definition, IDailyMetricsSink sink) => new ISimSystem[]
-    {
-        new ProductionSystem(definition),
-        new ConsumptionSystem(definition),
-        new HouseholdSystem(definition),
-        new NeedGenerationSystem(definition),
-        new TradePlanningSystem(definition),
-        new TradeSystem(definition),
-        new MetricsSystem(definition, sink),
-    };
+    internal static ISimSystem[] BuildPipeline(WorldDefinition definition, IDailyMetricsSink sink) =>
+        SimPipeline.Build(definition, sink);
 
     private static bool TryParseLongArgument(string[] args, ref int index, out long value)
     {

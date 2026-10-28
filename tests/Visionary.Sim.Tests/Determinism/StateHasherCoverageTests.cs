@@ -46,6 +46,9 @@ public sealed class StateHasherCoverageTests
         "Now",
         "Npcs",
         "Households",
+
+        // W5-04: プレイヤー(TDD01 §3.2)。区分タグ Player = 10。
+        "Player",
         "Market",
         "TrustLedger",
         "Needs",
@@ -81,6 +84,7 @@ public sealed class StateHasherCoverageTests
         ("Knowledge", 7),
         ("Ledgers", 8),
         ("Households", 9),
+        ("Player", 10),
     };
 
     [Fact]
@@ -156,6 +160,10 @@ public sealed class StateHasherCoverageTests
             "ErrandDelegateNpcId", "PlannedErrandDistrictIds", "ExportErrandTaken",
             "MemoHasPreviousOffer", "MemoPreviousOfferPrice", "MemoHasSellerReference", "MemoSellerReference",
             "PlayerOfferDayIndex",
+        }),
+        (typeof(PlayerState), new[]
+        {
+            "Funds", "Inventory", "DistrictId", "MoveDestinationDistrictId", "MoveArrivalTick",
         }),
         (typeof(MarketKey), new[] { "ItemId", "SellerId" }),
         (typeof(TrustKey), new[] { "From", "To" }),

@@ -46,6 +46,7 @@ public static class StateHasher
         Knowledge = 7,
         Ledgers = 8,
         Households = 9,
+        Player = 10,
     }
 
     /// <summary>World の状態ハッシュ(TDD01 §3.8)。</summary>
@@ -235,6 +236,14 @@ public static class StateHasher
             // #253が足した欄。既存の値は動かさず末尾へ足す(同じ規律)。
             WriteInt32Array(hasher, buffer, household.PlayerOfferDayIndex);
         }
+
+        // プレイヤー(TDD01 §3.8)。要素数は1。区分タグは Households の後(既存の値を動かさず末尾へ足す)。
+        WriteSectionHeader(hasher, buffer, Section.Player, elementCount: 1);
+        WriteInt32(hasher, buffer, world.Player.Funds);
+        WriteInt32Array(hasher, buffer, world.Player.Inventory);
+        WriteInt32(hasher, buffer, world.Player.DistrictId);
+        WriteInt32(hasher, buffer, world.Player.MoveDestinationDistrictId);
+        WriteInt64(hasher, buffer, world.Player.MoveArrivalTick);
 
         // EventLog は含めない(§3.8 の除外表)。意思決定に関与せず、追記専用で巨大。
 
