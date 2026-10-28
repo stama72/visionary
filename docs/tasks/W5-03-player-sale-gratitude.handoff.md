@@ -22,6 +22,14 @@
 
 2回目(`eb939d5` の訂正を受けて `dc8841c`): 止まって報告 0 件 / 決めて報告 1 件(テスト #6 の数値: `funds: 308` で必需の取り置き 108 を引き、工具の `AvailableFunds = CashCap = Budget = 200`。前提は assert で固定)。
 
+3回目(訂正2 を受けて `175b55b`): 止まって報告 0 件 / 決めて報告 3 件。
+
+- 既存の `NeedGenerationSystemTests` 3本(`DistantStockNeedMirrorsUnfilledPurchase` / `NeedIdIsStableWhileTheConditionHolds` / `NeedsAreOrderedByHouseholdThenReasonThenItem`)が新しい条件で赤になった。遠方在庫を立てる品目に需要の行が無い世界で書かれていたため、その品目を必需(目標在庫1日分)にする設定を足した(`NecessityDaysFor`)。assert と期待値は変えていない。仕様の「既存テストは緑のまま」の字面とは食い違う(2巡目のレビューで、期待が緩んでいないことを確認済み)
+- `HasDemandLine` の工具は `itemId == Item.Tools` で判定(`Build` の耐久の行は全世帯に常に1行)
+- テスト #16 は Miller(入力なし)↔ Baker(入力 `InputB`)で比べ、付け替え先にも行がある品目は必需の品目で見た
+
+転記(`7d4df99`): 止まって報告 0 件 / 決めて報告 0 件。
+
 ## 停止(フェーズ2・2回目)
 
 1巡目の I-b-1 で `SPEC-OUTSIDE`。**手順5 の「Need があるのに需要の行が無いのはモデルの欠陥」は誤り。** 職業付け替えの翌日に正常系で踏む: 前日 18時に資金不足で入力を買えず `UnfilledPurchase` が積まれる → 0時に `HouseholdSystem` が付け替え(`UnfilledPurchase` は消さない)→ 同じ 0時の `NeedGenerationSystem` が旧入力品目に遠方在庫の Need を立てる(開示される)→ プレイヤーが値を出すと、新職業のレシピで組んだ `Build` に行が無く `InvalidOperationException`。そのうえ手順4 の記録が残ったまま例外が上がる。付け替え先にも行がある品目(薪)は落ちず、黙って用途が変わる。直し先の候補(Need 生成で旧入力を落とす / `NoNeed` に寄せる / 結果値を足す / #263 に握らせる)は、いずれも GDD06 §6.1 か GDD02b §8.1・GDD06 §3.1 に及ぶ。
@@ -36,5 +44,10 @@
 | 巡 | 守備範囲 | 象限I | 象限II | 疑い |
 | -- | -------- | ----- | ------ | ---- |
 | 1 | 1巡目の既定 | 1(I-b-1、上の停止) | 0 | 0 |
+| 2 | 2巡目の既定(`dc8841c..175b55b`。I-b-1 の訂正2 を含む) | 0 | 0 | 0 |
+
+2巡目が0件で閉じたので、3巡目は回していない。
 
 ## `mutator` の件数(フェーズ2)
+
+「核心」印 11 件(#1・#2・#3・#4・#5・#7・#8・#9・#11・#14・#16)を `175b55b` で測定: 赤 11 / 緑 0 / 期待との食い違い 0。#5 は3ケース中、資金で切られるケースだけが赤。#11 は最初に `TradeSettlement` の `if` を2か所とも外して測り、`PlayerSale` の経路(`SettleBuyerSideOnly`)だけに当て直した結果を採った。
