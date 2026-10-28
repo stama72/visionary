@@ -94,6 +94,33 @@ public sealed class BuyerDemand
         _definition = definition;
     }
 
+    /// <summary>
+    /// その職業の世帯が、その品目に需要の行を持つか(GDD02b §8.1)。<see cref="Build"/> が行を作る条件と
+    /// 同じ: 必需の目標在庫の日数 &gt; 0 / 嗜好の目標在庫の日数 &gt; 0 / 工具(耐久) / その職業のレシピの入力。
+    /// 条件が <see cref="Build"/> と2か所に書かれるので、<c>HasDemandLine_AgreesWithBuild</c> が一致を見る。
+    /// </summary>
+    public static bool HasDemandLine(WorldDefinition definition, Occupation occupation, int itemId)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+
+        if (definition.NecessityTargetStockDays[itemId] > 0
+            || definition.PreferenceTargetStockDays[itemId] > 0
+            || itemId == Item.Tools)
+        {
+            return true;
+        }
+
+        foreach (var input in definition.Recipes[(int)occupation].Inputs)
+        {
+            if (input.ItemId == itemId)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>世帯の (用途, 品目) の組をすべて作る。</summary>
     /// <param name="hasPreviousOutputOfferPrice">
     /// <b>前日の</b>自世帯の出力品目の提示価格があるか。<b>呼び出し側が <see cref="World.Market"/> を

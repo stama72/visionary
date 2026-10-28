@@ -39,6 +39,19 @@ public sealed class NeedGenerationSystemTests
             preferenceTargetStockDays: preferenceTargetStockDays ?? new int[Item.Count],
             equipmentPermilleWithoutTools: equipmentPermilleWithoutTools);
 
+    /// <summary>指定した品目を必需(目標在庫1日分)にした表。需要の行を持つ品目を作る。</summary>
+    private static int[] NecessityDaysFor(params int[] itemIds)
+    {
+        var days = new int[Item.Count];
+
+        foreach (int itemId in itemIds)
+        {
+            days[itemId] = 1; // 単位: 日
+        }
+
+        return days;
+    }
+
     /// <summary>
     /// 世帯1戸の世界。工具在庫は既定1(理由4を黙って起こさない)。当日の生産能力は既定1
     /// (#237。順1を回さないテストでは <see cref="HouseholdState.ProductionCapacityRuns"/> が
@@ -332,7 +345,7 @@ public sealed class NeedGenerationSystemTests
     [Fact]
     public void DistantStockNeedMirrorsUnfilledPurchase()
     {
-        var definition = BuildDefinition(QuietRecipe());
+        var definition = BuildDefinition(QuietRecipe(), necessityTargetStockDays: NecessityDaysFor(NecessityItem));
         var world = BuildWorld(new[] { NpcRank.Master });
         world.Households[0].UnfilledPurchase[NecessityItem] = 4;
         // PreferenceItemは0のまま(立たないことも併せて確かめる)。
@@ -344,6 +357,42 @@ public sealed class NeedGenerationSystemTests
         Assert.Equal(NecessityItem, need.ItemId);
         Assert.Equal(4, need.Quantity);
         Assert.Equal(NeedType.StockShortage, need.TypeCode);
+    }
+
+    /// <summary>
+    /// W5-03 テスト #16(訂正2)。遠方在庫は、順4 の時点の職業で需要の行がある品目にだけ立つ。
+    /// 付け替え前の入力 X(InputB)の未充足が残っていても、新職業に行が無ければ立たない。
+    /// </summary>
+    /// <remarks>
+    /// Miller のレシピは入力なし、Baker のレシピは入力 InputB(<see cref="EconomySystemTestFixtures"/> の
+    /// 「使わない」レシピ)。<c>InputB</c> は必需でも嗜好でもない。
+    /// </remarks>
+    [Fact]
+    public void NeedGeneration_DoesNotRaiseDistantStockForAnItemTheCurrentOccupationDoesNotDemand()
+    {
+        var definition = BuildDefinition(QuietRecipe(), necessityTargetStockDays: NecessityDaysFor(NecessityItem));
+        var world = BuildWorld(new[] { NpcRank.Master });
+        var household = world.Households[0];
+        household.UnfilledPurchase[InputB] = 3;
+        household.UnfilledPurchase[NecessityItem] = 2;
+        var system = new NeedGenerationSystem(definition);
+
+        // 付け替え後(行が無い職業): InputB には立たない。必需の品目は付け替え先にも行があるので立つ。
+        EconomySystemTestFixtures.RunDays(world, system, days: 1);
+
+        Assert.DoesNotContain(
+            world.Needs, n => n.ReasonCode == NeedReason.DistantStock && n.ItemId == InputB);
+        Assert.Contains(
+            world.Needs, n => n.ReasonCode == NeedReason.DistantStock && n.ItemId == NecessityItem);
+
+        // 対照: 職業を InputB を入力に持つ職業へ戻す(付け替え前)と、同じ状態で立つ。
+        household.Occupation = Occupation.Baker;
+        EconomySystemTestFixtures.RunDays(world, system, days: 1);
+
+        Assert.Contains(
+            world.Needs, n => n.ReasonCode == NeedReason.DistantStock && n.ItemId == InputB);
+        Assert.Contains(
+            world.Needs, n => n.ReasonCode == NeedReason.DistantStock && n.ItemId == NecessityItem);
     }
 
     /// <summary>
@@ -413,7 +462,7 @@ public sealed class NeedGenerationSystemTests
     [Fact]
     public void NeedIdIsStableWhileTheConditionHolds()
     {
-        var definition = BuildDefinition(QuietRecipe());
+        var definition = BuildDefinition(QuietRecipe(), necessityTargetStockDays: NecessityDaysFor(NecessityItem));
         var world = BuildWorld(new[] { NpcRank.Master }, toolStock: 0); // 理由4(手前)
         world.Households[0].UnfilledPurchase[NecessityItem] = 4; // 理由5(後ろ)
         var system = new NeedGenerationSystem(definition);
@@ -458,11 +507,9 @@ public sealed class NeedGenerationSystemTests
     [Fact]
     public void NeedsAreOrderedByHouseholdThenReasonThenItem()
     {
-        var necessityTargetStockDays = new int[Item.Count];
-        necessityTargetStockDays[NecessityItem] = 1;
-
+        // 遠方在庫は需要の行がある品目にだけ立つ(訂正2)ので、遠方在庫を立てる3品目すべてを必需にする。
         var definition = BuildDefinition(
-            QuietRecipe(), necessityTargetStockDays: necessityTargetStockDays);
+            QuietRecipe(), necessityTargetStockDays: NecessityDaysFor(NecessityItem, InputB, 6));
         var world = EconomySystemTestFixtures.BuildWorldWithHouseholds(3);
 
         // 順1(ProductionSystem)を回さないので、当日の生産能力は既定0のまま
