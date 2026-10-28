@@ -362,6 +362,8 @@ public sealed class NeedGenerationSystemTests
     /// <summary>
     /// W5-03 テスト #16(訂正2)。遠方在庫は、順4 の時点の職業で需要の行がある品目にだけ立つ。
     /// 付け替え前の入力 X(InputB)の未充足が残っていても、新職業に行が無ければ立たない。
+    /// <b>mutator実測(2026-10-28)</b>: <c>CollectDistantStock</c> の <c>HasDemandLine</c> の条件を外す変異で
+    /// 赤(落ちた)。
     /// </summary>
     /// <remarks>
     /// Miller のレシピは入力なし、Baker のレシピは入力 InputB(<see cref="EconomySystemTestFixtures"/> の

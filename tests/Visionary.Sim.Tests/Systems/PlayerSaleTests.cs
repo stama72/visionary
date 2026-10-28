@@ -141,7 +141,11 @@ public sealed class PlayerSaleTests
         Assert.Equal(hashBefore, StateHasher.Compute(world));
     }
 
-    /// <summary>テスト表 #1。境目は上側を含む(150 以上で感謝、400 以上で深い感謝)。</summary>
+    /// <summary>
+    /// テスト表 #1。境目は上側を含む(150 以上で感謝、400 以上で深い感謝)。
+    /// <b>mutator実測(2026-10-28)</b>: <c>GratitudeOf</c> の <c>&lt; GratefulThresholdPermille</c> を
+    /// <c>&lt;=</c> にする変異で赤(落ちた)。
+    /// </summary>
     [Fact]
     public void GratitudeOf_SplitsAtThresholdsInclusiveOnTheUpperSide()
     {
@@ -154,7 +158,10 @@ public sealed class PlayerSaleTests
         Assert.Throws<ArgumentOutOfRangeException>(() => PlayerSale.GratitudeOf(-1));
     }
 
-    /// <summary>テスト表 #2。余剰の比率は切り上げ(149.55… → 150)。</summary>
+    /// <summary>
+    /// テスト表 #2。余剰の比率は切り上げ(149.55… → 150)。
+    /// <b>mutator実測(2026-10-28)</b>: <c>CeilDiv</c> を <c>FloorDiv</c> にする変異で赤(落ちた)。
+    /// </summary>
     [Fact]
     public void SurplusPermille_RoundsUp()
     {
@@ -170,6 +177,8 @@ public sealed class PlayerSaleTests
     /// <summary>
     /// テスト表 #3。評価額は現金上限を含まず、利潤上限は <c>HasProfitCap</c> が真のときだけ入る。
     /// GDD01 §3.6 の工具の例(基礎値 348・在庫圧力 1500‰・現金上限 300 → 予算 300・評価額 522)。
+    /// <b>mutator実測(2026-10-28)</b>: <c>Evaluation</c> が <c>line.Budget</c> を返す変異で赤(落ちた)。
+    /// (a) の 522 で落ちる。
     /// </summary>
     [Fact]
     public void Evaluation_ExcludesCashCapButKeepsProfitCap()
@@ -195,7 +204,10 @@ public sealed class PlayerSaleTests
         Assert.Equal(522, PlayerSale.Evaluation(line with { HasProfitCap = false, ProfitCap = 0 }));
     }
 
-    /// <summary>テスト表 #4。価格 = 予算ちょうどは通り、予算 + 1 は通らない。</summary>
+    /// <summary>
+    /// テスト表 #4。価格 = 予算ちょうどは通り、予算 + 1 は通らない。
+    /// <b>mutator実測(2026-10-28)</b>: 手順6 の <c>&gt;</c> を <c>&gt;=</c> にする変異で赤(落ちた)。
+    /// </summary>
     [Fact]
     public void Execute_AcceptsAtExactlyTheBudgetAndRejectsOneAbove()
     {
@@ -231,6 +243,9 @@ public sealed class PlayerSaleTests
     /// テスト表 #5。数量は 提示数量 / Need の数量 / 用途に使える資金で払える数 の最小。
     /// 3つ目は生産の入力の行で、必需の取り置き(108)で用途に使える資金(192)が流動資金(300)より
     /// 小さい。価格 40 では 流動資金なら 7 個、用途に使える資金なら 4 個。
+    /// <b>mutator実測(2026-10-28)</b>: 手順7 の <c>line.AvailableFunds</c> を <c>household.LiquidFunds</c> に
+    /// する変異で赤(落ちた)。3ケース中、資金で切られる <c>offered: 10, needQuantity: 10, expected: 4</c> だけが
+    /// 落ち、他の2ケースは緑のまま。
     /// </summary>
     [Theory]
     [InlineData(2, 10, 2)]  // 提示数量が最小
@@ -284,6 +299,7 @@ public sealed class PlayerSaleTests
     /// <summary>
     /// テスト表 #7。1日1回は (世帯, 品目) ごとで、最初の結果(ここでは OverBudget)にかかわらず数え、
     /// 翌日には戻る。同じ日でも別の品目は通る。
+    /// <b>mutator実測(2026-10-28)</b>: 手順4 の記録を約定の後へ移す変異で赤(落ちた)。
     /// </summary>
     [Fact]
     public void Execute_SecondOfferOnTheSameDayIsRefusedRegardlessOfTheFirstOutcome()
@@ -328,6 +344,8 @@ public sealed class PlayerSaleTests
     /// <summary>
     /// テスト表 #8。開示される Need が無い (世帯, 品目) は <c>NoNeed</c> で、1日1回に数えない
     /// (記録が −1 のまま)。困窮だけ・増産できないだけの品目も開示されない。
+    /// <b>mutator実測(2026-10-28)</b>: 手順3・4 を手順2 の前へ移す変異で赤(落ちた)。
+    /// (a) の <c>PlayerOfferDayIndex == -1</c> で落ちる。
     /// </summary>
     [Fact]
     public void Execute_NoNeedDoesNotConsumeTheDailyOffer()
@@ -369,6 +387,8 @@ public sealed class PlayerSaleTests
     /// <summary>
     /// テスト表 #9。優先順は 工具切れ → 生産停止 → 遠方在庫(<c>world.Needs</c> の格納順に依らない)。
     /// 購入は当てた Need だけでなく、表が引く Need すべてから引く。
+    /// <b>mutator実測(2026-10-28)</b>: 優先順で遠方在庫を生産停止より先に置く変異で赤(落ちた)。
+    /// 格納順の正逆の両ケースで、(a) の <c>Purpose == ProductionInput</c> で落ちる。
     /// </summary>
     [Theory]
     [InlineData(false)]
@@ -474,6 +494,8 @@ public sealed class PlayerSaleTests
 
     /// <summary>
     /// テスト表 #11。仕入れ移動平均は生産の入力と耐久のときだけ更新する。必需(暖房用の薪)は動かない。
+    /// <b>mutator実測(2026-10-28)</b>: <c>ExecutePlayerSale</c> の経路(<c>SettleBuyerSideOnly</c>)の
+    /// 移動平均の <c>if</c> を外す変異で赤(落ちた)。必需の場合で落ちる。
     /// </summary>
     [Fact]
     public void Execute_UpdatesAcquisitionCostOnlyForInputAndDurable()

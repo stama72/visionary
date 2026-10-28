@@ -36,6 +36,7 @@ public sealed class NeedDeductionTests
     /// <summary>
     /// テスト表 #14。5理由 × 4用途の20組すべてを表と照合する。
     /// <b>核心</b>: 遠方在庫の行から <c>Preference</c> を外すと、その1組で赤になる。
+    /// <b>mutator実測(2026-10-28)</b>: 遠方在庫の行から <c>Preference</c> を外す変異で赤(落ちた)。
     /// </summary>
     [Fact]
     public void NeedDeduction_SubtractsMatchesTheTable()
