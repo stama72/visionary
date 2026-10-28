@@ -231,6 +231,9 @@ public static class StateHasher
             WriteInt32Array(hasher, buffer, household.MemoPreviousOfferPrice);
             WriteInt32Array(hasher, buffer, household.MemoHasSellerReference);
             WriteInt32Array(hasher, buffer, household.MemoSellerReference);
+
+            // #253が足した欄。既存の値は動かさず末尾へ足す(同じ規律)。
+            WriteInt32Array(hasher, buffer, household.PlayerOfferDayIndex);
         }
 
         // EventLog は含めない(§3.8 の除外表)。意思決定に関与せず、追記専用で巨大。

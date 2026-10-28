@@ -120,6 +120,19 @@ public sealed class HouseholdState
     public const int ExternalMarketSellerId = int.MaxValue;
 
     /// <summary>
+    /// プレイヤーを指す、予約済みの相手 Id(TDD01 §3.2)。窓口(<see cref="ExternalMarketSellerId"/>)の
+    /// 一つ手前。帳簿の <see cref="LedgerEntry.CounterpartyId"/> にだけ現れる。
+    /// </summary>
+    public const int PlayerId = int.MaxValue - 1;
+
+    /// <summary>
+    /// プレイヤーが最後にこの世帯へその品目の値を出した日(<see cref="Time.Tick.DayIndex"/>)。
+    /// 添字 = itemId。<b>−1 = 未提示</b>(日の通し番号は 0 から始まるので、0 で初期化すると
+    /// 0日目の最初の値が「今日すでに出した」になる)。毎日戻すシステムは作らない(TDD01 §3.8)。
+    /// </summary>
+    public int[] PlayerOfferDayIndex { get; }
+
+    /// <summary>
     /// 累積した工具の摩耗。単位: ‰人日。0以上(GDD02a §3.1)。旧 <c>ToolWearCount</c>(回)を改名した
     /// ── 所要労働‰ が108から1300まで違うので、回数で数えると木材加工は鍛冶の12倍の速さで
     /// 工具を消費する(タスク仕様「摩耗は実行回数ではなく労働量で数える」)。
@@ -430,5 +443,7 @@ public sealed class HouseholdState
         MemoPreviousOfferPrice = new int[itemCount];
         MemoHasSellerReference = new int[itemCount];
         MemoSellerReference = new int[itemCount];
+        PlayerOfferDayIndex = new int[itemCount];
+        Array.Fill(PlayerOfferDayIndex, -1);
     }
 }

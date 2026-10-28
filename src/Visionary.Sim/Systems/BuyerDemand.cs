@@ -50,6 +50,14 @@ public readonly record struct DemandLine
     /// <b>第1項(基礎値)は常にある</b>(決定11)。
     /// </summary>
     public int Budget { get; init; }
+
+    /// <summary>
+    /// 用途に使える資金(母数。<see cref="BuyerBudget.AvailableFunds"/> の結果で、<see cref="CashCap"/> の
+    /// 元になった値)。単位: 貨幣。プレイヤーの販売の数量上限(GDD06 §6.1)が読む。
+    /// <see cref="HouseholdDemand.NecessityReserve"/> / <see cref="HouseholdDemand.WorkingCapital"/> から
+    /// 組み直してはならない ── 耐久と生産の入力の行は運転資金0で呼ぶので、合計から組むと食い違う。
+    /// </summary>
+    public int AvailableFunds { get; init; }
 }
 
 /// <summary>世帯1戸ぶんの需要(GDD02c §2 / GDD02b §3・§5)。</summary>
@@ -333,6 +341,7 @@ public sealed class BuyerDemand
             StockPressurePermille = stockPressure,
             BaseValue = baseValue,
             Budget = budget,
+            AvailableFunds = availableFunds,
         };
     }
 }

@@ -155,6 +155,7 @@ public sealed class StateHasherCoverageTests
             "ProductionProgressPermille", "ProductionCapacityRuns",
             "ErrandDelegateNpcId", "PlannedErrandDistrictIds", "ExportErrandTaken",
             "MemoHasPreviousOffer", "MemoPreviousOfferPrice", "MemoHasSellerReference", "MemoSellerReference",
+            "PlayerOfferDayIndex",
         }),
         (typeof(MarketKey), new[] { "ItemId", "SellerId" }),
         (typeof(TrustKey), new[] { "From", "To" }),
