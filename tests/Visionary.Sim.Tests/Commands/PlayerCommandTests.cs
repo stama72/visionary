@@ -304,6 +304,55 @@ public sealed class PlayerCommandTests
     }
 
     /// <summary>
+    /// #12(続き)。提示数量は所持品で切る(<c>q = min(Quantity, 所持品)</c>)。所持品を、PlayerSale が受ける上限
+    /// (Need の数量と予算で決まる)より小さくして、約定数量が所持品ちょうどになり、所持品が 0 で負にならない。
+    /// 上限は同じ世界で <c>PlayerSale</c> を直接呼んで測る。<c>offered</c> を所持品で切らないと、上限まで約定して負になる。
+    /// </summary>
+    [Fact]
+    public void SellToHouseholdIsCutByTheHeldQuantity()
+    {
+        int requested = 1_000;
+
+        // 上限が 2 以上になる (世帯, Need) を探す(所持品を 1 以上、上限未満にできる)。
+        for (int householdId = 0; householdId < Definition.HouseholdCount; householdId++)
+        {
+            var probe = HostAtDay1Morning();
+            var needs = DisclosedNeeds.Of(probe.World, householdId);
+
+            if (needs.Count == 0)
+            {
+                continue;
+            }
+
+            var need = needs[0];
+            int cap = new PlayerSale(Definition).Execute(probe.World, householdId, need.ItemId, 1, requested).Quantity;
+
+            if (cap < 2)
+            {
+                continue;
+            }
+
+            var host = HostAtDay1Morning();
+            int held = cap - 1;
+            PlacePlayerIn(host, host.World.Households[householdId].DistrictId);
+            host.World.Player.Inventory[need.ItemId] = held;
+
+            Assert.True(held < cap);
+            Assert.True(cap < requested);
+
+            var result = host.Execute(new SellToHouseholdCommand(householdId, need.ItemId, 1, requested));
+
+            Assert.Equal(CommandStatus.Accepted, result.Status);
+            Assert.Equal(held, result.Quantity);
+            Assert.Equal(0, host.World.Player.Inventory[need.ItemId]);
+            Assert.Equal(WorldDefinition.PlayerInitialFunds + held, host.World.Player.Funds);
+            return;
+        }
+
+        Assert.Fail("上限が 2 以上になる Need を持つ世帯が無い(値の問題の可能性)。");
+    }
+
+    /// <summary>
     /// #13。所持品 0 は <c>NotEnoughGoods</c> で、1日1回に数えない(<c>PlayerSale</c> を呼ばない)。
     /// 同じ日に所持品を持たせて売ると <c>AlreadyOfferedToday</c> ではなく判定まで進む。
     /// </summary>
@@ -428,20 +477,31 @@ public sealed class PlayerCommandTests
         Assert.Equal(expectedQuantity, player.Inventory[itemId]);
     }
 
-    /// <summary>#15(続き)。払える数で切られる(所持金が 2 個ぶんしか無い)。</summary>
+    /// <summary>
+    /// #15(続き)。払える数で切られる。前提 払える数 &lt; 販売在庫 &lt; 要求 をテスト内で表明するので、
+    /// 払える数を数量の min から抜くと販売在庫まで買えてしまい落ちる。
+    /// </summary>
     [Fact]
     public void BuyFromHouseholdIsCutByAffordability()
     {
         var host = HostAtDay1Morning();
-        var (seller, itemId, price, _) = SellerWithStock(host);
+        var (seller, itemId, price, stock) = SellerWithStock(host);
         PlacePlayerIn(host, seller.DistrictId);
-        host.World.Player.Funds = (price * 2) + price - 1;
+        int requested = stock + 5;
+        int affordable = stock - 1;
+        host.World.Player.Funds = (price * affordable) + price - 1;
 
-        var result = host.Execute(new BuyFromHouseholdCommand(seller.Id, itemId, 2));
+        Assert.True(affordable >= 1);
+        Assert.Equal(affordable, host.World.Player.Funds / price);
+        Assert.True(affordable < stock);
+        Assert.True(stock < requested);
+
+        var result = host.Execute(new BuyFromHouseholdCommand(seller.Id, itemId, requested));
 
         Assert.Equal(CommandStatus.Accepted, result.Status);
-        Assert.Equal(2, result.Quantity);
+        Assert.Equal(affordable, result.Quantity);
         Assert.Equal(price - 1, host.World.Player.Funds);
+        Assert.Equal(affordable, host.World.Player.Inventory[itemId]);
     }
 
     /// <summary>
