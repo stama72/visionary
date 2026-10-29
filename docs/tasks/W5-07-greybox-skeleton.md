@@ -9,7 +9,7 @@
 
 ## スコープ
 
-**含む:** `Visionary.Presentation`(時間のポンプ・居場所の補間・起動引数・煙試験・表示名)とそのテスト、`Visionary.Game`(Godot 4.7.2 の C# プロジェクト。地図・NPC とプレイヤーの描画・区画のクリックで移動・日時と所持金の表示)、`Visionary.sln` への登録、CI の `godot` ジョブ。
+**含む:** `Visionary.Presentation`(時間のポンプ・1フレームぶんの進め方・居場所の補間・起動引数・表示名)とそのテスト、`Visionary.Game`(Godot 4.7.2 の C# プロジェクト。地図・NPC とプレイヤーの描画・区画のクリックで移動・日時と所持金の表示)、`Visionary.sln` への登録、CI の `godot` ジョブ。
 
 **含まない:** 会話メニュー・売買の UI・時間を止める操作(#282。`TickPump.Paused` は作るが、本タスクでは誰も立てない)、感謝の演出と日誌(#283)、gdUnit4(入れない。TDD01 §3.10)、アート、倍速(GDD05 §6 の未決)、`Visionary.Sim` の変更(**一切触らない**)。
 
@@ -35,24 +35,26 @@
 ```csharp
 public sealed class TickPump
 {
-    public const int DefaultMillisecondsPerTick = 25_000;   // 実時間 ms / tick(GDD05 §1.1。1日 = 10分)
+    public const long DefaultMicrosecondsPerTick = 25_000_000;   // 実時間 µs / tick(GDD05 §1.1。1 tick = 25秒、1日 = 10分)
 
-    public TickPump(int millisecondsPerTick = DefaultMillisecondsPerTick);   // 1 未満は ArgumentOutOfRangeException
+    public TickPump(long microsecondsPerTick = DefaultMicrosecondsPerTick);   // 1 未満は ArgumentOutOfRangeException
 
     /// 立てている間は Elapse が 0 を返し、端数も増えない(GDD05 §1.4)
     public bool Paused { get; set; }
 
-    /// tick の中の進み。単位: ‰(0〜999)= 端数 × 1000 ÷ millisecondsPerTick(切り捨て)
+    /// tick の中の進み。単位: ‰(0〜999)= 端数 × 1000 ÷ microsecondsPerTick(切り捨て。積は long)
     public int ProgressPermille { get; }
 
     /// 実時間を足し、進める tick の数を返す。呼び出し側がその数だけ SimHost.Advance(1) を呼ぶ
-    public int Elapse(long elapsedMilliseconds);             // 負は ArgumentOutOfRangeException
+    public int Elapse(long elapsedMicroseconds);             // 負は ArgumentOutOfRangeException
 }
 ```
 
-- 端数(`long`。常に `0 ≤ 端数 < millisecondsPerTick`)だけを状態に持つ。`Paused` なら何もせず 0 を返す。そうでなければ `端数 += elapsed`、`ticks = 端数 / ms`、`端数 %= ms`、`ticks` を返す(`int` へ `checked`)。**上限で丸めない** — 60,000 ms 来たら 2 を返す
+- 端数(`long`。常に `0 ≤ 端数 < microsecondsPerTick`)だけを状態に持つ。`Paused` なら何もせず 0 を返す。そうでなければ `端数 += elapsed`、`ticks = 端数 / µs`、`端数 %= µs`、`ticks` を返す(`int` へ `checked`)。**上限で丸めない** — 60,000,000 µs 来たら 2 を返す
+- **単位がマイクロ秒なのは、フレームごとの丸めでゲームの速さがフレームレートに依存しないためである**(TDD01 §3.10。ミリ秒では 60 Hz で +2% ずれる)
 - **`SimHost` を持たない。** tick の数を返すだけで、今が何 tick かは知らない(TDD01 §3.10「端数はゲーム時間ではない」)
-- 例(25,000 ms): `Elapse(24_999)` → 0、進み 999 / 続けて `Elapse(1)` → 1、進み 0 / 続けて `Elapse(60_000)` → 2、進み 400 / `Paused = true` で `Elapse(30_000)` → 0、進み 400 のまま / `Paused = false` で `Elapse(0)` → 0、進み 400
+- 例(25,000,000 µs): `Elapse(24_999_999)` → 0、進み 999 / 続けて `Elapse(1)` → 1、進み 0 / 続けて `Elapse(60_000_000)` → 2、進み 400 / `Paused = true` で `Elapse(30_000_000)` → 0、進み 400 のまま / `Paused = false` で `Elapse(0)` → 0、進み 400
+- **フレームの速さに依らないこと**の例: `Elapse(16_667)` を 1,500 回(60 Hz の 25 秒ぶん、計 25,000,500 µs)→ 合計 1 tick。`Elapse(4_167)` を 6,000 回(240 Hz、計 25,002,000 µs)→ 合計 1 tick。ミリ秒に丸めた旧形(17 / 4)ではそれぞれ 25,500 ms・24,000 ms になり、後者は 1 tick に届かない
 
 #### 1b. `MapPoint` と `MapLayout`(TDD01 §3.10「居場所の補間」、§3.9、GDD02 §4.3)
 
@@ -100,19 +102,23 @@ public sealed record LaunchOptions(long Seed, int StartDay, int? SmokeTicks)
 - 引数はすべて `--名前=値` の形。名前は `seed`(`long`)・`start-day`(`int`、0 以上)・`smoke-ticks`(`int`、1 以上)の3つ。数値は `NumberStyles.Integer` と `CultureInfo.InvariantCulture` で読む
 - 空なら `Default`。**次はすべて `false` と空でない `error`**(`options` は `Default`): 知らない名前(`--foo=1`)・`=` が無い(`--seed`)・数値でない(`--seed=abc`)・範囲外(`--start-day=-1`、`--smoke-ticks=0`)・同じ名前を2回(`--seed=1 --seed=2`)・`--` で始まらない(`seed=1`)
 
-#### 1d. `SmokeRun`(TDD01 §3.10「起動引数と煙試験」)
+#### 1d. `GameLoop`(TDD01 §3.10「時間のポンプ」「起動引数と煙試験」)
 
 ```csharp
-public static class SmokeRun
+/// 1フレームぶんの進め方。Main._Process はこれを呼ぶだけ(通常の起動も煙試験も同じ経路)
+public sealed class GameLoop
 {
-    /// ticks を1 tick ずつ進め、毎 tick 全 NPC とプレイヤーの居場所を計算し、最後の状態ハッシュを返す
-    public static string Run(SimHost host, int travelHoursPerDistrict, int ticks);   // ticks < 1 は ArgumentOutOfRangeException
+    public GameLoop(SimHost host, TickPump pump);   // null は ArgumentNullException
+    public SimHost Host { get; }
+    public TickPump Pump { get; }
+
+    /// pump.Elapse(elapsedMicroseconds) の数だけ Host.Advance(1) を呼び、その数を返す
+    public int Frame(long elapsedMicroseconds);
 }
 ```
 
-- `TickPump`(既定の ms)を1つ作り、`ticks` 回繰り返す: `pump.Elapse(TickPump.DefaultMillisecondsPerTick)` が返した数だけ `host.Advance(1)`、続けて `host.Query.Households()` の全世帯の全 `MemberNpcIds` について `MapLayout.NpcPosition(host.Query.TimetableOf(npcId), npcId, pump.ProgressPermille, travelHoursPerDistrict)`、`MapLayout.PlayerPosition(host.Query.Player(), host.Now, pump.ProgressPermille, travelHoursPerDistrict)` を計算する(結果は捨てる。**描画が通る読み出しの経路を踏むためである**)
-- 返すのは `host.StateHash().ToString("X16", CultureInfo.InvariantCulture)`(`vsim hash` と同じ書式)
-- **`Execute` を呼ばない。** 穴: 操作の経路は踏まない(TDD01 §3.10)
+- **`Advance` を呼ぶのはここだけである。** `Game` のノードは `Advance` を直接呼ばない
+- **旧 1d の `SmokeRun` は作らない**(#281 の1巡目 I-b-1。煙試験が描画のノードを通らず、TDD01 §3.10 の保証より狭かった)。煙試験は `Main` が通常と同じノードで回す(3)。**`SmokeRun.cs` は消す**
 
 #### 1e. `Labels`(表示名)
 
@@ -141,9 +147,10 @@ public static class Labels
 - **`Main.tscn`**: ルートは `Node2D` 1つで、`Main.cs` を付ける。**子ノードはコードで作る**(手書きの `.tscn` を増やさない)
 - **`Main.cs`(`public partial class Main : Node2D`)**:
   - `_Ready`: `LaunchOptions.TryParse(OS.GetCmdlineUserArgs(), …)`。失敗なら `GD.PrintErr(error)` → `GetTree().Quit(2)` → return
-  - `SmokeTicks` があれば: `new SimHost(WorldDefinition.M0, Seed, StartDay)` を作り `SmokeRun.Run(host, WorldDefinition.M0.TravelHoursPerDistrict, ticks)` → `GD.Print("VISIONARY_SMOKE_HASH=" + hash)` → `GetTree().Quit(0)`。例外は捕まえて `GD.PrintErr` → `GetTree().Quit(1)`。**描画のノードを作らない**
-  - そうでなければ `SimHost`(同じ引数)と `TickPump` を作り、地図(`MapView`)と表示(`CanvasLayer` の下の `Label`)を子に足す
-  - `_Process(double delta)`: `pump.Elapse((long)Math.Round(delta * 1000))` の数だけ `host.Advance(1)`、続けて表示を更新し `MapView.QueueRedraw()`。**`delta` を積んでゲーム時間を作らない**(TDD01 §3.10)
+  - **煙試験でも通常でも同じく**、`SimHost`(`WorldDefinition.M0`, `Seed`, `StartDay`)・`TickPump`・`GameLoop` を作り、地図(`MapView`)と表示(`CanvasLayer` の下の `Label`)を子に足す。煙試験なら目標 tick = `host.Now + SmokeTicks` を覚える
+  - `_Process(double delta)`: 経過 = 煙試験なら `TickPump.DefaultMicrosecondsPerTick`(1フレーム = 1 tick)、通常なら `(long)Math.Round(delta * 1_000_000)`。`loop.Frame(経過)` → 表示を更新 → `MapView.QueueRedraw()`。**`delta` を積んでゲーム時間を作らない**(TDD01 §3.10)。**経過を選ぶ1行のほかに、煙試験と通常で枝を分けない**
+  - **煙試験の終わり方**: `_Process` の**冒頭**で、煙試験かつ `host.Now ≥ 目標 tick` なら `GD.Print("VISIONARY_SMOKE_HASH=" + host.StateHash().ToString("X16", CultureInfo.InvariantCulture))` → `GetTree().Quit(0)` → return(以後のフレームでも何もしない)。冒頭で見るのは、目標に達したフレームで `QueueRedraw` した `_Draw` を踏んでから出すためである。煙試験中の `_Process` と `MapView._Draw` の例外は捕まえて `GD.PrintErr` → `GetTree().Quit(1)`
+  - `_Ready` の例外(煙試験時)も `GetTree().Quit(1)`
   - `_UnhandledInput(InputEvent @event)`: 左ボタンの押下(`InputEventMouseButton`、`Pressed`、`ButtonIndex == MouseButton.Left`)なら、画面座標を地図単位へ戻し(下の倍率の逆)、`MapLayout.DistrictAt` が 0 以上なら `host.Execute(new MoveCommand(id))`。結果の `Status` を `Labels.Of` で表示に残す(`Accepted` なら到着の時刻も)
 - **`MapView.cs`(`public partial class MapView : Node2D`)**: `_Draw` で描く。**地図単位 → 画素は `画素 = 原点 + 地図単位 × 1/5`**(区画 = 200 px、原点 (40, 80))。定数に単位のコメントを付ける
   - 9 区画: 枠付きの矩形(区画どうしに 4 px の隙間)。区画の中に `区画 {Id}` と、そこに住む世帯の職業名(`Query.Households()` の `DistrictId` と `Labels.Of`)。区画 4 には「窓口」も書く。文字は `ThemeDB.FallbackFont`
@@ -184,9 +191,10 @@ public static class Labels
 
 | # | テスト | 検証内容 | この実装ミスで落ちる | 核心(当てる変異 / 期待) |
 | - | ------ | -------- | -------------------- | ------------------------- |
-| 1 | `TickPump` の閾値 | 1a の例の前半: 24,999 → 0・999 / 1 → 1・0 | `>` と `>=` の取り違え、進みの式の誤り | |
-| 2 | `TickPump` の複数 tick | 60,000 → 2・400 | 1 回に 1 tick までに丸める、端数を捨てる | |
-| 3 | `TickPump` の停止 | `Paused` 中の 30,000 → 0・進み不変、解除後の `Elapse(0)` → 0 | 止めている間も端数を積む(再開で一気に進む) | **核心**: `Elapse` の `Paused` の早期 return を消す / 赤 |
+| 1 | `TickPump` の閾値 | 1a の例の前半: 24,999,999 → 0・999 / 1 → 1・0 | `>` と `>=` の取り違え、進みの式の誤り | |
+| 2 | `TickPump` の複数 tick | 60,000,000 → 2・400 | 1 回に 1 tick までに丸める、端数を捨てる | |
+| 2b | `TickPump` がフレームの速さに依らない | 1a の 60 Hz・240 Hz の例がどちらも合計 1 tick | ミリ秒未満を捨てる(単位をミリ秒に戻すのと同じ) | **核心**: `Elapse` の先頭で `elapsed = elapsed / 1000 * 1000` とする / 赤(両方の例) |
+| 3 | `TickPump` の停止 | `Paused` 中の 30,000,000 → 0・進み不変、解除後の `Elapse(0)` → 0 | 止めている間も端数を積む(再開で一気に進む) | **核心**: `Elapse` の `Paused` の早期 return を消す / 赤 |
 | 4 | `TickPump` の入力検査 | 負の経過・1 未満の ms で例外 | 検査漏れ | |
 | 5 | `CenterOf` | 0・5・8 の例 | 行と列の取り違え(5 が (1500, 2500) になる) | |
 | 6 | `DistrictAt` | 1b の5例 | 境界(3000・−1)の取り違え、行と列の取り違え | |
@@ -195,19 +203,19 @@ public static class Labels
 | 9 | `NpcPosition` | 家業・外出先のずらし、移動中はずらさず `Traveling` と一致 | 移動中にもずらす、外出先を自区画に置く | |
 | 10 | `PlayerPosition`(SimHost を通す) | seed 1 の `SimHost` を 8 tick 進め、プレイヤーの区画から最も遠い区画(同点は小さい Id)へ `MoveCommand`、`Advance(1)` 後の進み 0 で `Along(出発, 行き先, 1000)` と一致。さらに距離 − 1 tick 進めて `CenterOf(行き先)` と一致 | 出発 tick を到着 tick と取り違える、移動中の判定を `DestinationDistrictId` で行う | |
 | 11 | `LaunchOptions` | 空・正常3つ・1c の誤り7種 | 範囲検査の漏れ、重複を後勝ちで通す、知らない名前を無視する | |
-| 12 | `SmokeRun` のハッシュ | seed 20260904・720 tick の結果が、別に作った `SimHost` を `Advance(720)` した `StateHash()` の `X16` と一致。`ticks = 0` で例外 | 進める tick の数がずれる、描画の読み出しが World を書く | **核心**: ループの中で `host.Advance(1)` をもう1回呼ぶ / 赤 |
+| 12 | `GameLoop` が tick だけ進める | seed 20260904 の `GameLoop` に `Frame(DefaultMicrosecondsPerTick)` を 720 回、毎回の後に全 NPC とプレイヤーの居場所を計算(描画と同じ読み出し)し、`StateHash()` が別に作った `SimHost` を `Advance(720)` したものと一致。`Frame(60_000_000)` は 2 を返し `Now` が 2 進む | 1フレームの `Advance` の数がずれる、読み出しが World を書く | **核心**: `Frame` の中で `Host.Advance(1)` をもう1回呼ぶ / 赤 |
 | 13 | Godot を参照しない | `Visionary.Presentation` のアセンブリの参照に名前が `Godot` で始まるものが無い | `GodotSharp` を参照に足す | |
 | 14 | `Labels` の網羅 | 4 つの列挙の全値で空でない名を返し、同じ列挙の中で重複しない | 列挙に値を足して名を足し忘れる | |
 
-**表に無い保護**: `Visionary.Game` のノードは xUnit で踏まない。**コンパイル(警告 0)と CI の `godot` ジョブの煙試験(#12 と同じ値を Godot の中で出す)だけが守る。** 煙試験はクリックの経路(`_UnhandledInput` → `Execute`)を踏まない。
+**表に無い保護**: `Visionary.Game` のノードは xUnit で踏まない。**コンパイル(警告 0)と CI の `godot` ジョブの煙試験だけが守る。** 煙試験は通常と同じ `_Ready` → `_Process` → `MapView._Draw` を通る(TDD01 §3.10)。**踏まないのは `delta` をマイクロ秒に直す1行と、クリックの経路(`_UnhandledInput` → `Execute`)である。**
 
 ## 配線(規則7)
 
-`Presentation` の部品は `Game` からしか呼ばれない。xUnit が踏むのは #10・#12 だけなので、次をレビューで見る。
+`Presentation` の部品は `Game` からしか呼ばれない。xUnit が踏むのは #10・#12 だけで、煙試験は `delta` の変換を踏まないので、次をレビューで見る。
 
-- **入力の作り方**: `Elapse` に渡すのは `_Process` の `delta`(秒)× 1000 の四捨五入。`travelHoursPerDistrict` は `WorldDefinition.M0.TravelHoursPerDistrict`(`SimHost` に渡した定義と同じもの)。NPC の Id は `Query.Households()` の `MemberNpcIds`
+- **入力の作り方**: `GameLoop.Frame` に渡すのは `_Process` の `delta`(秒)× 1,000,000 の四捨五入(µs。煙試験では定数)。`travelHoursPerDistrict` は `WorldDefinition.M0.TravelHoursPerDistrict`(`SimHost` に渡した定義と同じもの)。NPC の Id は `Query.Households()` の `MemberNpcIds`
 - **単位の約束**: 地図単位(区画 = 1000)と画素(区画 = 200 px)を混ぜない。`ProgressPermille` は ‰
-- **呼び出し順**: 1フレームの中で `Elapse` → `Advance(1)` × n → 位置の計算(進みは `Elapse` の後の値)。煙試験も同じ順(1d)
+- **呼び出し順**: 1フレームの中で `GameLoop.Frame`(`Elapse` → `Advance(1)` × n)→ 表示の更新 → `QueueRedraw` → 次の `_Draw` で位置の計算(進みは `Elapse` の後の値)。煙試験も同じ順
 - **終了コード**: 引数の誤り 2・煙試験の例外 1・煙試験の成功 0
 
 ## 編集してよい文書
