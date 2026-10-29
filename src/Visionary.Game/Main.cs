@@ -22,7 +22,10 @@ public partial class Main : Node2D
     private SimHost _host = null!;
     private TickPump _pump = null!;
     private GameLoop? _loop;
-    private long? _smokeTargetTick;   // 煙試験のときだけ。目標の tick(host.Now + SmokeTicks)
+    // 煙試験のときだけ使う。終わりは tick ではなくフレームの数で決める(余計な Advance を割り切れる回数で見逃さないため)。
+    private int? _smokeTicks;         // 回すフレームの数(= SmokeTicks)
+    private long _smokeStartTick;     // _Ready で作った直後の host.Now
+    private int _smokeFrames;         // 回したフレームの数
     private bool _finished;
     private MapView _mapView = null!;
     private Label _label = null!;
@@ -46,13 +49,14 @@ public partial class Main : Node2D
 
             if (options.SmokeTicks is int smokeTicks)
             {
-                _smokeTargetTick = _host.Now.Value + smokeTicks;
+                _smokeTicks = smokeTicks;
+                _smokeStartTick = _host.Now.Value;
             }
 
             _mapView = new MapView();
             _mapView.Setup(_host, _pump, _definition.TravelHoursPerDistrict);
 
-            if (_smokeTargetTick != null)
+            if (_smokeTicks != null)
             {
                 _mapView.OnDrawError = FailSmoke;
             }
@@ -79,10 +83,18 @@ public partial class Main : Node2D
             return;
         }
 
-        // 冒頭で見るのは、目標に達したフレームで QueueRedraw した _Draw を踏んでから出すため。
-        if (_smokeTargetTick is long target && _host.Now.Value >= target)
+        // 冒頭で見るのは、最後のフレームで QueueRedraw した _Draw を踏んでから出すため。
+        if (_smokeTicks is int smokeTicks && _smokeFrames >= smokeTicks)
         {
             _finished = true;
+
+            if (_mapView.DrawCount < smokeTicks)
+            {
+                GD.PrintErr($"_Draw の回数が足りない: {_mapView.DrawCount} < {smokeTicks}");
+                GetTree().Quit(ExitSmokeFailure);
+                return;
+            }
+
             GD.Print("VISIONARY_SMOKE_HASH=" + _host.StateHash().ToString("X16", CultureInfo.InvariantCulture));
             GetTree().Quit(0);
             return;
@@ -91,16 +103,31 @@ public partial class Main : Node2D
         try
         {
             // 経過を選ぶ1行。煙試験は 1フレーム = 1 tick。delta を積んでゲーム時間を作らない。
-            long elapsedMicroseconds = _smokeTargetTick != null
+            long elapsedMicroseconds = _smokeTicks != null
                 ? TickPump.DefaultMicrosecondsPerTick
                 : (long)Math.Round(delta * 1_000_000);
 
             _loop.Frame(elapsedMicroseconds);
 
+            if (_smokeTicks != null)
+            {
+                _smokeFrames++;
+
+                long expected = _smokeStartTick + _smokeFrames;
+
+                if (_host.Now.Value != expected)
+                {
+                    _finished = true;
+                    GD.PrintErr($"Now がずれた: 期待 {expected}、実際 {_host.Now.Value}");
+                    GetTree().Quit(ExitSmokeFailure);
+                    return;
+                }
+            }
+
             RefreshLabel();
             _mapView.QueueRedraw();
         }
-        catch (Exception e) when (_smokeTargetTick != null)
+        catch (Exception e) when (_smokeTicks != null)
         {
             FailSmoke(e);
         }

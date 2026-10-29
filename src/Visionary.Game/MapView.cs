@@ -65,8 +65,15 @@ public partial class MapView : Node2D
     /// </summary>
     public Action<Exception>? OnDrawError { get; set; }
 
+    /// <summary>
+    /// <c>_Draw</c> が呼ばれた回数。煙試験が、ヘッドレスでも描画が実際に走ったことを確かめるのに使う。
+    /// </summary>
+    public int DrawCount { get; private set; }
+
     public override void _Draw()
     {
+        DrawCount++;
+
         if (OnDrawError == null)
         {
             DrawMap();
