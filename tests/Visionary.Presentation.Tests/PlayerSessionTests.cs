@@ -20,16 +20,23 @@ public class PlayerSessionTests
     }
 
     /// <summary>筋書き S(seed 1)。窓口で薪 19 個を買い、区画 0 へ移動して世帯 1(パン屋)に話しかけた直後。</summary>
-    private static Scene ScenarioS()
+    private static Scene ScenarioS(bool alsoBuyBeer = false)
     {
         var scene = Fresh();
 
         scene.Host.Advance(54);
 
-        var buy = scene.Session.OpenWindow().Buy(5, 19);
+        var window = scene.Session.OpenWindow();
+        var buy = window.Buy(5, 19);
         Assert.Equal(CommandStatus.Accepted, buy.Status);
         Assert.Equal(19, buy.Quantity);
         Assert.Equal(20, buy.UnitPrice);
+
+        // 取引の台詞を 2 回言わせる #16 用。世帯 1 の 2 件目の Need(ビール 1 個)を解ける品を持たせる。
+        if (alsoBuyBeer)
+        {
+            Assert.Equal(CommandStatus.Accepted, window.Buy(7, 1).Status);
+        }
 
         scene.Session.Close();
 
@@ -208,6 +215,73 @@ public class PlayerSessionTests
         Assert.Equal("refuse.baker.-.02", conversation.Lines[4].TemplateId);
         Assert.Equal(new ConversationLine(null, null, "予算を超える"), conversation.Lines[5]);
         Assert.Equal(19, scene.Host.Query.Player().Inventory[5]);
+    }
+
+    /// <summary>
+    /// 核心: 引き捨ての数を <c>_lines.Count</c>(地の文も数える)にする / 引き捨ての数を会話を開いた時点の台詞の行数で固定する、と赤。
+    /// 参照は同じ鍵で列を 1 回だけ開き、同じ順に Say して作る。
+    /// </summary>
+    [Fact]
+    public void Sell_SecondTradeLine_MatchesASingleSequenceReference()
+    {
+        var scene = ScenarioS(alsoBuyBeer: true);
+        var conversation = scene.Session.Conversation!;
+
+        var refused = conversation.Sell(5, 1_000_000, 19);
+        Assert.Equal(CommandStatus.OverBudget, refused.Status);
+
+        // 不成立も同じ (世帯, 品目) の「1日1回」を消費する(同じ薪では AlreadyOfferedToday になる)。
+        // そのため 2 回目は別の品目(ビール)で作る。
+        var accepted = conversation.Sell(7, 1, 1);
+        Assert.Equal(CommandStatus.Accepted, accepted.Status);
+        // 台詞の行は 0〜3(頭の 4 行)、4(不成立)、そして地の文を挟んだ 6(成立)。
+        var speech = conversation.Lines.Where(l => l.Kind != null).ToList();
+        Assert.Equal(6, speech.Count);
+
+        var household = scene.Host.Query.Households()[1];
+        var season = Visionary.Sim.Time.GameDate.FromTick(scene.Host.Now).Season;
+        var memory = new DialogueMemory();
+        var random = DialogueSelector.OpenConversation(Seed, scene.Host.Now, conversation.SpeakerNpcId);
+
+        DialogueContext Context(Gratitude? g, DisclosureOrder? o, int? item, int? qty) =>
+            new(household.Occupation, season, null, g, o, item, qty);
+
+        var needs = conversation.DisclosedNeeds;
+        var expected = new List<string>
+        {
+            DialogueSelector.Say(DialogueCorpus.M0, memory, ref random, conversation.SpeakerNpcId, LineKind.Greeting, Context(null, null, null, null)).TemplateId,
+            DialogueSelector.Say(DialogueCorpus.M0, memory, ref random, conversation.SpeakerNpcId, LineKind.SmallTalk, Context(null, null, null, null)).TemplateId,
+            DialogueSelector.Say(DialogueCorpus.M0, memory, ref random, conversation.SpeakerNpcId, LineKind.NeedDisclosure, Context(null, DisclosureOrder.First, needs[0].ItemId, needs[0].Quantity)).TemplateId,
+            DialogueSelector.Say(DialogueCorpus.M0, memory, ref random, conversation.SpeakerNpcId, LineKind.NeedDisclosure, Context(null, DisclosureOrder.Continued, needs[1].ItemId, needs[1].Quantity)).TemplateId,
+            DialogueSelector.Say(DialogueCorpus.M0, memory, ref random, conversation.SpeakerNpcId, LineKind.TradeRefused, Context(null, null, 5, null)).TemplateId,
+            DialogueSelector.Say(DialogueCorpus.M0, memory, ref random, conversation.SpeakerNpcId, LineKind.TradeAccepted, Context(accepted.Gratitude, null, 7, accepted.Quantity)).TemplateId,
+        };
+
+        Assert.Equal(expected, speech.Select(l => l.TemplateId!));
+    }
+
+    [Fact]
+    public void Window_AfterCrossingSeasons_PricesFollowTheCurrentSeason()
+    {
+        var scene = Fresh();
+        var spring = scene.Host.Now;
+
+        scene.Host.Advance(30 * 24);
+
+        var options = scene.Session.OpenWindow().BuyOptions();
+        bool anyDiffersFromSpring = false;
+
+        Assert.Equal(9, options.Count);
+        foreach (var option in options)
+        {
+            Assert.True(ExternalMarket.TryOfferPrice(WorldDefinition.M0, scene.Host.Now, option.ItemId, out int now));
+            Assert.Equal(now, option.UnitPrice);
+
+            Assert.True(ExternalMarket.TryOfferPrice(WorldDefinition.M0, spring, option.ItemId, out int then));
+            anyDiffersFromSpring |= then != now;
+        }
+
+        Assert.True(anyDiffersFromSpring);
     }
 
     [Fact]
