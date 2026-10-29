@@ -290,6 +290,11 @@ public sealed class DialogueSampleTests : IDisposable
         return default;
     }
 
+    /// <remarks>
+    /// 変異の実測(<c>mutator</c> の報告、HEAD 0b9ec8d、2026-10-29): <c>DialogueSampleCommand</c> で
+    /// <c>var order = n == 0 ? First : Continued;</c> を <c>var order = DisclosureOrder.First;</c> にすると赤
+    /// (本テスト。2行目が Continued でなく First)。
+    /// </remarks>
     [Fact]
     public void DialogueSampleUsesContinuedTemplatesFromTheSecondDisclosure()
     {

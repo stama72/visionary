@@ -192,6 +192,11 @@ public sealed class DialogueSelectorTests
         }
     }
 
+    /// <remarks>
+    /// 変異の実測(<c>mutator</c> の報告、HEAD 0b9ec8d、2026-10-29): <c>DialogueSelector.Say</c> 手順2 の
+    /// <c>&amp;&amp; AxisMatches(template.Order, context.Order)</c> を <c>&amp;&amp; true</c> にすると赤
+    /// (本テスト。First の4回のうち2回で Continued の型が混ざる)。
+    /// </remarks>
     [Fact]
     public void DisclosureOrderSelectsOnlyTemplatesOfThatOrder()
     {
@@ -210,6 +215,11 @@ public sealed class DialogueSelectorTests
         Assert.All(continueds, id => Assert.StartsWith("C", id, StringComparison.Ordinal));
     }
 
+    /// <remarks>
+    /// 変異の実測(<c>mutator</c> の報告、HEAD 0b9ec8d、2026-10-29): <c>DialogueMemory</c> の
+    /// <c>LastId</c>・<c>Record</c> の鍵を <c>(kind, order)</c> から <c>(kind, null)</c> にすると赤
+    /// (本テスト。<c>Not "F2"</c> に対して <c>"F2"</c>、直前の除外が効かず同じ1件目が続く)。
+    /// </remarks>
     [Fact]
     public void LastIdIsTrackedPerDisclosureOrder()
     {

@@ -231,6 +231,10 @@ public sealed class DialogueCorpusTests
         }
     }
 
+    /// <remarks>
+    /// 変異の実測(<c>mutator</c> の報告、HEAD 0b9ec8d、2026-10-29): <c>thanks.any.deep.01</c> の本文末尾に
+    /// 「救われた。」を足すと赤(本テスト。<c>thanks.any.deep.01: R6に反する語 '救'</c>)。
+    /// </remarks>
     [Fact]
     public void M0CorpusFollowsTheWritingRules()
     {
