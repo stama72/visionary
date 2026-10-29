@@ -1,0 +1,18 @@
+<Project Sdk="Godot.NET.Sdk/4.7.2">
+
+  <!--
+    グレーボックス(TDD01 §2・§3.10)。ノードは描画と入力だけを持つ。
+    Godot は 4.7.2(.NET 版)に固定する。上げるときはこの Sdk と CI の GODOT_VERSION を同時に。
+    TargetFramework は Directory.Build.props の net8.0 を継ぐ。
+  -->
+  <PropertyGroup>
+    <RootNamespace>Visionary.Game</RootNamespace>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <TargetFramework>net8.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Visionary.Presentation\Visionary.Presentation.csproj" />
+  </ItemGroup>
+
+</Project>

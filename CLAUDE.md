@@ -12,12 +12,14 @@
 | `docs/`                    | 企画・GDD・TDD・ADR。**設計判断は必ずここが正**                   |
 | `src/Visionary.Sim/`       | 経済シミュレーション本体。純C#(net8.0)、**Godot参照ゼロ**         |
 | `src/Visionary.Sim.Runner/` | ヘッドレス実験ハーネス(`vsim`)。M0の比較実験はすべてここから実行 |
-| `src/Visionary.Game/`      | Godot 4プロジェクト。**W5で作成予定・現時点では未作成**            |
-| `tests/Visionary.Sim.Tests/` | xUnit                                                           |
+| `src/Visionary.Presentation/` | 描画の前段(時間のポンプ・居場所の補間ほか)。純C#、**Godot参照ゼロ** |
+| `src/Visionary.Game/`      | Godot 4.7.2(.NET)プロジェクト。グレーボックス。ノードは描画と入力だけ([TDD01 §3.10](docs/04-tdd/01-sim-core-and-m0.md)) |
+| `tests/Visionary.Sim.Tests/` `tests/Visionary.Presentation.Tests/` | xUnit                                      |
 
 ## 技術規約
 
 - **Godot 4 + C#**([ADR-0001](docs/adr/0001-engine-and-simulation-architecture.md))。`Visionary.Sim` に Godot 依存を持ち込まない。CIをUbuntuで回しているのはこの制約の継続検証を兼ねる
+- **Godot は 4.7.2(.NET 版)に固定**([TDD01 §2](docs/04-tdd/01-sim-core-and-m0.md))。上げるときは `Visionary.Game.csproj` の Sdk と CI の `GODOT_VERSION` を同時に
 - Godot の作例は GDScript / Godot 3系が多い。**C# かつ Godot 4 系のAPIであることを公式クラスリファレンスで確認してから書く**
 - **テストメソッド名は英語**
 
