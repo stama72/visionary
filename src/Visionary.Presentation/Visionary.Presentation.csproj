@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    描画の前段(TDD01 §3.10)。時間のポンプ・居場所の補間・起動引数・煙試験・表示名。
+    Godot のパッケージを参照しない(ADR-0001 / TDD01 §3.10)。xUnit で踏むために純 C# に保つ。
+  -->
+  <PropertyGroup>
+    <RootNamespace>Visionary.Presentation</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Visionary.Sim\Visionary.Sim.csproj" />
+  </ItemGroup>
+
+</Project>

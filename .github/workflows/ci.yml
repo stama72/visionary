@@ -3,7 +3,8 @@ name: CI
 # 目的(TDD01 §1, ADR-0001):
 #   1. コンパイル段階で幻覚APIや古いAPIの使用を機械的に弾く(警告=エラー)
 #   2. 決定論の破れ(ADR-0002)をテストで常時検出する
-# Godot側(gdUnit4・ヘッドレス起動チェック)はグレーボックス着手(M0 W5)時に別ジョブで追加する。
+#   3. Godot 側はヘッドレス煙試験(godot ジョブ)で、Godot の中で出した状態ハッシュが
+#      vsim hash と一致することを見る(TDD01 §2.1・§3.10。gdUnit4 は入れない)。
 
 on:
   push:
@@ -74,6 +75,72 @@ jobs:
           fi
           if [ "$A" = "$C" ]; then
             echo "::error::シードを変えても状態ハッシュが変わらない。ハッシュが状態を見ていない (TDD01 §3.8)"; exit 1
+          fi
+
+  godot:
+    name: Godot (headless smoke)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GODOT_VERSION: 4.7.2   # TDD01 §2 の固定。上げるときは Visionary.Game.csproj の Sdk と同時に
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Cache Godot
+        id: cache-godot
+        uses: actions/cache@v6
+        with:
+          path: ~/godot
+          key: godot-${{ env.GODOT_VERSION }}-mono-linux
+
+      - name: Download Godot
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/godot
+          curl -fsSL -o ~/godot/godot.zip \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_mono_linux_x86_64.zip"
+          unzip -q ~/godot/godot.zip -d ~/godot
+          rm ~/godot/godot.zip
+
+      - name: Locate Godot
+        run: |
+          GODOT=$(find ~/godot -type f -name "Godot_v${GODOT_VERSION}-stable_mono_linux.x86_64" | head -n 1)
+          if [ -z "$GODOT" ]; then
+            echo "::error::展開した Godot の実行ファイルが見つからない"; exit 1
+          fi
+          chmod +x "$GODOT"
+          echo "GODOT_BIN=$GODOT" >> "$GITHUB_ENV"
+
+      - name: Build Visionary.Game
+        run: dotnet build src/Visionary.Game/Visionary.Game.csproj -c Debug
+
+      - name: Import
+        run: $GODOT_BIN --headless --path src/Visionary.Game --import
+
+      - name: Smoke (state hash inside Godot vs vsim hash)
+        run: |
+          set +e
+          OUT=$($GODOT_BIN --headless --path src/Visionary.Game -- --seed=20260904 --smoke-ticks=720)
+          CODE=$?
+          set -e
+          echo "$OUT"
+          if [ "$CODE" -ne 0 ]; then
+            echo "::error::煙試験の終了コードが 0 でない ($CODE)"; exit 1
+          fi
+          SMOKE=$(echo "$OUT" | grep '^VISIONARY_SMOKE_HASH=' | head -n 1 | cut -d= -f2 | tr -d '\r')
+          if [ -z "$SMOKE" ]; then
+            echo "::error::煙試験の出力に VISIONARY_SMOKE_HASH= の行が無い"; exit 1
+          fi
+          REF=$(dotnet run --project src/Visionary.Sim.Runner -c Release -- hash --seed 20260904 --ticks 720)
+          echo "smoke=$SMOKE reference=$REF"
+          if [ "$SMOKE" != "$REF" ]; then
+            echo "::error::Godot の中の状態ハッシュが vsim hash と一致しない (TDD01 §3.10)"; exit 1
           fi
 
   format:
