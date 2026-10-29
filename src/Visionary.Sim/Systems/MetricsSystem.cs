@@ -115,6 +115,21 @@ public sealed class MetricsSystem : ISimSystem
                 bool isWindowCounterparty = entry.CounterpartyId == HouseholdState.ExternalMarketSellerId;
                 long amount = (long)entry.UnitPrice * entry.Quantity;
 
+                // プレイヤーとの行(TDD01 §3.2「相手 Id で外す」)。判定は相手 Id だけで行う。
+                // Purchase(世帯がプレイヤーから買った)は何にも数えない ── 予算すれすれの売値が
+                // 約定価格・区画の中央値に混ざるのを避ける。Sale(世帯がプレイヤーへ売った)は
+                // 世帯の売上(households.csv の sales_value と profit)にだけ足し、
+                // activeSeller・HHI の分子・輸出には入れない。
+                if (entry.CounterpartyId == HouseholdState.PlayerId)
+                {
+                    if (entry.Direction == LedgerDirection.Sale)
+                    {
+                        householdSalesValueAll += amount;
+                    }
+
+                    continue;
+                }
+
                 if (entry.Direction == LedgerDirection.Purchase)
                 {
                     // 約定の母数はPurchaseの行だけ(都市内の約定は買い手と売り手が1行ずつ
@@ -433,7 +448,8 @@ public sealed class MetricsSystem : ISimSystem
             DemandLines: demandLinesTotal,
             DemandLinesWithoutKnownPrice: demandLinesWithoutKnownPriceTotal,
             HouseholdsWithoutKnownPrice: householdsWithoutKnownPrice,
-            ProfitTotal: checked((int)profitTotalLong));
+            ProfitTotal: checked((int)profitTotalLong),
+            PlayerFunds: world.Player.Funds);
 
         var priceRows = new List<PriceRow>(itemCount);
 

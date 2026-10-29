@@ -759,6 +759,155 @@ public sealed class MetricsSystemTests
     }
 
     /// <summary>
+    /// 【核心】W5-05 #14。相手 <c>PlayerId</c> の行を外す。同じ NPC 同士の約定を置いた World を2つ作り、
+    /// 片方にだけ世帯 A の <c>Purchase</c> 1行(都市生産品。A の区画に NPC 同士の約定がある品目、単価は
+    /// 約定価格から大きく外れる)と世帯 B の <c>Sale</c> 1行(単価 × 数量 = v)を足す。
+    /// prices / districts / trades は全件一致し、households は B の <c>SalesValue</c> と <c>Profit</c> だけが v 大きく、
+    /// economy は <c>ProfitTotal</c> だけが v 大きい。A は NPC 同士の購入が無く、B は NPC への売りが無い世帯にする
+    /// (<c>active_buyer_count</c> / <c>active_seller_count</c> の差で出る)。
+    /// </summary>
+    /// <remarks>
+    /// <b>変異の実測(2026-10-29、<c>mutator</c> が使い捨てworktreeで測定、基点コミット <c>788d82d</c>)。</b>
+    /// M5: 相手 <c>PlayerId</c> の <c>Purchase</c> 行の除外を外し、通常の <c>Purchase</c> と同じに数える →
+    /// 赤(<c>PriceRow</c> の比較で落ちる。期待どおり)。
+    /// M6: 相手 <c>PlayerId</c> の <c>Sale</c> 分岐で <c>activeSeller</c> を立てる →
+    /// 赤(<c>TradesRow</c> の比較で落ちる。期待どおり)。
+    /// </remarks>
+    [Fact]
+    public void RowsWithThePlayerAreLeftOutOfEverythingExceptHouseholdSales()
+    {
+        var definition = WorldDefinition.M0;
+        const int unitPrice = 7;
+        const int quantity = 3;
+        const int v = unitPrice * quantity;
+
+        // 世帯 0 が世帯 1 から買う(NPC 同士。全世帯が区画 0)。世帯 2 = A、世帯 3 = B。
+        static World Build(WorldDefinition definition, bool withPlayerRows)
+        {
+            var world = new World(npcCount: 4, householdCount: 4, itemCount: definition.ItemCount);
+
+            AddLedgerEntry(world, ownerHouseholdId: 0, LedgerDirection.Purchase, Item.Bread,
+                counterpartyId: 1, unitPrice: 50, quantity: 2, occurredAt: Tick.Zero);
+            AddLedgerEntry(world, ownerHouseholdId: 1, LedgerDirection.Sale, Item.Bread,
+                counterpartyId: 0, unitPrice: 50, quantity: 2, occurredAt: Tick.Zero);
+
+            if (withPlayerRows)
+            {
+                AddLedgerEntry(world, ownerHouseholdId: 2, LedgerDirection.Purchase, Item.Bread,
+                    counterpartyId: HouseholdState.PlayerId, unitPrice: 999, quantity: 1, occurredAt: Tick.Zero);
+                AddLedgerEntry(world, ownerHouseholdId: 3, LedgerDirection.Sale, Item.Bread,
+                    counterpartyId: HouseholdState.PlayerId, unitPrice: unitPrice, quantity: quantity,
+                    occurredAt: Tick.Zero);
+            }
+
+            return world;
+        }
+
+        var baseline = RunMetricsOnly(definition, Build(definition, withPlayerRows: false)).Days[0];
+        var withPlayer = RunMetricsOnly(definition, Build(definition, withPlayerRows: true)).Days[0];
+
+        Assert.Equal(baseline.Prices, withPlayer.Prices);
+        Assert.Equal(baseline.Districts, withPlayer.Districts);
+        Assert.NotEmpty(baseline.Districts);
+        Assert.Equal(baseline.Trades, withPlayer.Trades);
+
+        Assert.Equal(baseline.Households.Length, withPlayer.Households.Length);
+
+        for (int i = 0; i < baseline.Households.Length; i++)
+        {
+            var expected = i == 3
+                ? baseline.Households[i] with
+                {
+                    SalesValue = baseline.Households[i].SalesValue + v,
+                    Profit = baseline.Households[i].Profit + v,
+                }
+                : baseline.Households[i];
+
+            Assert.Equal(expected, withPlayer.Households[i]);
+        }
+
+        Assert.Equal(
+            baseline.Economy with { ProfitTotal = baseline.Economy.ProfitTotal + v },
+            withPlayer.Economy);
+    }
+
+    /// <summary>
+    /// W5-05 #15。<c>player_funds</c>。D0T06 に窓口から1個買って D1T00 まで進めると、day 0 の
+    /// <c>PlayerFunds</c> は 2,400 − 支払い、<c>MoneyTotal</c> は世帯の流動資金の合計(所持金を足していない)。
+    /// コマンド無しの走行では毎日 2,400。CSV はヘッダの末尾が <c>player_funds</c> で、値が末尾に出る。
+    /// </summary>
+    [Fact]
+    public void PlayerFundsAreReportedAndNotAddedToMoneyTotal()
+    {
+        var definition = WorldDefinition.M0;
+        var days = new List<EconomyRow>();
+        long householdFundsAtWrite = -1;
+        SimHost? host = null;
+        var sink = new CallbackSink(snapshot =>
+        {
+            if (snapshot.Economy.Day == 0)
+            {
+                householdFundsAtWrite = host!.World.Households.Sum(household => (long)household.LiquidFunds);
+            }
+
+            days.Add(snapshot.Economy);
+        });
+        host = new SimHost(definition, 1, metricsSink: sink);
+
+        host.Advance(6);
+        var bought = host.Execute(new Visionary.Sim.Commands.BuyFromWindowCommand(Item.Grain, 1));
+        Assert.Equal(Visionary.Sim.Commands.CommandStatus.Accepted, bought.Status);
+        host.Advance(18);
+
+        Assert.Equal(WorldDefinition.PlayerInitialFunds - bought.Payment, days[0].PlayerFunds);
+        Assert.True(bought.Payment > 0);
+        Assert.Equal(householdFundsAtWrite, days[0].MoneyTotal);
+
+        // コマンド無し: 毎日初期値。
+        var quietDays = new List<EconomyRow>();
+        var quiet = new SimHost(definition, 1, metricsSink: new CallbackSink(s => quietDays.Add(s.Economy)));
+        quiet.Advance(3 * 24);
+
+        Assert.Equal(3, quietDays.Count);
+        Assert.All(quietDays, row => Assert.Equal(2_400, row.PlayerFunds));
+
+        // CSV。
+        string directory = Path.Combine(Path.GetTempPath(), "vsim-playerfunds-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            using (var csv = new Visionary.Sim.Runner.CsvMetricsSink(directory))
+            {
+                var csvHost = new SimHost(definition, 1, metricsSink: csv);
+                csvHost.Advance(6);
+                csvHost.Execute(new Visionary.Sim.Commands.BuyFromWindowCommand(Item.Grain, 1));
+                csvHost.Advance(18);
+            }
+
+            string[] rows = File.ReadAllLines(Path.Combine(directory, "economy.csv"));
+            string[] header = rows[0].Split(',');
+            string[] first = rows[1].Split(',');
+
+            Assert.Equal("player_funds", header[^1]);
+            Assert.Equal(header.Length, first.Length);
+            Assert.Equal((WorldDefinition.PlayerInitialFunds - bought.Payment).ToString(System.Globalization.CultureInfo.InvariantCulture), first[^1]);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private sealed class CallbackSink : IDailyMetricsSink
+    {
+        private readonly Action<DailySnapshot> _onWrite;
+
+        public CallbackSink(Action<DailySnapshot> onWrite) => _onWrite = onWrite;
+
+        public void Write(in DailySnapshot snapshot) => _onWrite(snapshot);
+    }
+
+    /// <summary>
     /// #29(別表)。どのテストからも1度も読まれていない欄に assert を足す。<c>active_seller_count</c>
     /// / <c>active_buyer_count</c>(<c>Sale</c> / <c>Purchase</c> の向き)、
     /// <c>internal_settlement_count</c> / <c>window_settlement_count</c> /

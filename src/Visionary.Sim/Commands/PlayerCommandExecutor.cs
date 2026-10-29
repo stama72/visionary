@@ -175,6 +175,10 @@ internal sealed class PlayerCommandExecutor
         player.Funds = checked(player.Funds + sale.Payment);
         player.Inventory[command.ItemId] -= sale.Quantity;
 
+        world.EventLog.Add(new PlayerTradeExecuted(
+            world.Now, PlayerTradeKind.SellToHousehold, command.HouseholdId, command.ItemId,
+            sale.Quantity, sale.UnitPrice, sale.Gratitude, sale.NeedId));
+
         return new Result
         {
             Status = CommandStatus.Accepted,
@@ -232,6 +236,10 @@ internal sealed class PlayerCommandExecutor
         player.Funds -= payment;
         player.Inventory[command.ItemId] += quantity;
 
+        world.EventLog.Add(new PlayerTradeExecuted(
+            world.Now, PlayerTradeKind.BuyFromHousehold, command.HouseholdId, command.ItemId,
+            quantity, price, null, -1));
+
         return new Result
         {
             Status = CommandStatus.Accepted,
@@ -275,6 +283,10 @@ internal sealed class PlayerCommandExecutor
         // 帳簿に何も書かない(GDD06 §6.3。窓口は在庫・帳簿・流動資金を持たない)。
         player.Funds -= payment;
         player.Inventory[command.ItemId] += quantity;
+
+        world.EventLog.Add(new PlayerTradeExecuted(
+            world.Now, PlayerTradeKind.BuyFromWindow, HouseholdState.ExternalMarketSellerId, command.ItemId,
+            quantity, price, null, -1));
 
         return new Result
         {
@@ -320,6 +332,10 @@ internal sealed class PlayerCommandExecutor
         // 帳簿に何も書かない(GDD06 §6.3)。
         player.Funds = checked(player.Funds + payment);
         player.Inventory[command.ItemId] -= quantity;
+
+        world.EventLog.Add(new PlayerTradeExecuted(
+            world.Now, PlayerTradeKind.SellToWindow, HouseholdState.ExternalMarketSellerId, command.ItemId,
+            quantity, price, null, -1));
 
         return new Result
         {

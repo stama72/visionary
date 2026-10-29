@@ -1637,7 +1637,7 @@ public sealed class VerificationAccumulatorTests
                 ImportValue: 0, ImportQuantity: 0, SellerDays: 0, SellerDaysWithoutReference: 0,
                 SellerDaysCoefficientCapped: 0, SellerDaysAtFloor: 0, SellerDaysAtFloorWithExport: 0,
                 ProductionStoppedHouseholds: 0, ProductionRunsTotal: 0, DemandLines: 0,
-                DemandLinesWithoutKnownPrice: 0, HouseholdsWithoutKnownPrice: 0, ProfitTotal: 0);
+                DemandLinesWithoutKnownPrice: 0, HouseholdsWithoutKnownPrice: 0, ProfitTotal: 0, PlayerFunds: 0);
 
             var prices = new List<PriceRow>
             {

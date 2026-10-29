@@ -585,14 +585,9 @@ public sealed class StateHasherTests
         var world = new World(npcCount: 0, householdCount: 0, itemCount: 0);
         ulong before = StateHasher.Compute(world);
 
-        world.EventLog.Add(new DomainEvent
-        {
-            KindCode = 1,
-            At = Tick.Zero,
-            SubjectId = 0,
-            RelatedId = 0,
-            Payload = 999,
-        });
+        world.EventLog.Add(new PlayerTradeExecuted(
+            Tick.Zero, PlayerTradeKind.SellToHousehold, CounterpartyId: 0, ItemId: 0,
+            Quantity: 999, UnitPrice: 999, Gratitude.DeepGratitude, NeedId: 999));
         ulong after = StateHasher.Compute(world);
 
         Assert.Equal(before, after);

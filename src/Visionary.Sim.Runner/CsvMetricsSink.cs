@@ -47,7 +47,7 @@ internal sealed class CsvMetricsSink : IDailyMetricsSink, IDisposable
                 + "import_value,import_quantity,seller_days,seller_days_without_reference,"
                 + "seller_days_coefficient_capped,seller_days_at_floor,seller_days_at_floor_with_export,"
                 + "production_stopped_households,production_runs_total,demand_lines,"
-                + "demand_lines_without_known_price,households_without_known_price,profit_total");
+                + "demand_lines_without_known_price,households_without_known_price,profit_total,player_funds");
 
         _prices.WriteLine(
             "day,item_id,settled_median,settled_min,settled_max,settled_count,settled_quantity,"
@@ -86,6 +86,7 @@ internal sealed class CsvMetricsSink : IDailyMetricsSink, IDisposable
             Format(economy.ProductionStoppedHouseholds), Format(economy.ProductionRunsTotal),
             Format(economy.DemandLines), Format(economy.DemandLinesWithoutKnownPrice),
             Format(economy.HouseholdsWithoutKnownPrice), Format(economy.ProfitTotal),
+            Format(economy.PlayerFunds),
         }));
 
         foreach (var price in snapshot.Prices)

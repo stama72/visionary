@@ -39,7 +39,7 @@ public sealed class CsvMetricsSinkTests : IDisposable
     [Fact]
     public void CsvHeadersMatchTheValues()
     {
-        // economy.csv(22列)。necessity_blocked_households/necessity_blocked_count、
+        // economy.csv(23列)。necessity_blocked_households/necessity_blocked_count、
         // export_value/export_quantity、demand_lines/demand_lines_without_known_price は
         // 「同じ次元で入れ替わっても不自然に見えない組」(タスク仕様)として必ず相異なる値にする。
         var economy = new EconomyRow(
@@ -49,7 +49,7 @@ public sealed class CsvMetricsSinkTests : IDisposable
             SellerDays: 1011, SellerDaysWithoutReference: 1012, SellerDaysCoefficientCapped: 1013,
             SellerDaysAtFloor: 1014, SellerDaysAtFloorWithExport: 1015, ProductionStoppedHouseholds: 1016,
             ProductionRunsTotal: 1017, DemandLines: 1018, DemandLinesWithoutKnownPrice: 1019,
-            HouseholdsWithoutKnownPrice: 1020, ProfitTotal: 1021);
+            HouseholdsWithoutKnownPrice: 1020, ProfitTotal: 1021, PlayerFunds: 1022);
 
         // prices.csv(19列)。settled_min/settled_max(最小最大の入れ替え)を必ず相異なる値にする。
         var price = new PriceRow(
@@ -112,6 +112,7 @@ public sealed class CsvMetricsSinkTests : IDisposable
                 ["demand_lines_without_known_price"] = 1019,
                 ["households_without_known_price"] = 1020,
                 ["profit_total"] = 1021,
+                ["player_funds"] = 1022,
             });
 
         AssertRowMatchesHeaderByName(

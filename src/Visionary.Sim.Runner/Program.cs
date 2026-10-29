@@ -204,8 +204,6 @@ internal static class Program
 
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
-            var world = WorldGenerator.Generate(definition, new RandomSource(seed));
-
             // accumulator は using の外で作り、Advance の後に Build(seed) を呼ぶ(csvSink の
             // Dispose と順序を絡めない。W2-21 タスク仕様「6.」)。
             var accumulator = new VerificationAccumulator(definition);
@@ -213,8 +211,8 @@ internal static class Program
             using (var sink = new CsvMetricsSink(seedOutputDirectory))
             {
                 var composite = new CompositeDailyMetricsSink(sink, accumulator);
-                var scheduler = new SimScheduler(BuildPipeline(definition, composite), new RandomSource(seed));
-                scheduler.Advance(world, ticks);
+                var host = new SimHost(definition, seed, startDay: 0, metricsSink: composite);
+                ScriptedRun.Run(host, script: null, ticks);
             }
 
             verifications.Add(accumulator.Build(seed));

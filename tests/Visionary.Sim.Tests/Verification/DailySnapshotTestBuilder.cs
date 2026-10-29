@@ -109,7 +109,8 @@ internal static class DailySnapshotTestBuilder
         DemandLines: 100,
         DemandLinesWithoutKnownPrice: 0,
         HouseholdsWithoutKnownPrice: 0,
-        ProfitTotal: 0);
+        ProfitTotal: 0,
+        PlayerFunds: 0);
 
     private static IReadOnlyList<PriceRow> HealthyPrices(long day)
     {
