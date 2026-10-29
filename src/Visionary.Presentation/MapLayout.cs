@@ -18,8 +18,11 @@ public static class MapLayout
     /// <summary>地図単位 / 区画。</summary>
     public const int DistrictSize = 1000;
 
-    /// <summary>止まっている NPC を区画の中心からずらす量。単位: 地図単位。</summary>
-    public const int SlotOffset = 250;
+    /// <summary>止まっている者の下詰めの並びの間隔。単位: 地図単位。</summary>
+    public const int SlotSpacing = 250;
+
+    /// <summary>1段に並べる人数。単位: 人。</summary>
+    public const int SlotsPerRow = 4;
 
     private const int MapSize = DistrictSize * District.GridSide;
 
@@ -78,8 +81,22 @@ public static class MapLayout
         return Along(fromDistrictId, toDistrictId, (int)Math.Clamp(traveled, 0, int.MaxValue));
     }
 
+    /// <summary>
+    /// 区画 <paramref name="districtId"/> に止まっている者の順位 <paramref name="slotIndex"/>(0 始まり)の位置。
+    /// 下詰め・左詰め、4人で1段。単位: 地図単位。
+    /// </summary>
+    public static MapPoint StationaryPosition(int districtId, int slotIndex)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(slotIndex);
+
+        return new MapPoint(
+            (District.ColumnOf(districtId) * DistrictSize) + (SlotSpacing / 2) + ((slotIndex % SlotsPerRow) * SlotSpacing),
+            (District.RowOf(districtId) * DistrictSize) + DistrictSize - (SlotSpacing / 2)
+                - ((slotIndex / SlotsPerRow) * SlotSpacing));
+    }
+
     public static MapPoint NpcPosition(
-        TimetableEntry entry, int npcId, int progressPermille, int travelHoursPerDistrict)
+        TimetableEntry entry, int slotIndex, int progressPermille, int travelHoursPerDistrict)
     {
         if (entry.Activity == TimetableActivity.Traveling)
         {
@@ -88,12 +105,47 @@ public static class MapLayout
                 travelHoursPerDistrict);
         }
 
-        var center = CenterOf(entry.DistrictId);
-        int slot = npcId % 4;
-        int dx = (slot % 2 == 0) ? -SlotOffset : SlotOffset;
-        int dy = (slot / 2 == 0) ? -SlotOffset : SlotOffset;
+        return StationaryPosition(entry.DistrictId, slotIndex);
+    }
 
-        return new MapPoint(center.X + dx, center.Y + dy);
+    /// <summary>
+    /// <c>entries[k]</c> は <c>npcIds[k]</c> の時間割。止まっている者に、同じ区画の中で NpcId 昇順の順位を返す。
+    /// Traveling は −1。
+    /// </summary>
+    public static int[] StationarySlots(IReadOnlyList<int> npcIds, IReadOnlyList<TimetableEntry> entries)
+    {
+        ArgumentNullException.ThrowIfNull(npcIds);
+        ArgumentNullException.ThrowIfNull(entries);
+
+        if (npcIds.Count != entries.Count)
+        {
+            throw new ArgumentException("npcIds と entries は同じ長さ。", nameof(entries));
+        }
+
+        var slots = new int[npcIds.Count];
+        for (int k = 0; k < slots.Length; k++)
+        {
+            if (entries[k].Activity == TimetableActivity.Traveling)
+            {
+                slots[k] = -1;
+                continue;
+            }
+
+            int rank = 0;
+            for (int j = 0; j < slots.Length; j++)
+            {
+                if (entries[j].Activity != TimetableActivity.Traveling
+                    && entries[j].DistrictId == entries[k].DistrictId
+                    && npcIds[j] < npcIds[k])
+                {
+                    rank++;
+                }
+            }
+
+            slots[k] = rank;
+        }
+
+        return slots;
     }
 
     public static MapPoint PlayerPosition(

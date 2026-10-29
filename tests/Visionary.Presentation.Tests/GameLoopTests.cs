@@ -1,4 +1,5 @@
 using Visionary.Sim;
+using Visionary.Sim.Systems;
 
 namespace Visionary.Presentation.Tests;
 
@@ -28,12 +29,21 @@ public class GameLoopTests
             Assert.Equal(1, loop.Frame(TickPump.DefaultMicrosecondsPerTick));
 
             // 描画と同じ読み出し。結果は捨てる(World を書かないことを踏む)。
+            var npcIds = new List<int>();
+            var entries = new List<TimetableEntry>();
             foreach (var household in host.Query.Households())
             {
                 foreach (int npcId in household.MemberNpcIds)
                 {
-                    MapLayout.NpcPosition(host.Query.TimetableOf(npcId), npcId, loop.Pump.ProgressPermille, travel);
+                    npcIds.Add(npcId);
+                    entries.Add(host.Query.TimetableOf(npcId));
                 }
+            }
+
+            int[] slots = MapLayout.StationarySlots(npcIds, entries);
+            for (int k = 0; k < npcIds.Count; k++)
+            {
+                MapLayout.NpcPosition(entries[k], slots[k], loop.Pump.ProgressPermille, travel);
             }
 
             MapLayout.PlayerPosition(host.Query.Player(), host.Now, loop.Pump.ProgressPermille, travel);

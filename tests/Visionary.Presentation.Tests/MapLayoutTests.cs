@@ -62,27 +62,66 @@ public class MapLayoutTests
         Assert.Throws<ArgumentOutOfRangeException>(() => MapLayout.Traveling(0, 2, 1, 500, 0));
     }
 
-    [Fact]
-    public void NpcPosition_StationaryActivities_OffsetBySlot()
+    [Theory]
+    [InlineData(4, 0, 1125, 1875)]
+    [InlineData(4, 3, 1875, 1875)]
+    [InlineData(4, 4, 1125, 1625)]
+    [InlineData(0, 1, 375, 875)]
+    public void StationaryPosition_PacksFromBottomLeftFourPerRow(int district, int slot, int x, int y)
     {
-        var working = new TimetableEntry
-        {
-            Activity = TimetableActivity.Working,
-            DistrictId = 4,
-            DestinationDistrictId = 4,
-        };
-        var away = new TimetableEntry
-        {
-            Activity = TimetableActivity.AtDestination,
-            DistrictId = 2,
-            DestinationDistrictId = 2,
-        };
+        Assert.Equal(new MapPoint(x, y), MapLayout.StationaryPosition(district, slot));
+    }
 
-        Assert.Equal(new MapPoint(1250, 1750), MapLayout.NpcPosition(working, 6, 0, 1));
-        Assert.Equal(new MapPoint(2750, 250), MapLayout.NpcPosition(away, 1, 0, 1));
-        Assert.Equal(new MapPoint(1250, 1250), MapLayout.NpcPosition(working, 4, 0, 1));
-        Assert.Equal(new MapPoint(1750, 1250), MapLayout.NpcPosition(working, 5, 0, 1));
-        Assert.Equal(new MapPoint(1750, 1750), MapLayout.NpcPosition(working, 7, 0, 1));
+    [Fact]
+    public void StationaryPosition_NegativeSlot_Throws()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => MapLayout.StationaryPosition(0, -1));
+    }
+
+    private static TimetableEntry Entry(TimetableActivity activity, int district) => new()
+    {
+        Activity = activity,
+        DistrictId = district,
+        DestinationDistrictId = district,
+    };
+
+    /// <summary>
+    /// 核心(#9''): 区画の一致の条件を消す変異で、区画 1 の npc 7 が 0 でなく 3 などになり落ちる想定。
+    /// </summary>
+    [Fact]
+    public void StationarySlots_RanksByNpcIdWithinDistrictSkippingTraveling()
+    {
+        int[] ids = [5, 2, 9, 7];
+        TimetableEntry[] entries =
+        [
+            Entry(TimetableActivity.Working, 3),
+            Entry(TimetableActivity.Resting, 3),
+            Entry(TimetableActivity.Traveling, 3),
+            Entry(TimetableActivity.AtDestination, 1),
+        ];
+
+        Assert.Equal([1, 0, -1, 0], MapLayout.StationarySlots(ids, entries));
+
+        // 入力の並びを入れ替えても、NpcId ごとの順位は同じ。
+        int[] ids2 = [7, 9, 2, 5];
+        TimetableEntry[] entries2 = [entries[3], entries[2], entries[1], entries[0]];
+        Assert.Equal([0, -1, 0, 1], MapLayout.StationarySlots(ids2, entries2));
+    }
+
+    [Fact]
+    public void StationarySlots_LengthMismatch_Throws()
+    {
+        Assert.Throws<ArgumentException>(() => MapLayout.StationarySlots([1, 2], [Entry(TimetableActivity.Working, 0)]));
+    }
+
+    [Fact]
+    public void NpcPosition_StationaryActivities_MatchStationaryPosition()
+    {
+        var working = Entry(TimetableActivity.Working, 4);
+        var away = Entry(TimetableActivity.AtDestination, 2);
+
+        Assert.Equal(MapLayout.StationaryPosition(4, 5), MapLayout.NpcPosition(working, 5, 0, 1));
+        Assert.Equal(MapLayout.StationaryPosition(2, 1), MapLayout.NpcPosition(away, 1, 0, 1));
     }
 
     [Fact]

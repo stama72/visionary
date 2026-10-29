@@ -144,15 +144,23 @@ public partial class MapView : Node2D
             }
         }
 
+        var npcIds = new List<int>();
+        var entries = new List<TimetableEntry>();
         foreach (var household in households)
         {
             foreach (int npcId in household.MemberNpcIds)
             {
-                var entry = _host.Query.TimetableOf(npcId);
-                var point = MapLayout.NpcPosition(entry, npcId, _pump.ProgressPermille, _travelHoursPerDistrict);
-
-                DrawCircle(ToPixels(point), NpcRadiusPixels, ActivityColor(entry.Activity));
+                npcIds.Add(npcId);
+                entries.Add(_host.Query.TimetableOf(npcId));
             }
+        }
+
+        int[] slots = MapLayout.StationarySlots(npcIds, entries);
+        for (int k = 0; k < npcIds.Count; k++)
+        {
+            var point = MapLayout.NpcPosition(entries[k], slots[k], _pump.ProgressPermille, _travelHoursPerDistrict);
+
+            DrawCircle(ToPixels(point), NpcRadiusPixels, ActivityColor(entries[k].Activity));
         }
 
         var playerPoint = MapLayout.PlayerPosition(
