@@ -92,8 +92,11 @@ public class PlayerSessionTests
     }
 
     /// <summary>
-    /// 核心: <c>OpenWindow</c> の <c>pump.Paused = true</c> を消すと赤。
-    /// 核心: <c>Close</c> の <c>pump.Paused = false</c> を消すと赤。
+    /// 核心: <c>OpenWindow</c> の <c>pump.Paused = true</c> を消す変異と、<c>Close</c> の <c>pump.Paused = false</c> を消す変異。
+    /// 実測(出所: mutator の実測(a608b36、2026-10-29)、期待との食い違い 0 件):
+    /// M1 <c>OpenWindow</c> の <c>_pump.Paused = true</c> を削除 → 赤(本テストが落ちた)。
+    /// M2 <c>Close</c> の <c>_pump.Paused = false</c> を削除 → 赤(本テストと
+    /// <c>Pause_OpenConversationPausesAndClose_Resumes</c> が落ちた)。
     /// </summary>
     [Fact]
     public void Pause_RefusedTalkDoesNotPause_WindowPausesAndCloseResumes()
@@ -146,7 +149,10 @@ public class PlayerSessionTests
         Assert.False(Fresh().Pump.Paused);
     }
 
-    /// <summary>核心: <c>Move</c> のパネルの検査を消すと赤。</summary>
+    /// <summary>
+    /// 核心: <c>Move</c> のパネルの検査を消す変異。
+    /// 実測(出所: mutator の実測(a608b36、2026-10-29)): M3 <c>Move</c> の <c>IsPanelOpen</c> 検査を削除 → 赤(本テストが落ちた)。
+    /// </summary>
     [Fact]
     public void Move_WhilePanelOpen_ReturnsNullAndDoesNotMove_AndReopeningThrows()
     {
@@ -181,7 +187,12 @@ public class PlayerSessionTests
         Assert.Equal(conversation.Lines, again.Lines);
     }
 
-    /// <summary>核心: <c>Sell</c> の引き捨ての <c>NextUInt64()</c> を消すと赤。</summary>
+    /// <summary>
+    /// 核心: <c>Sell</c> の引き捨ての <c>NextUInt64()</c> を消す変異。
+    /// 実測(出所: mutator の実測(a608b36、2026-10-29)): M4 <c>ReopenAfterSpokenLines</c> の引き捨てを 0 回に → 赤
+    /// (本テストと <c>Sell_OverBudget_AddsRefusalLineAndNote_AndKeepsGoods</c>、
+    /// <c>Sell_SecondTradeLine_MatchesASingleSequenceReference</c> が落ちた)。
+    /// </summary>
     [Fact]
     public void Sell_Accepted_AddsGratitudeLineAndNoteAndPaysFunds()
     {
@@ -218,8 +229,13 @@ public class PlayerSessionTests
     }
 
     /// <summary>
-    /// 核心: 引き捨ての数を <c>_lines.Count</c>(地の文も数える)にする / 引き捨ての数を会話を開いた時点の台詞の行数で固定する、と赤。
+    /// 核心: 引き捨ての数を <c>_lines.Count</c>(地の文も数える)にする変異と、会話を開いた時点の台詞の行数で固定する変異。
     /// 参照は同じ鍵で列を 1 回だけ開き、同じ順に Say して作る。
+    /// 実測(出所: mutator の実測(a608b36、2026-10-29)、期待との食い違い 0 件):
+    /// M5 引き捨て数を <c>_lines.Count</c>(地の文込み)に → 赤(本テストだけが落ちた)。
+    /// M6 引き捨て数を開いた時点の台詞の行数で固定 → 赤(本テストだけが落ちた)。
+    /// M7 台詞 1 行ごとに <c>OpenConversation</c> を開き直す → 赤(本テストと
+    /// <c>Talk_OpeningLines_AreGreetingSmallTalkAndTwoDisclosures_AndReproducible</c> が落ちた)。
     /// </summary>
     [Fact]
     public void Sell_SecondTradeLine_MatchesASingleSequenceReference()
