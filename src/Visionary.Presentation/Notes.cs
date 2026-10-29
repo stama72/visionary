@@ -1,4 +1,5 @@
 using System.Globalization;
+using Visionary.Sim;
 using Visionary.Sim.Commands;
 
 namespace Visionary.Presentation;
@@ -48,13 +49,4 @@ public static class Notes
             CultureInfo.InvariantCulture,
             $"{Labels.ItemName(itemId)} × {result.Quantity} を単価 {result.UnitPrice} で{verb}(計 {result.Payment})");
     }
-}
-
-/// <summary>売買の向き。0 を使わない。</summary>
-public enum PlayerTradeKind
-{
-    SellToHousehold = 1,
-    BuyFromHousehold = 2,
-    SellToWindow = 3,
-    BuyFromWindow = 4,
 }
