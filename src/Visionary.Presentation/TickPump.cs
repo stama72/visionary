@@ -6,41 +6,42 @@ namespace Visionary.Presentation;
 /// <remarks>
 /// <b>端数だけを状態に持つ。</b>今が何 tick かは知らず、<see cref="SimHost"/> も持たない
 /// (端数はゲーム時間ではない)。呼び出し側が返された数だけ <c>SimHost.Advance(1)</c> を呼ぶ。
+/// <b>単位がマイクロ秒なのは、フレームごとの丸めでゲームの速さがフレームレートに依存しないため。</b>
 /// </remarks>
 public sealed class TickPump
 {
-    /// <summary>実時間 ms / tick(GDD05 §1.1。1日 = 10分)。単位: ミリ秒。</summary>
-    public const int DefaultMillisecondsPerTick = 25_000;
+    /// <summary>実時間 µs / tick(GDD05 §1.1。1 tick = 25秒、1日 = 10分)。単位: マイクロ秒。</summary>
+    public const long DefaultMicrosecondsPerTick = 25_000_000;
 
-    private readonly int _millisecondsPerTick;
+    private readonly long _microsecondsPerTick;
 
-    // 常に 0 ≤ 端数 < _millisecondsPerTick。単位: ミリ秒。
-    private long _remainderMilliseconds;
+    // 常に 0 ≤ 端数 < _microsecondsPerTick。単位: マイクロ秒。
+    private long _remainderMicroseconds;
 
-    public TickPump(int millisecondsPerTick = DefaultMillisecondsPerTick)
+    public TickPump(long microsecondsPerTick = DefaultMicrosecondsPerTick)
     {
-        if (millisecondsPerTick < 1)
+        if (microsecondsPerTick < 1)
         {
             throw new ArgumentOutOfRangeException(
-                nameof(millisecondsPerTick), millisecondsPerTick, "1 tick あたりの実時間は 1 ms 以上。");
+                nameof(microsecondsPerTick), microsecondsPerTick, "1 tick あたりの実時間は 1 µs 以上。");
         }
 
-        _millisecondsPerTick = millisecondsPerTick;
+        _microsecondsPerTick = microsecondsPerTick;
     }
 
     /// <summary>立てている間は <see cref="Elapse"/> が 0 を返し、端数も増えない(GDD05 §1.4)。</summary>
     public bool Paused { get; set; }
 
-    /// <summary>tick の中の進み。単位: ‰(0〜999)= 端数 × 1000 ÷ millisecondsPerTick(切り捨て)。</summary>
-    public int ProgressPermille => (int)(_remainderMilliseconds * 1000 / _millisecondsPerTick);
+    /// <summary>tick の中の進み。単位: ‰(0〜999)= 端数 × 1000 ÷ microsecondsPerTick(切り捨て)。</summary>
+    public int ProgressPermille => (int)(_remainderMicroseconds * 1000 / _microsecondsPerTick);
 
-    /// <summary>実時間を足し、進める tick の数を返す。上限で丸めない。</summary>
-    public int Elapse(long elapsedMilliseconds)
+    /// <summary>実時間(µs)を足し、進める tick の数を返す。上限で丸めない。</summary>
+    public int Elapse(long elapsedMicroseconds)
     {
-        if (elapsedMilliseconds < 0)
+        if (elapsedMicroseconds < 0)
         {
             throw new ArgumentOutOfRangeException(
-                nameof(elapsedMilliseconds), elapsedMilliseconds, "経過時間は 0 以上。");
+                nameof(elapsedMicroseconds), elapsedMicroseconds, "経過時間は 0 以上。");
         }
 
         if (Paused)
@@ -48,9 +49,9 @@ public sealed class TickPump
             return 0;
         }
 
-        _remainderMilliseconds += elapsedMilliseconds;
-        int ticks = checked((int)(_remainderMilliseconds / _millisecondsPerTick));
-        _remainderMilliseconds %= _millisecondsPerTick;
+        _remainderMicroseconds += elapsedMicroseconds;
+        int ticks = checked((int)(_remainderMicroseconds / _microsecondsPerTick));
+        _remainderMicroseconds %= _microsecondsPerTick;
 
         return ticks;
     }

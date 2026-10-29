@@ -59,7 +59,31 @@ public partial class MapView : Node2D
         _ => throw new ArgumentOutOfRangeException(nameof(activity), activity, "色のない活動。"),
     };
 
+    /// <summary>
+    /// 設定すると、<c>_Draw</c> の例外を握ってここへ渡す(煙試験が終了コード 1 にするため)。
+    /// 未設定なら例外はそのまま Godot に渡る。
+    /// </summary>
+    public Action<Exception>? OnDrawError { get; set; }
+
     public override void _Draw()
+    {
+        if (OnDrawError == null)
+        {
+            DrawMap();
+            return;
+        }
+
+        try
+        {
+            DrawMap();
+        }
+        catch (Exception e)
+        {
+            OnDrawError(e);
+        }
+    }
+
+    private void DrawMap()
     {
         if (_host == null)
         {

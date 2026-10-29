@@ -1,3 +1,4 @@
+using System.Globalization;
 using Godot;
 using Visionary.Presentation;
 using Visionary.Sim;
@@ -20,6 +21,9 @@ public partial class Main : Node2D
 
     private SimHost _host = null!;
     private TickPump _pump = null!;
+    private GameLoop? _loop;
+    private long? _smokeTargetTick;   // 煙試験のときだけ。目標の tick(host.Now + SmokeTicks)
+    private bool _finished;
     private MapView _mapView = null!;
     private Label _label = null!;
     private string _lastMove = "(なし)";
@@ -33,61 +37,85 @@ public partial class Main : Node2D
             return;
         }
 
-        if (options.SmokeTicks is int smokeTicks)
+        try
         {
-            try
-            {
-                var smokeHost = new SimHost(_definition, options.Seed, options.StartDay);
-                string hash = SmokeRun.Run(smokeHost, _definition.TravelHoursPerDistrict, smokeTicks);
+            // 煙試験でも通常でも同じ組み立て。違うのは目標 tick を覚えるかどうかだけ。
+            _host = new SimHost(_definition, options.Seed, options.StartDay);
+            _pump = new TickPump();
+            _loop = new GameLoop(_host, _pump);
 
-                GD.Print("VISIONARY_SMOKE_HASH=" + hash);
-                GetTree().Quit(0);
-            }
-            catch (Exception e)
+            if (options.SmokeTicks is int smokeTicks)
             {
-                GD.PrintErr(e.ToString());
-                GetTree().Quit(ExitSmokeFailure);
+                _smokeTargetTick = _host.Now.Value + smokeTicks;
             }
 
-            return;
+            _mapView = new MapView();
+            _mapView.Setup(_host, _pump, _definition.TravelHoursPerDistrict);
+
+            if (_smokeTargetTick != null)
+            {
+                _mapView.OnDrawError = FailSmoke;
+            }
+
+            AddChild(_mapView);
+
+            var layer = new CanvasLayer();
+            _label = new Label { Position = new Vector2(680, 80) };
+            layer.AddChild(_label);
+            AddChild(layer);
+
+            RefreshLabel();
         }
-
-        _host = new SimHost(_definition, options.Seed, options.StartDay);
-        _pump = new TickPump();
-
-        _mapView = new MapView();
-        _mapView.Setup(_host, _pump, _definition.TravelHoursPerDistrict);
-        AddChild(_mapView);
-
-        var layer = new CanvasLayer();
-        _label = new Label { Position = new Vector2(680, 80) };
-        layer.AddChild(_label);
-        AddChild(layer);
-
-        RefreshLabel();
+        catch (Exception e) when (options.SmokeTicks != null)
+        {
+            FailSmoke(e);
+        }
     }
 
     public override void _Process(double delta)
     {
-        if (_host == null)
+        if (_loop == null || _finished)
         {
             return;
         }
 
-        int ticks = _pump.Elapse((long)Math.Round(delta * 1000));
-
-        for (int i = 0; i < ticks; i++)
+        // 冒頭で見るのは、目標に達したフレームで QueueRedraw した _Draw を踏んでから出すため。
+        if (_smokeTargetTick is long target && _host.Now.Value >= target)
         {
-            _host.Advance(1);
+            _finished = true;
+            GD.Print("VISIONARY_SMOKE_HASH=" + _host.StateHash().ToString("X16", CultureInfo.InvariantCulture));
+            GetTree().Quit(0);
+            return;
         }
 
-        RefreshLabel();
-        _mapView.QueueRedraw();
+        try
+        {
+            // 経過を選ぶ1行。煙試験は 1フレーム = 1 tick。delta を積んでゲーム時間を作らない。
+            long elapsedMicroseconds = _smokeTargetTick != null
+                ? TickPump.DefaultMicrosecondsPerTick
+                : (long)Math.Round(delta * 1_000_000);
+
+            _loop.Frame(elapsedMicroseconds);
+
+            RefreshLabel();
+            _mapView.QueueRedraw();
+        }
+        catch (Exception e) when (_smokeTargetTick != null)
+        {
+            FailSmoke(e);
+        }
+    }
+
+    private void FailSmoke(Exception e)
+    {
+        _finished = true;
+        GD.PrintErr(e.ToString());
+        GetTree().Quit(ExitSmokeFailure);
     }
 
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (_host == null
+        if (_loop == null
             || @event is not InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left } click)
         {
             return;
