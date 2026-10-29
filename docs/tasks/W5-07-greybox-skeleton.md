@@ -222,6 +222,34 @@ public static class Labels
 - **呼び出し順**: 1フレームの中で `GameLoop.Frame`(`Elapse` → `Advance(1)` × n)→ 表示の更新 → `QueueRedraw` → 次の `_Draw` で位置の計算(進みは `Elapse` の後の値)。煙試験も同じ順
 - **終了コード**: 引数の誤り 2・煙試験の例外 1・煙試験の成功 0
 
+## 別表: 開発者のプレイからの変更(2026-10-29、PR #284 の上)
+
+**止まっている NPC の置き方を「`npcId mod 4` の4隅」から「区画の下詰め」に変える**(TDD01 §3.10「居場所の補間」)。上の 1b・テスト #9 の例はこの表で置き換える。
+
+- `MapLayout.SlotOffset` と `NpcPosition` の `npcId` 引数を消し、次にする:
+
+```csharp
+public const int SlotSpacing = 250;   // 地図単位。下詰めの並びの間隔
+public const int SlotsPerRow = 4;     // 1段に並べる人数
+
+/// 区画 districtId に止まっている者の順位 slotIndex(0 始まり)の位置。下詰め・左詰め、4人で1段
+public static MapPoint StationaryPosition(int districtId, int slotIndex);   // 負は ArgumentOutOfRangeException
+/// Traveling ならずらさない。それ以外は StationaryPosition(entry.DistrictId, slotIndex)
+public static MapPoint NpcPosition(TimetableEntry entry, int slotIndex, int progressPermille, int travelHoursPerDistrict);
+/// entries[k] は npcIds[k] の時間割。止まっている者に、同じ区画の中で NpcId 昇順の順位を返す。Traveling は −1
+public static int[] StationarySlots(IReadOnlyList<int> npcIds, IReadOnlyList<TimetableEntry> entries);   // 長さ違いは ArgumentException
+```
+
+- `StationaryPosition` = `(列 × 1000 + 125 + (i mod 4) × 250, 行 × 1000 + 875 − (i ÷ 4) × 250)`。例: 区画 4・順位 0 → (1125, 1875)、順位 3 → (1875, 1875)、順位 4 → (1125, 1625)。区画 0・順位 1 → (375, 875)
+- `StationarySlots` の例: npcIds = [5, 2, 9, 7]、区画 = [3, 3, 3, 1]、活動 = [家業, 休む, 移動中, 外出先] → [1, 0, −1, 0](npc 9 は移動中なので数えず、区画 3 の 2 → 0・5 → 1)。**入力の並びではなく NpcId で数える**
+- `MapView._Draw` と `GameLoopTests` の読み出しは、全 NPC の時間割を先に集めて `StationarySlots` で順位を出し、`NpcPosition(entry, slot, …)` を呼ぶ
+
+| # | テスト | 検証内容 | この実装ミスで落ちる | 核心 |
+| - | ------ | -------- | -------------------- | ---- |
+| 9' | `StationaryPosition` | 上の4例 | 上詰めにする、段の折り返しの誤り、行と列の取り違え | |
+| 9'' | `StationarySlots` | 上の例。入力の順を入れ替えても同じ順位 | 入力の並びで数える、移動中を数える、区画をまたいで数える | **核心**: 区画の一致の条件を消す / 赤 |
+| 9''' | `NpcPosition` | 家業・外出先は `StationaryPosition` と一致、移動中は `Traveling` と一致(順位に依らない) | 移動中にずらす | |
+
 ## 編集してよい文書
 
 - なし(コードとテスト、`Visionary.sln`、`.github/workflows/ci.yml` のみ)
