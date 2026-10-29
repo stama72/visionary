@@ -8,6 +8,7 @@
   <PropertyGroup>
     <RootNamespace>Visionary.Game</RootNamespace>
     <EnableDynamicLoading>true</EnableDynamicLoading>
+    <TargetFramework>net8.0</TargetFramework>
   </PropertyGroup>
 
   <ItemGroup>
