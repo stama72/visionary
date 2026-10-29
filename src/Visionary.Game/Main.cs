@@ -3,6 +3,7 @@ using Godot;
 using Visionary.Presentation;
 using Visionary.Sim;
 using Visionary.Sim.Commands;
+using Visionary.Sim.Dialogue;
 using Visionary.Sim.Time;
 
 namespace Visionary.Game;
@@ -29,7 +30,11 @@ public partial class Main : Node2D
     private bool _finished;
     private MapView _mapView = null!;
     private Label _label = null!;
-    private string _lastMove = "(なし)";
+    private PlayerSession _session = null!;
+    private DistrictPanel _districtPanel = null!;
+    private ConversationPanel _conversationPanel = null!;
+    private WindowPanel _windowPanel = null!;
+    private string _lastAction = "(なし)";
 
     public override void _Ready()
     {
@@ -46,6 +51,7 @@ public partial class Main : Node2D
             _host = new SimHost(_definition, options.Seed, options.StartDay);
             _pump = new TickPump();
             _loop = new GameLoop(_host, _pump);
+            _session = new PlayerSession(_host, _definition, _pump, options.Seed, DialogueCorpus.M0);
 
             if (options.SmokeTicks is int smokeTicks)
             {
@@ -66,6 +72,19 @@ public partial class Main : Node2D
             var layer = new CanvasLayer();
             _label = new Label { Position = new Vector2(680, 80) };
             layer.AddChild(_label);
+
+            _districtPanel = new DistrictPanel { Position = new Vector2(680, 220) };
+            _districtPanel.Setup(_session, text => _lastAction = text);
+            layer.AddChild(_districtPanel);
+
+            _conversationPanel = new ConversationPanel();
+            _conversationPanel.Setup(_session);
+            layer.AddChild(_conversationPanel);
+
+            _windowPanel = new WindowPanel();
+            _windowPanel.Setup(_session);
+            layer.AddChild(_windowPanel);
+
             AddChild(layer);
 
             RefreshLabel();
@@ -125,6 +144,9 @@ public partial class Main : Node2D
             }
 
             RefreshLabel();
+            _districtPanel.Refresh();
+            _conversationPanel.Refresh();
+            _windowPanel.Refresh();
             _mapView.QueueRedraw();
         }
         catch (Exception e) when (_smokeTicks != null)
@@ -155,13 +177,19 @@ public partial class Main : Node2D
             return;
         }
 
-        var result = _host.Execute(new MoveCommand(districtId));
+        var result = _session.Move(districtId);
 
-        _lastMove = Labels.Of(result.Status);
+        // パネルが開いている間は移動しない。
+        if (result == null)
+        {
+            return;
+        }
+
+        _lastAction = Labels.Of(result.Status);
 
         if (result.Status == CommandStatus.Accepted && result.ArrivalAt is Tick arrival)
         {
-            _lastMove += $"(到着 {GameDate.FromTick(arrival).HourOfDay}時)";
+            _lastAction += $"(到着 {GameDate.FromTick(arrival).HourOfDay}時)";
         }
     }
 
@@ -178,6 +206,7 @@ public partial class Main : Node2D
             $"{date.Year}年 {Labels.Of(date.Season)} {date.DayOfSeason}日 {date.HourOfDay}時\n"
             + $"所持金 {player.Funds}\n"
             + $"居場所 {place}\n"
-            + $"移動: {_lastMove}";
+            + $"所持品 {Notes.Inventory(player.Inventory)}\n"
+            + $"最後の操作: {_lastAction}";
     }
 }
