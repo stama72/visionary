@@ -96,6 +96,22 @@ public sealed class DialogueCorpus
             throw new ArgumentException($"段階を持てるのは取引の成立だけ: {template.Id}");
         }
 
+        // 開示は順を必ず指定する。指定なしだと1件目にも続きにも当たってしまう。
+        if (template.Kind == LineKind.NeedDisclosure && template.Order is null)
+        {
+            throw new ArgumentException($"開示は順が必須: {template.Id}");
+        }
+
+        if (template.Kind != LineKind.NeedDisclosure && template.Order is not null)
+        {
+            throw new ArgumentException($"順を持てるのは開示だけ: {template.Id}");
+        }
+
+        if (template.Order is { } order && !Enum.IsDefined(order))
+        {
+            throw new ArgumentException($"未知の順({template.Id})。");
+        }
+
         ValidatePlaceholders(template);
     }
 

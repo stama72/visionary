@@ -117,7 +117,7 @@ public sealed class DialogueSelectorTests
             (Gratitude.Reluctant, "rel"), (Gratitude.Grateful, "gra"), (Gratitude.DeepGratitude, "deep"),
         })
         {
-            var context = new DialogueContext(Occupation.Baker, Season.Spring, null, tier, Item.Tools, 1);
+            var context = new DialogueContext(Occupation.Baker, Season.Spring, null, tier, null, Item.Tools, 1);
             var ids = Collect(corpus, new DialogueMemory(), Seed, 0, LineKind.TradeAccepted, context, 4);
 
             Assert.All(ids, id => Assert.StartsWith(prefix, id, StringComparison.Ordinal));
@@ -188,6 +188,54 @@ public sealed class DialogueSelectorTests
             for (int i = 1; i < ids.Count; i++)
             {
                 Assert.NotEqual(ids[i - 1], ids[i]);
+            }
+        }
+    }
+
+    [Fact]
+    public void DisclosureOrderSelectsOnlyTemplatesOfThatOrder()
+    {
+        var corpus = Corpus(
+            Template("F1", LineKind.NeedDisclosure, text: "{item}を{qty}", order: DisclosureOrder.First),
+            Template("F2", LineKind.NeedDisclosure, text: "{item}を{qty}", order: DisclosureOrder.First),
+            Template("C1", LineKind.NeedDisclosure, text: "{item}を{qty}", order: DisclosureOrder.Continued),
+            Template("C2", LineKind.NeedDisclosure, text: "{item}を{qty}", order: DisclosureOrder.Continued));
+        var first = Plain() with { Order = DisclosureOrder.First, ItemId = Item.Tools, Quantity = 1 };
+        var continued = first with { Order = DisclosureOrder.Continued };
+
+        var firsts = Collect(corpus, new DialogueMemory(), Seed, 0, LineKind.NeedDisclosure, first, 4);
+        var continueds = Collect(corpus, new DialogueMemory(), Seed, 0, LineKind.NeedDisclosure, continued, 4);
+
+        Assert.All(firsts, id => Assert.StartsWith("F", id, StringComparison.Ordinal));
+        Assert.All(continueds, id => Assert.StartsWith("C", id, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void LastIdIsTrackedPerDisclosureOrder()
+    {
+        var corpus = Corpus(
+            Template("F1", LineKind.NeedDisclosure, text: "{item}を{qty}", order: DisclosureOrder.First),
+            Template("F2", LineKind.NeedDisclosure, text: "{item}を{qty}", order: DisclosureOrder.First),
+            Template("C1", LineKind.NeedDisclosure, text: "{item}を{qty}", order: DisclosureOrder.Continued));
+        var first = Plain() with { Order = DisclosureOrder.First, ItemId = Item.Tools, Quantity = 1 };
+        var continued = first with { Order = DisclosureOrder.Continued };
+
+        for (long seed = 1; seed <= 20; seed++)
+        {
+            var memory = new DialogueMemory();
+            var firsts = new List<string>();
+
+            // 会話ごとに「1件目 → 続き」と話す(同じ会話は1つの乱数列を使う)
+            for (int i = 0; i < 10; i++)
+            {
+                var random = DialogueSelector.OpenConversation(seed, new Tick((i * 24) + 12), 1);
+                firsts.Add(DialogueSelector.Say(corpus, memory, ref random, 1, LineKind.NeedDisclosure, in first).TemplateId);
+                DialogueSelector.Say(corpus, memory, ref random, 1, LineKind.NeedDisclosure, in continued);
+            }
+
+            for (int i = 1; i < firsts.Count; i++)
+            {
+                Assert.NotEqual(firsts[i - 1], firsts[i]);
             }
         }
     }
@@ -290,15 +338,33 @@ public sealed class DialogueSelectorTests
         // 挨拶に段階あり
         Assert.Throws<ArgumentException>(() => Call(LineKind.Greeting, plain with { Gratitude = Gratitude.Grateful }));
 
-        // 開示に ItemId なし
-        Assert.Throws<ArgumentException>(() => Call(LineKind.NeedDisclosure, plain with { Quantity = 1 }));
+        // 開示に ItemId なし(Order は付けて、ItemId の検査だけを見る)
+        Assert.Throws<ArgumentException>(
+            () => Call(LineKind.NeedDisclosure, plain with { Order = DisclosureOrder.First, Quantity = 1 }));
+
+        // 開示に Order なし / 挨拶に Order あり / 取引の成立に Order あり(W5-06 #4)
+        Assert.Throws<ArgumentException>(
+            () => Call(LineKind.NeedDisclosure, plain with { ItemId = 0, Quantity = 1 }));
+        Assert.Throws<ArgumentException>(
+            () => Call(LineKind.Greeting, plain with { Order = DisclosureOrder.First }));
+        Assert.Throws<ArgumentException>(
+            () => Call(
+                LineKind.TradeAccepted,
+                plain with
+                {
+                    Gratitude = Gratitude.Grateful,
+                    Order = DisclosureOrder.Continued,
+                    ItemId = 0,
+                    Quantity = 1,
+                }));
 
         // 不成立に Quantity あり
         Assert.Throws<ArgumentException>(() => Call(LineKind.TradeRefused, plain with { ItemId = 0, Quantity = 1 }));
 
         // 数量 0
         Assert.Throws<ArgumentOutOfRangeException>(
-            () => Call(LineKind.NeedDisclosure, plain with { ItemId = 0, Quantity = 0 }));
+            () => Call(
+                LineKind.NeedDisclosure, plain with { Order = DisclosureOrder.First, ItemId = 0, Quantity = 0 }));
 
         // 品目 Id が範囲外
         Assert.Throws<ArgumentOutOfRangeException>(

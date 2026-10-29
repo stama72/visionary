@@ -45,6 +45,7 @@ public static class DialogueSelector
                 && AxisMatches(template.Occupation, context.Occupation)
                 && AxisMatches(template.Season, context.Season)
                 && AxisMatches(template.Gratitude, context.Gratitude)
+                && AxisMatches(template.Order, context.Order)
                 && AxisMatches(template.Personality, context.Personality))
             {
                 candidates.Add(template);
@@ -55,7 +56,7 @@ public static class DialogueSelector
         {
             throw new InvalidOperationException(
                 $"候補が 0 本(種類 {kind}, 職業 {context.Occupation}, 季節 {context.Season}, "
-                + $"段階 {context.Gratitude}, 性格 {context.Personality})。資料の網羅が足りない。");
+                + $"段階 {context.Gratitude}, 順 {context.Order}, 性格 {context.Personality})。資料の網羅が足りない。");
         }
 
         // プール: この NPC での使用回数が最小のもの。
@@ -79,7 +80,8 @@ public static class DialogueSelector
         // 一巡した直後に同じ台詞が続くのを防ぐ。
         if (pool.Count >= 2)
         {
-            string? last = memory.LastId(npcId, kind);
+            // 鍵に開示の順を含める。含めないと、続きの型が1件目の直前 Id を上書きする。
+            string? last = memory.LastId(npcId, kind, context.Order);
 
             if (last is not null)
             {
@@ -96,7 +98,7 @@ public static class DialogueSelector
         // 前の行のプールの大きさに依存しないようにする。
         var chosen = pool[random.NextInt(0, pool.Count)];
 
-        memory.Record(npcId, kind, chosen.Id);
+        memory.Record(npcId, kind, context.Order, chosen.Id);
 
         return new DialogueLine(kind, chosen.Id, Expand(corpus, chosen.Text, context));
     }
@@ -127,6 +129,18 @@ public static class DialogueSelector
         else if (context.Gratitude is not null)
         {
             throw new ArgumentException($"{kind} は Gratitude を持たない。", nameof(context));
+        }
+
+        if (kind == LineKind.NeedDisclosure)
+        {
+            if (context.Order is null)
+            {
+                throw new ArgumentException("開示は Order が必須。", nameof(context));
+            }
+        }
+        else if (context.Order is not null)
+        {
+            throw new ArgumentException($"{kind} は Order を持たない。", nameof(context));
         }
 
         bool needsItem = kind is LineKind.NeedDisclosure or LineKind.TradeAccepted or LineKind.TradeRefused;
