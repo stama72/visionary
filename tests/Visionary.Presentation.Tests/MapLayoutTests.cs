@@ -29,7 +29,9 @@ public class MapLayoutTests
 
     /// <summary>
     /// 核心(#7): 横と縦の順を入れ替える変異、<c>符号(Δ列)</c> を常に +1 にする変異で落ちる想定。
-    /// 変異の実測結果は mutator の報告を待つ。
+    /// 実測(出所: mutator の実測(7ab797e)):
+    /// 横と縦の順を入れ替える変異 → 赤(0→8 の traveled 1500・2500、8→0 の traveled 1500 の3ケースが落ちた)。
+    /// <c>符号(Δ列)</c> を常に +1 にする変異 → 赤(8→0 の traveled 1500 の1ケースが落ちた)。
     /// </summary>
     [Theory]
     [InlineData(0, 8, 1500, 2000, 500)]
@@ -42,7 +44,10 @@ public class MapLayoutTests
         Assert.Equal(new MapPoint(x, y), MapLayout.Along(from, to, traveled));
     }
 
-    /// <summary>核心(#8): 割り算を消す変異で、1区画 2 時間の例が落ちる想定。</summary>
+    /// <summary>
+    /// 核心(#8): 割り算を消す変異で、1区画 2 時間の例が落ちる想定。
+    /// 実測(出所: mutator の実測(7ab797e)): <c>/ travelHoursPerDistrict</c> を消す変異 → 赤(2 時間のケースが落ちた)。
+    /// </summary>
     [Theory]
     [InlineData(1, 2000, 500)]
     [InlineData(2, 1250, 500)]

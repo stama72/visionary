@@ -28,7 +28,11 @@ public class TickPumpTests
 
     /// <summary>
     /// 核心(#2b): <c>Elapse</c> の先頭で <c>elapsed = elapsed / 1000 * 1000</c> とする(ミリ秒に丸める)変異で、
-    /// 240 Hz の例が 1 tick に届かず、両方の例が赤になる想定。変異の実測結果は mutator の報告を待つ。
+    /// 240 Hz の例が 1 tick に届かず、両方の例が赤になる想定。
+    /// 実測(出所: mutator の実測(7ab797e)): 検査の後に <c>elapsed = elapsed / 1000 * 1000</c> → 赤。
+    /// 落ちたのは本テストの 60 Hz 側 <c>Assert.Equal(1, total60)</c>(Expected 1 / Actual 0)と
+    /// <c>Elapse_BelowOneTick_ReturnsZeroAndThenOneAtThreshold</c>。
+    /// 240 Hz 側の assert は 60 Hz 側で止まるため実行されておらず、単独では未測。
     /// </summary>
     [Fact]
     public void Elapse_SameRealTimeAtDifferentFrameRates_YieldsOneTickEach()
@@ -53,7 +57,8 @@ public class TickPumpTests
 
     /// <summary>
     /// 核心(#3): <c>Elapse</c> の <c>Paused</c> の早期 return を消すと、止めている間に端数が積まれて
-    /// 再開時に一気に進む。変異の実測結果は mutator の報告を待つ。
+    /// 再開時に一気に進む。
+    /// 実測(出所: mutator の実測(7ab797e)): <c>Paused</c> の早期 return を消す変異 → 赤(本テストが落ちた)。
     /// </summary>
     [Fact]
     public void Elapse_WhilePaused_ReturnsZeroAndDoesNotAccumulate()

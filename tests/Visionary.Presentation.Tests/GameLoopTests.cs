@@ -6,7 +6,9 @@ public class GameLoopTests
 {
     /// <summary>
     /// 核心(#12): <c>Frame</c> の中で <c>Host.Advance(1)</c> をもう1回呼ぶ変異で、別に作ったホストとのハッシュが
-    /// 食い違う想定。変異の実測結果は mutator の報告を待つ。
+    /// 食い違う想定。
+    /// 実測(出所: mutator の実測(7ab797e)): <c>Frame</c> のループ内で <c>Host.Advance(1)</c> をもう1回呼ぶ変異 → 赤
+    /// (本テストと <c>Frame_SixtyMillionMicroseconds_AdvancesTwoTicks</c> が落ちた)。
     /// </summary>
     [Fact]
     public void Frame_720Frames_HashEqualsPlainAdvanceAndReadsDoNotWriteWorld()
