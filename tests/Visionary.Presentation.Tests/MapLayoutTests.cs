@@ -87,6 +87,10 @@ public class MapLayoutTests
 
     /// <summary>
     /// 核心(#9''): 区画の一致の条件を消す変異で、区画 1 の npc 7 が 0 でなく 3 などになり落ちる想定。
+    /// 実測(出所: mutator の実測、2026-10-29、HEAD b132c08):
+    /// <c>StationarySlots</c> から <c>&amp;&amp; entries[j].DistrictId == entries[k].DistrictId</c> を削除する変異
+    /// (区画をまたいで順位を数える) → 赤(期待 [1, 0, -1, 0] に対し実測 [1, 0, -1, 2]。
+    /// Presentation.Tests 51 件中、失敗 1・合格 50)。
     /// </summary>
     [Fact]
     public void StationarySlots_RanksByNpcIdWithinDistrictSkippingTraveling()
