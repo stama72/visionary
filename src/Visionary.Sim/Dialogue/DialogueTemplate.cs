@@ -11,8 +11,19 @@ public sealed record DialogueTemplate(
     Occupation? Occupation,
     Season? Season,
     Gratitude? Gratitude,
+    DisclosureOrder? Order,
     Personality? Personality,
     string Text);
+
+/// <summary>開示の何件目か(GDD01 §3.3.1)。0 を使わない。</summary>
+public enum DisclosureOrder
+{
+    /// <summary>1件目。</summary>
+    First = 1,
+
+    /// <summary>2件目以降。</summary>
+    Continued = 2,
+}
 
 /// <summary>品目の表示名と助数詞(「工具」と「本」)。</summary>
 public readonly record struct ItemWording(string Name, string Counter);
@@ -27,6 +38,7 @@ public readonly record struct DialogueContext(
     Season Season,
     Personality? Personality,
     Gratitude? Gratitude,
+    DisclosureOrder? Order,
     int? ItemId,
     int? Quantity);
 

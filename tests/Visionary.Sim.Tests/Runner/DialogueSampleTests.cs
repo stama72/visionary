@@ -265,6 +265,59 @@ public sealed class DialogueSampleTests : IDisposable
         Assert.StartsWith("[取引の成立/渋々]", trades[0], StringComparison.Ordinal);
     }
 
+    /// <summary>テスト内で同じ世界を独立に回し、day 0〜29 で開示する Need が2件以上ある最初の (day, npc) を探す。</summary>
+    private static (int Day, int Npc) FindFirstNpcWithTwoDisclosedNeeds()
+    {
+        var definition = WorldDefinition.M0;
+        var world = WorldGenerator.Generate(definition, new RandomSource(1));
+        var scheduler = new SimScheduler(
+            Program.BuildPipeline(definition, new NullDailyMetricsSink()), new RandomSource(1));
+
+        for (int day = 0; day < 30; day++)
+        {
+            scheduler.Advance(world, (int)(((day * 24L) + 12) - world.Now.Value));
+
+            for (int npc = 0; npc < definition.NpcCount; npc++)
+            {
+                if (DisclosedNeeds.Of(world, world.Npcs[npc].HouseholdId).Count >= 2)
+                {
+                    return (day, npc);
+                }
+            }
+        }
+
+        Assert.Fail("seed 1 の day 0〜29 に、開示する Need が2件以上ある (day, npc) が無い。");
+        return default;
+    }
+
+    /// <remarks>
+    /// 変異の実測(<c>mutator</c> の報告、HEAD 0b9ec8d、2026-10-29): <c>DialogueSampleCommand</c> で
+    /// <c>var order = n == 0 ? First : Continued;</c> を <c>var order = DisclosureOrder.First;</c> にすると赤
+    /// (本テスト。2行目が Continued でなく First)。
+    /// </remarks>
+    [Fact]
+    public void DialogueSampleUsesContinuedTemplatesFromTheSecondDisclosure()
+    {
+        var (day, npc) = FindFirstNpcWithTwoDisclosedNeeds();
+
+        string output = RunSample(
+            "--npc", npc.ToString(CultureInfo.InvariantCulture),
+            "--start-day", day.ToString(CultureInfo.InvariantCulture), "--repeat", "1");
+        var ids = Body(output)
+            .Where(l => l.StartsWith("[開示]", StringComparison.Ordinal))
+            .Select(l => Regex.Match(l, @"^\[開示\] \((.+?)\) ").Groups[1].Value)
+            .ToList();
+
+        Assert.True(ids.Count >= 2, $"開示の行が {ids.Count} 行しかない。");
+
+        var orders = ids
+            .Select(id => DialogueCorpus.M0.Templates.Single(t => t.Id == id).Order)
+            .ToList();
+
+        Assert.Equal(DisclosureOrder.First, orders[0]);
+        Assert.All(orders.Skip(1), o => Assert.Equal(DisclosureOrder.Continued, o));
+    }
+
     [Fact]
     public void DialogueSampleRotatesOutcomesOnlyOnNeedDays()
     {

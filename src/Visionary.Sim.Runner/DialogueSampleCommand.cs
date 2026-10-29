@@ -171,7 +171,7 @@ internal static class DialogueSampleCommand
                 CultureInfo.InvariantCulture,
                 $"== {i + 1}/{repeat} day {day} {date} household={householdId} occupation={occupation}"));
 
-            var baseContext = new DialogueContext(occupation, date.Season, null, null, null, null);
+            var baseContext = new DialogueContext(occupation, date.Season, null, null, null, null, null);
 
             AppendLine(sb, tally, corpus, memory, ref random, npc, LineKind.Greeting, baseContext, "挨拶", null);
             AppendLine(sb, tally, corpus, memory, ref random, npc, LineKind.SmallTalk, baseContext, "世間話", null);
@@ -184,9 +184,11 @@ internal static class DialogueSampleCommand
                 continue;
             }
 
-            foreach (var need in needs)
+            for (int n = 0; n < needs.Count; n++)
             {
-                var context = baseContext with { ItemId = need.ItemId, Quantity = need.Quantity };
+                var need = needs[n];
+                var order = n == 0 ? DisclosureOrder.First : DisclosureOrder.Continued;
+                var context = baseContext with { Order = order, ItemId = need.ItemId, Quantity = need.Quantity };
                 string tag = string.Create(
                     CultureInfo.InvariantCulture,
                     $"<need #{need.Id} item={need.ItemId} qty={need.Quantity} reason={need.ReasonCode}>");

@@ -22,7 +22,7 @@ public sealed class DialogueCorpusTests
         var disclosure = Template("d", LineKind.NeedDisclosure, text: "{item}を{qty}");
         var corpus = Corpus(disclosure, Template("s", LineKind.SmallTalk, text: "{season}だね"));
 
-        var toolsTwo = Plain() with { ItemId = Item.Tools, Quantity = 2 };
+        var toolsTwo = Plain() with { Order = DisclosureOrder.First, ItemId = Item.Tools, Quantity = 2 };
         Assert.Equal("工具を二本", Say(corpus, LineKind.NeedDisclosure, toolsTwo).Text);
 
         Assert.Equal("冬だね", Say(corpus, LineKind.SmallTalk, Plain(season: Season.Winter)).Text);
@@ -59,7 +59,7 @@ public sealed class DialogueCorpusTests
         var items = Enumerable.Repeat(new ItemWording("x", string.Empty), Item.Count).ToArray();
         var corpus = Corpus(items, Template("d", LineKind.NeedDisclosure, text: "{item}{qty}"));
 
-        var line = Say(corpus, LineKind.NeedDisclosure, Plain() with { ItemId = 0, Quantity = quantity });
+        var line = Say(corpus, LineKind.NeedDisclosure, Plain() with { Order = DisclosureOrder.First, ItemId = 0, Quantity = quantity });
 
         Assert.Equal("x" + expected, line.Text);
     }
@@ -92,6 +92,13 @@ public sealed class DialogueCorpusTests
         Rejects(Template("noTier", LineKind.TradeAccepted));
         Rejects(Template("tierOnRefusal", LineKind.TradeRefused, gratitude: Gratitude.Grateful, text: "{item}"));
 
+        // 開示は順が必須 / 順を持てるのは開示だけ(W5-06 #3)
+        Rejects(Template("noOrder", LineKind.NeedDisclosure, text: "{item}を{qty}", noOrder: true));
+        Rejects(Template("orderOnGreeting", LineKind.Greeting, order: DisclosureOrder.First));
+        Rejects(Template(
+            "orderOnAccepted", LineKind.TradeAccepted, gratitude: Gratitude.Grateful, text: "{item}を{qty}",
+            order: DisclosureOrder.Continued));
+
         // 対応の取れない括弧
         Rejects(Template("open", LineKind.NeedDisclosure, text: "{item"));
         Rejects(Template("close", LineKind.Greeting, text: "}"));
@@ -111,13 +118,19 @@ public sealed class DialogueCorpusTests
     // ---- M0 の資料(#16・#17)。軸の当たり方はテスト側で独立に書く ----
 
     private static int Union(
-        LineKind kind, Occupation occupation, Season season, Gratitude? gratitude, bool occupationSpecificOnly)
+        LineKind kind,
+        Occupation occupation,
+        Season season,
+        Gratitude? gratitude,
+        DisclosureOrder? order,
+        bool occupationSpecificOnly)
     {
         return DialogueCorpus.M0.Templates.Count(t =>
             t.Kind == kind
             && (t.Occupation is null || t.Occupation == occupation)
             && (t.Season is null || t.Season == season)
             && (t.Gratitude is null || t.Gratitude == gratitude)
+            && (t.Order is null || t.Order == order)
             && t.Personality is null
             && (!occupationSpecificOnly || t.Occupation is not null));
     }
@@ -125,22 +138,22 @@ public sealed class DialogueCorpusTests
     [Fact]
     public void M0CorpusMeetsTheCoverageFloor()
     {
-        // 種類 → (和集合の下限, 職業指定の下限)
-        var floors = new Dictionary<LineKind, (int Union, int Specific)>
+        // (種類, 開示の順) → (和集合の下限, 職業指定の下限)。表は W5-06 §5。
+        var floors = new List<(LineKind Kind, DisclosureOrder? Order, int Union, int Specific)>
         {
-            [LineKind.Greeting] = (8, 2),
-            [LineKind.SmallTalk] = (8, 2),
-            [LineKind.NeedDisclosure] = (6, 2),
-            [LineKind.NoNeed] = (6, 2),
-            [LineKind.TradeAccepted] = (4, 1),
-            [LineKind.TradeRefused] = (4, 2),
+            (LineKind.Greeting, null, 10, 2),
+            (LineKind.SmallTalk, null, 10, 2),
+            (LineKind.NeedDisclosure, DisclosureOrder.First, 6, 2),
+            (LineKind.NeedDisclosure, DisclosureOrder.Continued, 6, 0),
+            (LineKind.NoNeed, null, 10, 2),
+            (LineKind.TradeAccepted, null, 4, 1),
+            (LineKind.TradeRefused, null, 4, 2),
         };
 
         var violations = new List<string>();
 
-        foreach (var kind in floors.Keys.OrderBy(k => k))
+        foreach (var (kind, order, unionFloor, specificFloor) in floors)
         {
-            var (unionFloor, specificFloor) = floors[kind];
             var tiers = kind == LineKind.TradeAccepted
                 ? new Gratitude?[] { Gratitude.Reluctant, Gratitude.Grateful, Gratitude.DeepGratitude }
                 : new Gratitude?[] { null };
@@ -151,12 +164,12 @@ public sealed class DialogueCorpusTests
                 {
                     foreach (var tier in tiers)
                     {
-                        int union = Union(kind, occupation, season, tier, false);
-                        int specific = Union(kind, occupation, season, tier, true);
+                        int union = Union(kind, occupation, season, tier, order, false);
+                        int specific = Union(kind, occupation, season, tier, order, true);
 
                         if (union < unionFloor || specific < specificFloor)
                         {
-                            violations.Add($"{kind}/{occupation}/{season}/{tier}: 和集合 {union}(下限 {unionFloor}) 職業指定 {specific}(下限 {specificFloor})");
+                            violations.Add($"{kind}/{order}/{occupation}/{season}/{tier}: 和集合 {union}(下限 {unionFloor}) 職業指定 {specific}(下限 {specificFloor})");
                         }
                     }
                 }
@@ -169,6 +182,59 @@ public sealed class DialogueCorpusTests
     private static readonly string[] BannedWords =
         { "おはよう", "こんにちは", "こんばんは", "来月", "ヶ月", "か月", "カ月" };
 
+    private static readonly string[] QuantityHedges = { "{qty}も", "{qty}ほど", "{qty}ばかり", "の{qty}" };
+
+    private static readonly string[] OccupationNames = { "粉屋", "パン屋", "醸造屋", "木工", "鍛冶屋" };
+
+    private static readonly string[] RescueWords = { "救", "恩人" };
+
+    private static readonly string[] RefusalReasons =
+        { "手持ち", "蓄え", "懐", "何とか", "安く", "ならんか", "ならないか" };
+
+    private const int ContinuedMaxLength = 25;
+
+    /// <summary>機械で見る書き方の規則(W5-06 テスト #7。展開前の Text に序数比較の部分文字列で見る)。</summary>
+    private static void AssertWritingRules(DialogueTemplate template)
+    {
+        void Forbid(string[] words, string rule)
+        {
+            foreach (string word in words)
+            {
+                Assert.False(
+                    template.Text.Contains(word, StringComparison.Ordinal),
+                    $"{template.Id}: {rule}に反する語 '{word}'");
+            }
+        }
+
+        Forbid(QuantityHedges, "R8");
+
+        if (template.Kind is LineKind.NeedDisclosure or LineKind.NoNeed or LineKind.TradeAccepted or LineKind.TradeRefused)
+        {
+            Forbid(OccupationNames, "R2・R5・R7(職業名の名乗り)");
+        }
+
+        if (template.Kind == LineKind.TradeAccepted)
+        {
+            Forbid(RescueWords, "R6");
+        }
+
+        if (template.Kind == LineKind.TradeRefused)
+        {
+            Forbid(RefusalReasons, "R9");
+        }
+
+        if (template.Order == DisclosureOrder.Continued)
+        {
+            Assert.True(
+                template.Text.Length <= ContinuedMaxLength,
+                $"{template.Id}: 続きが {template.Text.Length}字(上限 {ContinuedMaxLength})");
+        }
+    }
+
+    /// <remarks>
+    /// 変異の実測(<c>mutator</c> の報告、HEAD 0b9ec8d、2026-10-29): <c>thanks.any.deep.01</c> の本文末尾に
+    /// 「救われた。」を足すと赤(本テスト。<c>thanks.any.deep.01: R6に反する語 '救'</c>)。
+    /// </remarks>
     [Fact]
     public void M0CorpusFollowsTheWritingRules()
     {
@@ -185,6 +251,8 @@ public sealed class DialogueCorpusTests
 
             // 性格の軸は M0 ではどれも使わない(決定2)
             Assert.Null(template.Personality);
+
+            AssertWritingRules(template);
         }
 
         // 品目表: 開示の台詞は {item}{qty} を必ず含むので、展開結果を表から組んだ期待値と一字一句比べる
@@ -192,7 +260,7 @@ public sealed class DialogueCorpusTests
 
         for (int itemId = 0; itemId < Item.Count; itemId++)
         {
-            var line = Say(corpus, LineKind.NeedDisclosure, Plain() with { ItemId = itemId, Quantity = 2 });
+            var line = Say(corpus, LineKind.NeedDisclosure, Plain() with { Order = DisclosureOrder.First, ItemId = itemId, Quantity = 2 });
             var template = corpus.Templates.Single(t => t.Id == line.TemplateId);
             var wording = StandardItems[itemId];
             string expected = template.Text

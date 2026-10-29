@@ -8,10 +8,11 @@ namespace Visionary.Sim.Dialogue;
 /// <see cref="DialogueTemplate"/> の引数を短く書くための薄い書き口で、判断を含まない。
 /// </summary>
 /// <remarks>
-/// 書き方の規則(W5-01 §5)。1〜2文・展開前60字以内。時間帯の挨拶語と、月を使う期限を書かない。
-/// 開示は品目と数量が要ることだけを言い、理由・背景・期限・予算を言わない。世間話・挨拶・
-/// 困りごとは無い、で自分の仕事の不調を語らない。性格の軸はすべて指定なし(決定2)。
-/// 取引の成立は 渋々(不満を残す) / 感謝(礼を言う) / 深い感謝(救われたと言う) の差を台詞だけで出す。
+/// 書き方の規則は GDD01 §3.3.1「書き方の規則」が持つ。ここでは書き換えるときに踏みやすい点だけを挙げる。
+/// 開示は 1件目(<c>D</c>)と続き(<c>C</c>)の2つの型を持つ。続きは前の行に繋ぐ短いつなぎで、
+/// 展開前25字以内。職業の差は職業名の名乗りではなく口調で出す。{qty} に量を強調・ぼかす語を付けない。
+/// 取引の成立は値段の妥当さで語り(渋々 = 高い / 感謝 = 妥当 / 深い感謝 = この値で譲ってくれるのか)、
+/// 救済の語を使わない。取引の不成立は理由・再提示の誘いを言わない。性格の軸はすべて指定なし(決定2)。
 /// 並び順は候補の並び順になる(同じ文脈なら、上にあるほど先に候補へ入る)。
 /// </remarks>
 internal static class DialogueCorpusM0
@@ -42,6 +43,8 @@ internal static class DialogueCorpusM0
         G("greet.any.-.04", null, "おや、あんたか。まあ、寄っていきな。"),
         G("greet.any.-.05", null, "ようこそ。通りは賑わっているかい。"),
         G("greet.any.-.06", null, "来たな。立ち話で悪いが、付き合ってくれ。"),
+        G("greet.any.-.07", null, "おお、あんたか。変わりはないかい。"),
+        G("greet.any.-.08", null, "よく来てくれた。ちょうど一息ついたところだよ。"),
         G("greet.miller.-.01", Occupation.Miller, "粉の匂いのする所で悪いな。まあ入ってくれ。"),
         G("greet.miller.-.02", Occupation.Miller, "水車の音がうるさいが、聞こえるかい。"),
         G("greet.baker.-.01", Occupation.Baker, "焼き立ての匂いにつられて来たかい。"),
@@ -53,12 +56,14 @@ internal static class DialogueCorpusM0
         G("greet.smith.-.01", Occupation.Smith, "槌の音の中で失礼する。よく来たな。"),
         G("greet.smith.-.02", Occupation.Smith, "火の側は暑いぞ。それでもよければ入れ。"),
 
-        // ---- 世間話(職業・季節。{season} を差し込める) ----
+        // ---- 世間話(職業・季節。{season} を差し込める。習慣・格言・季節の様子を言い、1回きりの出来事を言わない) ----
         S("small.any.-.01", null, null, "市の立つ日は人が多くて、道を歩くのも一苦労だな。"),
-        S("small.any.-.02", null, null, "鐘楼の鐘が、今日は妙に遠くまで響いていたよ。"),
-        S("small.any.-.03", null, null, "向かいの子供らが、朝から石蹴りに夢中でね。"),
-        S("small.any.-.04", null, null, "隣の通りに、新しい井戸が掘られるそうだ。"),
-        S("small.any.-.05", null, null, "城壁の外から来た旅の者が、広場で歌っていたよ。"),
+        S("small.any.-.02", null, null, "朝の鐘が鳴ると、通りの店が一斉に戸を開けるのさ。"),
+        S("small.any.-.03", null, null, "子供らは日が暮れるまで、通りで石蹴りをして遊ぶものだ。"),
+        S("small.any.-.04", null, null, "井戸端に行けば、町の噂は一通り耳に入るものさ。"),
+        S("small.any.-.05", null, null, "旅の者は広場で歌い、日が傾くと宿へ戻っていくものだ。"),
+        S("small.any.-.06", null, null, "雨上がりの石畳はよく滑る。足元に気を付けなよ。"),
+        S("small.any.-.07", null, null, "年寄りの言うことは、だいたい当たるものさ。"),
         S("small.any.spring.01", null, Season.Spring, "{season}になって、道端の草がずいぶん伸びたな。"),
         S("small.any.summer.01", null, Season.Summer, "{season}は日が長い。夕方になっても、まだ空が明るいよ。"),
         S("small.any.autumn.01", null, Season.Autumn, "{season}は市に実りの品が並ぶ。見て歩くだけでも楽しいぞ。"),
@@ -74,94 +79,112 @@ internal static class DialogueCorpusM0
         S("small.smith.-.01", Occupation.Smith, null, "鉄は叩くほど締まる。人もそうだと言うがな。"),
         S("small.smith.-.02", Occupation.Smith, null, "火の色を見れば、鉄の機嫌が分かるものだ。"),
 
-        // ---- 開示(職業。{item} と {qty} の両方を含む。理由・期限・予算は言わない) ----
-        D("need.any.-.01", null, "{item}が{qty}、要るんだ。回してもらえないか。"),
-        D("need.any.-.02", null, "実は{item}を{qty}ほど探している。心当たりはないか。"),
-        D("need.any.-.03", null, "{item}が{qty}あれば助かるんだが、頼めるかね。"),
-        D("need.any.-.04", null, "{item}を{qty}、都合してくれる人を探しているんだ。"),
-        D("need.miller.-.01", Occupation.Miller, "粉屋の頼みだ。{item}を{qty}、何とかならんか。"),
-        D("need.miller.-.02", Occupation.Miller, "{item}が{qty}いる。粉屋に回してくれると有難い。"),
-        D("need.baker.-.01", Occupation.Baker, "パン屋の頼みだ。{item}を{qty}、分けてもらえないか。"),
-        D("need.baker.-.02", Occupation.Baker, "{item}が{qty}いる。パン屋に届けてくれる人はいないか。"),
-        D("need.brewer.-.01", Occupation.Brewer, "醸造屋だが、{item}を{qty}、融通してくれないか。"),
-        D("need.brewer.-.02", Occupation.Brewer, "{item}が{qty}いるんだ。醸造屋まで頼めるかい。"),
-        D("need.woodworker.-.01", Occupation.Woodworker, "木工の者だが、{item}を{qty}、頼めないだろうか。"),
-        D("need.woodworker.-.02", Occupation.Woodworker, "{item}が{qty}いる。木工の家に回してもらえんか。"),
-        D("need.smith.-.01", Occupation.Smith, "鍛冶屋だが、{item}を{qty}、都合してもらえんか。"),
-        D("need.smith.-.02", Occupation.Smith, "{item}が{qty}いる。鍛冶場まで運んでくれると助かる。"),
+        // ---- 開示・1件目(職業。{item} と {qty} の両方を含む。理由・期限・予算は言わない。職業の差は口調で出す) ----
+        D("need.any.first.01", null, "{item}が{qty}、要るんだ。回してもらえないか。"),
+        D("need.any.first.02", null, "実は{item}を{qty}、探している。心当たりはないか。"),
+        D("need.any.first.03", null, "{item}が{qty}あれば助かるんだが、頼めるかね。"),
+        D("need.any.first.04", null, "{item}を{qty}、都合してくれる人を探しているんだ。"),
+        D("need.miller.first.01", Occupation.Miller, "{item}を{qty}、回してくれんか。頼むよ。"),
+        D("need.miller.first.02", Occupation.Miller, "{item}が{qty}いるんだ。聞いてやってくれ。"),
+        D("need.baker.first.01", Occupation.Baker, "{item}を{qty}、分けてもらえると嬉しいんだけどね。"),
+        D("need.baker.first.02", Occupation.Baker, "{item}が{qty}いる。分けてもらえないだろうか。"),
+        D("need.brewer.first.01", Occupation.Brewer, "{item}を{qty}、融通してくれないか。頼むぜ。"),
+        D("need.brewer.first.02", Occupation.Brewer, "{item}が{qty}いるんだ。誰か回してくれよ。"),
+        D("need.woodworker.first.01", Occupation.Woodworker, "{item}を{qty}。頼めるか。"),
+        D("need.woodworker.first.02", Occupation.Woodworker, "{item}が{qty}いる。回してもらえんか。"),
+        D("need.smith.first.01", Occupation.Smith, "{item}を{qty}だ。都合してもらえんか。"),
+        D("need.smith.first.02", Occupation.Smith, "{item}が{qty}いる。運んでくれると助かる。"),
+
+        // ---- 開示・続き(職業指定なし。前の行に繋ぐ短いつなぎ。展開前25字以内) ----
+        C("need.any.cont.01", "それと、{item}を{qty}。"),
+        C("need.any.cont.02", "あとは{item}を{qty}だな。"),
+        C("need.any.cont.03", "ついでに{item}を{qty}、頼めるか。"),
+        C("need.any.cont.04", "それから、{item}を{qty}。"),
+        C("need.any.cont.05", "もう一つ、{item}を{qty}だ。"),
+        C("need.any.cont.06", "それに{item}を{qty}、要るんだ。"),
+        C("need.any.cont.07", "あと、{item}を{qty}頼む。"),
 
         // ---- 困りごとは無い(職業) ----
         N("none.any.-.01", null, "今は特に困っていることはないよ。"),
         N("none.any.-.02", null, "おかげさまで、頼みごとは何もない。"),
         N("none.any.-.03", null, "困りごとかい。今日のところは何も思いつかんな。"),
         N("none.any.-.04", null, "いまは足りているよ。気にかけてくれて有難う。"),
-        N("none.miller.-.01", Occupation.Miller, "粉屋は今のところ平穏だよ。頼みは何もない。"),
+        N("none.any.-.05", null, "特に何も無いな。気にしないでくれ。"),
+        N("none.any.-.06", null, "頼みごとか。いまのところ思い当たらんよ。"),
+        N("none.any.-.07", null, "ありがたいことに、今日は何も要らないんだ。"),
+        N("none.any.-.08", null, "困りごとは無いよ。また今度聞いておくれ。"),
+        N("none.miller.-.01", Occupation.Miller, "ここは落ち着いたものさ。頼みは何も無い。"),
         N("none.miller.-.02", Occupation.Miller, "水車は回っているし、頼むことは無いな。"),
-        N("none.baker.-.01", Occupation.Baker, "パン屋は足りているよ。頼みごとは無いな。"),
+        N("none.baker.-.01", Occupation.Baker, "うちは足りているよ。頼みごとは無いね。"),
         N("none.baker.-.02", Occupation.Baker, "竈の火も絶やさずにいる。頼みは何も無いよ。"),
-        N("none.brewer.-.01", Occupation.Brewer, "醸造屋は今のところ何も困っていないよ。"),
+        N("none.brewer.-.01", Occupation.Brewer, "今のところ何も困っていないぜ。"),
         N("none.brewer.-.02", Occupation.Brewer, "樽は揃っているし、頼みごとは無いな。"),
-        N("none.woodworker.-.01", Occupation.Woodworker, "木工の家は足りているよ。頼むことは無いな。"),
-        N("none.woodworker.-.02", Occupation.Woodworker, "今日のところ、木工に頼みごとは無いね。"),
-        N("none.smith.-.01", Occupation.Smith, "鍛冶場は今のところ何も要らんよ。"),
+        N("none.woodworker.-.01", Occupation.Woodworker, "足りているよ。頼むことは無いな。"),
+        N("none.woodworker.-.02", Occupation.Woodworker, "今日のところ、頼みごとは無いね。"),
+        N("none.smith.-.01", Occupation.Smith, "今のところ何も要らんよ。"),
         N("none.smith.-.02", Occupation.Smith, "火は絶やしていないし、頼みは無いな。"),
 
-        // ---- 取引の成立(職業・段階。段階は必ず指定する) ----
-        A("thanks.any.reluctant.01", null, Gratitude.Reluctant, "まあ、いいだろう。その値で{item}を{qty}受け取ろう。"),
-        A("thanks.any.reluctant.02", null, Gratitude.Reluctant, "高い気もするが、背に腹は代えられん。{item}を{qty}もらう。"),
-        A("thanks.any.reluctant.03", null, Gratitude.Reluctant, "……仕方ない。{item}を{qty}、その値で引き取ろう。"),
-        A("thanks.miller.reluctant.01", Occupation.Miller, Gratitude.Reluctant, "粉屋の足元を見るとはな。{item}を{qty}、受け取ってやる。"),
-        A("thanks.baker.reluctant.01", Occupation.Baker, Gratitude.Reluctant, "パン屋も楽ではないんだ。{item}を{qty}、仕方なく受け取る。"),
-        A("thanks.brewer.reluctant.01", Occupation.Brewer, Gratitude.Reluctant, "醸造屋だからと吹っかけたな。{item}を{qty}、受け取ろう。"),
-        A("thanks.woodworker.reluctant.01", Occupation.Woodworker, Gratitude.Reluctant, "木工の家に高い値をつけたな。{item}を{qty}、受け取ろう。"),
-        A("thanks.smith.reluctant.01", Occupation.Smith, Gratitude.Reluctant, "鍛冶屋だからと足元を見たな。{item}を{qty}、受け取る。"),
-        A("thanks.any.grateful.01", null, Gratitude.Grateful, "{item}を{qty}、確かに受け取った。有難う。"),
-        A("thanks.any.grateful.02", null, Gratitude.Grateful, "助かったよ。{item}を{qty}、礼を言う。"),
-        A("thanks.any.grateful.03", null, Gratitude.Grateful, "ちょうど欲しかったんだ。{item}の{qty}、有難う。"),
-        A("thanks.miller.grateful.01", Occupation.Miller, Gratitude.Grateful, "粉屋として礼を言う。{item}を{qty}、確かに受け取った。"),
-        A("thanks.baker.grateful.01", Occupation.Baker, Gratitude.Grateful, "パン屋に届けてくれて有難う。{item}を{qty}、確かに。"),
-        A("thanks.brewer.grateful.01", Occupation.Brewer, Gratitude.Grateful, "醸造屋として礼を言う。{item}を{qty}、有難う。"),
-        A("thanks.woodworker.grateful.01", Occupation.Woodworker, Gratitude.Grateful, "木工の家に回してくれて有難う。{item}を{qty}、確かに。"),
-        A("thanks.smith.grateful.01", Occupation.Smith, Gratitude.Grateful, "鍛冶場へ運んでくれて有難う。{item}を{qty}、確かに。"),
-        A("thanks.any.deep.01", null, Gratitude.DeepGratitude, "{item}を{qty}も届けてくれるとは。あんたには救われた。"),
-        A("thanks.any.deep.02", null, Gratitude.DeepGratitude, "本当に助かった。この恩は忘れんよ。{item}を{qty}、有難う。"),
-        A("thanks.any.deep.03", null, Gratitude.DeepGratitude, "{item}が{qty}。あんたは命の恩人だ。何と礼を言えばいいか。"),
-        A("thanks.miller.deep.01", Occupation.Miller, Gratitude.DeepGratitude, "粉屋の恩人だ。{item}を{qty}、本当に救われた。"),
-        A("thanks.baker.deep.01", Occupation.Baker, Gratitude.DeepGratitude, "パン屋を救ってくれた。{item}を{qty}、恩に着る。"),
-        A("thanks.brewer.deep.01", Occupation.Brewer, Gratitude.DeepGratitude, "醸造屋の恩人だ。{item}を{qty}、これで救われた。"),
-        A("thanks.woodworker.deep.01", Occupation.Woodworker, Gratitude.DeepGratitude, "木工の家は救われた。{item}を{qty}、この恩は忘れん。"),
-        A("thanks.smith.deep.01", Occupation.Smith, Gratitude.DeepGratitude, "鍛冶場が救われた。{item}を{qty}、この恩は忘れんぞ。"),
+        // ---- 取引の成立(職業・段階。段階は必ず指定する。値段の妥当さで語る) ----
+        A("thanks.any.reluctant.01", null, Gratitude.Reluctant, "高いが、仕方ない。{item}を{qty}受け取ろう。"),
+        A("thanks.any.reluctant.02", null, Gratitude.Reluctant, "高い気もするが、背に腹は代えられん。{item}を{qty}、もらうよ。"),
+        A("thanks.any.reluctant.03", null, Gratitude.Reluctant, "……この値か。仕方ない。{item}を{qty}、引き取ろう。"),
+        A("thanks.miller.reluctant.01", Occupation.Miller, Gratitude.Reluctant, "ずいぶん強気な値だな。{item}を{qty}、受け取っておく。"),
+        A("thanks.baker.reluctant.01", Occupation.Baker, Gratitude.Reluctant, "ちょっと高いね。{item}を{qty}、仕方なく受け取るよ。"),
+        A("thanks.brewer.reluctant.01", Occupation.Brewer, Gratitude.Reluctant, "吹っかけたな、まったく。{item}を{qty}、持っていくぜ。"),
+        A("thanks.woodworker.reluctant.01", Occupation.Woodworker, Gratitude.Reluctant, "高いな。{item}を{qty}、受け取ろう。"),
+        A("thanks.smith.reluctant.01", Occupation.Smith, Gratitude.Reluctant, "足元を見たな。{item}を{qty}、受け取る。"),
+        A("thanks.any.grateful.01", null, Gratitude.Grateful, "{item}を{qty}、確かに受け取った。まっとうな値だ、有難う。"),
+        A("thanks.any.grateful.02", null, Gratitude.Grateful, "妥当な値だな。{item}を{qty}、礼を言う。"),
+        A("thanks.any.grateful.03", null, Gratitude.Grateful, "ちょうど欲しかったんだ。まっとうな値で{item}を{qty}、有難う。"),
+        A("thanks.miller.grateful.01", Occupation.Miller, Gratitude.Grateful, "この値なら納得だ。{item}を{qty}、確かに受け取った。"),
+        A("thanks.baker.grateful.01", Occupation.Baker, Gratitude.Grateful, "いい値をつけてくれて有難う。{item}を{qty}、確かに。"),
+        A("thanks.brewer.grateful.01", Occupation.Brewer, Gratitude.Grateful, "まっとうな値だ、気に入った。{item}を{qty}、有難う。"),
+        A("thanks.woodworker.grateful.01", Occupation.Woodworker, Gratitude.Grateful, "相応の値だ。{item}を{qty}、確かに。"),
+        A("thanks.smith.grateful.01", Occupation.Smith, Gratitude.Grateful, "ちゃんとした値だ。{item}を{qty}、確かに受け取った。"),
+        A("thanks.any.deep.01", null, Gratitude.DeepGratitude, "この値で{item}を{qty}、譲ってくれるのか。気前がいいな。"),
+        A("thanks.any.deep.02", null, Gratitude.DeepGratitude, "本当にいいのか、この値で。{item}を{qty}、有難う。"),
+        A("thanks.any.deep.03", null, Gratitude.DeepGratitude, "{item}を{qty}、この値でか。あんたは気前がいい。礼の言いようもない。"),
+        A("thanks.miller.deep.01", Occupation.Miller, Gratitude.DeepGratitude, "この値で譲ってくれるのか。{item}を{qty}、礼を言うぞ。"),
+        A("thanks.baker.deep.01", Occupation.Baker, Gratitude.DeepGratitude, "この値でいいのかい。{item}を{qty}、気前がいいじゃないか。"),
+        A("thanks.brewer.deep.01", Occupation.Brewer, Gratitude.DeepGratitude, "この値でか、気前がいいぜ。{item}を{qty}、有難う。"),
+        A("thanks.woodworker.deep.01", Occupation.Woodworker, Gratitude.DeepGratitude, "この値で譲ってくれるとは。{item}を{qty}、有難い。"),
+        A("thanks.smith.deep.01", Occupation.Smith, Gratitude.DeepGratitude, "この値でいいのか。{item}を{qty}、気前がいいな。"),
 
-        // ---- 取引の不成立(職業。{item} のみ) ----
-        R("refuse.any.-.01", null, "その値では{item}は買えん。もう少し何とかならんか。"),
-        R("refuse.any.-.02", null, "{item}は欲しいが、その値は手持ちを超えている。"),
-        R("refuse.miller.-.01", Occupation.Miller, "粉屋の懐では{item}にそんな値は出せん。"),
-        R("refuse.miller.-.02", Occupation.Miller, "{item}は要るが、その値では粉屋が立ち行かん。"),
-        R("refuse.baker.-.01", Occupation.Baker, "パン屋にその値は無理だ。{item}は諦めるよ。"),
+        // ---- 取引の不成立(職業。{item} のみ。「その値では買えん」までにする) ----
+        R("refuse.any.-.01", null, "その値では{item}は買えん。"),
+        R("refuse.any.-.02", null, "{item}は欲しいが、その値では買えんな。"),
+        R("refuse.miller.-.01", Occupation.Miller, "その値では{item}は買えんな。また今度にしよう。"),
+        R("refuse.miller.-.02", Occupation.Miller, "{item}は要るが、その値では買えん。"),
+        R("refuse.baker.-.01", Occupation.Baker, "その値は無理だね。{item}は諦めるよ。"),
         R("refuse.baker.-.02", Occupation.Baker, "{item}にその値は出せんな。また今度にしてくれ。"),
-        R("refuse.brewer.-.01", Occupation.Brewer, "醸造屋にその値は出せんよ。{item}は見送る。"),
-        R("refuse.brewer.-.02", Occupation.Brewer, "{item}にその値では、樽ひとつ空けられん。"),
-        R("refuse.woodworker.-.01", Occupation.Woodworker, "木工の家にその値は高すぎる。{item}は見送ろう。"),
-        R("refuse.woodworker.-.02", Occupation.Woodworker, "{item}にその値は出せん。もう少し安くならんか。"),
-        R("refuse.smith.-.01", Occupation.Smith, "鍛冶屋にその値は払えん。{item}は諦める。"),
-        R("refuse.smith.-.02", Occupation.Smith, "{item}にその値は高い。鍛冶場の蓄えを超えている。"),
+        R("refuse.brewer.-.01", Occupation.Brewer, "その値は出せんよ。{item}は見送る。"),
+        R("refuse.brewer.-.02", Occupation.Brewer, "{item}にその値では、買えんなあ。"),
+        R("refuse.woodworker.-.01", Occupation.Woodworker, "その値は高すぎる。{item}は見送ろう。"),
+        R("refuse.woodworker.-.02", Occupation.Woodworker, "{item}にその値は出せん。また今度だ。"),
+        R("refuse.smith.-.01", Occupation.Smith, "その値は払えん。{item}は諦める。"),
+        R("refuse.smith.-.02", Occupation.Smith, "{item}にその値は高い。買えん。"),
     };
 
     private static DialogueTemplate G(string id, Occupation? occupation, string text) =>
-        new(id, LineKind.Greeting, occupation, null, null, null, text);
+        new(id, LineKind.Greeting, occupation, null, null, null, null, text);
 
     private static DialogueTemplate S(string id, Occupation? occupation, Season? season, string text) =>
-        new(id, LineKind.SmallTalk, occupation, season, null, null, text);
+        new(id, LineKind.SmallTalk, occupation, season, null, null, null, text);
 
+    // 開示・1件目
     private static DialogueTemplate D(string id, Occupation? occupation, string text) =>
-        new(id, LineKind.NeedDisclosure, occupation, null, null, null, text);
+        new(id, LineKind.NeedDisclosure, occupation, null, null, DisclosureOrder.First, null, text);
+
+    // 開示・続き(職業指定は持たない)
+    private static DialogueTemplate C(string id, string text) =>
+        new(id, LineKind.NeedDisclosure, null, null, null, DisclosureOrder.Continued, null, text);
 
     private static DialogueTemplate N(string id, Occupation? occupation, string text) =>
-        new(id, LineKind.NoNeed, occupation, null, null, null, text);
+        new(id, LineKind.NoNeed, occupation, null, null, null, null, text);
 
     private static DialogueTemplate A(string id, Occupation? occupation, Gratitude gratitude, string text) =>
-        new(id, LineKind.TradeAccepted, occupation, null, gratitude, null, text);
+        new(id, LineKind.TradeAccepted, occupation, null, gratitude, null, null, text);
 
     private static DialogueTemplate R(string id, Occupation? occupation, string text) =>
-        new(id, LineKind.TradeRefused, occupation, null, null, null, text);
+        new(id, LineKind.TradeRefused, occupation, null, null, null, null, text);
 }

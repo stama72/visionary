@@ -25,8 +25,20 @@ internal static class DialogueTestHelpers
         Season? season = null,
         Gratitude? gratitude = null,
         Personality? personality = null,
-        string? text = null) =>
-        new(id, kind, occupation, season, gratitude, personality, text ?? id);
+        string? text = null,
+        DisclosureOrder? order = null,
+        bool noOrder = false) =>
+        // 開示は順が必須なので、順を省略した開示は1件目の型にする。順の検査を見るテストだけが
+        // noOrder: true で「順なし」を作る。
+        new(
+            id,
+            kind,
+            occupation,
+            season,
+            gratitude,
+            noOrder ? null : order ?? (kind == LineKind.NeedDisclosure ? DisclosureOrder.First : null),
+            personality,
+            text ?? id);
 
     public static DialogueCorpus Corpus(params DialogueTemplate[] templates) =>
         new(templates, StandardItems, StandardSeasons);
@@ -51,5 +63,5 @@ internal static class DialogueTestHelpers
         Occupation occupation = Occupation.Baker,
         Season season = Season.Spring,
         Personality? personality = null) =>
-        new(occupation, season, personality, null, null, null);
+        new(occupation, season, personality, null, null, null, null);
 }

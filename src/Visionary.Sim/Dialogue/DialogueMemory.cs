@@ -11,7 +11,9 @@ namespace Visionary.Sim.Dialogue;
 public sealed class DialogueMemory
 {
     private readonly SortedDictionary<int, SortedDictionary<string, int>> _useCounts = new();
-    private readonly SortedDictionary<int, SortedDictionary<LineKind, string>> _lastIds = new();
+
+    // 直前の Id の鍵は (種類, 開示の順)。順は開示以外では null。
+    private readonly SortedDictionary<int, SortedDictionary<(LineKind, DisclosureOrder?), string>> _lastIds = new();
 
     public DialogueMemory()
     {
@@ -22,12 +24,12 @@ public sealed class DialogueMemory
             ? count
             : 0;
 
-    internal string? LastId(int npcId, LineKind kind) =>
-        _lastIds.TryGetValue(npcId, out var perNpc) && perNpc.TryGetValue(kind, out string? id)
+    internal string? LastId(int npcId, LineKind kind, DisclosureOrder? order) =>
+        _lastIds.TryGetValue(npcId, out var perNpc) && perNpc.TryGetValue((kind, order), out string? id)
             ? id
             : null;
 
-    internal void Record(int npcId, LineKind kind, string templateId)
+    internal void Record(int npcId, LineKind kind, DisclosureOrder? order, string templateId)
     {
         if (!_useCounts.TryGetValue(npcId, out var counts))
         {
@@ -39,10 +41,10 @@ public sealed class DialogueMemory
 
         if (!_lastIds.TryGetValue(npcId, out var lasts))
         {
-            lasts = new SortedDictionary<LineKind, string>();
+            lasts = new SortedDictionary<(LineKind, DisclosureOrder?), string>();
             _lastIds[npcId] = lasts;
         }
 
-        lasts[kind] = templateId;
+        lasts[(kind, order)] = templateId;
     }
 }
