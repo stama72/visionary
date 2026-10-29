@@ -21,6 +21,23 @@ public static class Labels
         _ => throw new ArgumentOutOfRangeException(nameof(occupation), occupation, "名前のない職業。"),
     };
 
+    // 台詞の資料(DialogueCorpusM0.Items)と同じ字面。資料は internal なので写しを持つ
+    // (写しのずれは機械が見ない)。添字 = 品目 Id。
+    private static readonly string[] ItemNames =
+    [
+        "穀物", "木材", "鉄鉱石", "木炭", "小麦粉", "薪", "パン", "ビール", "工具",
+    ];
+
+    public static string ItemName(int itemId)
+    {
+        if (itemId < 0 || itemId >= ItemNames.Length)
+        {
+            throw new ArgumentOutOfRangeException(nameof(itemId), itemId, $"品目 Id は 0〜{ItemNames.Length - 1}。");
+        }
+
+        return ItemNames[itemId];
+    }
+
     public static string Of(Season season) => season switch
     {
         Season.Spring => "春",
