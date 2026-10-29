@@ -149,7 +149,11 @@ public static class Labels
   - `_Ready`: `LaunchOptions.TryParse(OS.GetCmdlineUserArgs(), …)`。失敗なら `GD.PrintErr(error)` → `GetTree().Quit(2)` → return
   - **煙試験でも通常でも同じく**、`SimHost`(`WorldDefinition.M0`, `Seed`, `StartDay`)・`TickPump`・`GameLoop` を作り、地図(`MapView`)と表示(`CanvasLayer` の下の `Label`)を子に足す。煙試験なら目標 tick = `host.Now + SmokeTicks` を覚える
   - `_Process(double delta)`: 経過 = 煙試験なら `TickPump.DefaultMicrosecondsPerTick`(1フレーム = 1 tick)、通常なら `(long)Math.Round(delta * 1_000_000)`。`loop.Frame(経過)` → 表示を更新 → `MapView.QueueRedraw()`。**`delta` を積んでゲーム時間を作らない**(TDD01 §3.10)。**経過を選ぶ1行のほかに、煙試験と通常で枝を分けない**
-  - **煙試験の終わり方**: `_Process` の**冒頭**で、煙試験かつ `host.Now ≥ 目標 tick` なら `GD.Print("VISIONARY_SMOKE_HASH=" + host.StateHash().ToString("X16", CultureInfo.InvariantCulture))` → `GetTree().Quit(0)` → return(以後のフレームでも何もしない)。冒頭で見るのは、目標に達したフレームで `QueueRedraw` した `_Draw` を踏んでから出すためである。煙試験中の `_Process` と `MapView._Draw` の例外は捕まえて `GD.PrintErr` → `GetTree().Quit(1)`
+  - **煙試験の終わり方**(TDD01 §3.10。#281 の2巡目): `Main` は煙試験の開始 tick(`_Ready` で作った直後の `host.Now`)と、回したフレームの数を持つ。`MapView` は `_Draw` が呼ばれた回数を持つ(`public int DrawCount`)
+    - `_Process` の**冒頭**で、回したフレームの数が `SmokeTicks` に達していれば: `MapView.DrawCount < SmokeTicks` なら `GD.PrintErr` → `GetTree().Quit(1)`。そうでなければ `GD.Print("VISIONARY_SMOKE_HASH=" + host.StateHash().ToString("X16", CultureInfo.InvariantCulture))` → `GetTree().Quit(0)`。どちらも return し、以後のフレームでは何もしない
+    - そうでなければ `loop.Frame(定数)` の後でフレームの数を1増やし、**`host.Now != 開始 tick + フレームの数` なら** `GD.PrintErr`(期待値と実際の値)→ `GetTree().Quit(1)` → return
+    - **tick(`host.Now ≥ 目標`)で終えない。** 1フレームに余計な `Advance` が紛れても割り切れる回数で止まって緑になる
+    - 煙試験中の `_Process` と `MapView._Draw` の例外は捕まえて `GD.PrintErr` → `GetTree().Quit(1)`
   - `_Ready` の例外(煙試験時)も `GetTree().Quit(1)`
   - `_UnhandledInput(InputEvent @event)`: 左ボタンの押下(`InputEventMouseButton`、`Pressed`、`ButtonIndex == MouseButton.Left`)なら、画面座標を地図単位へ戻し(下の倍率の逆)、`MapLayout.DistrictAt` が 0 以上なら `host.Execute(new MoveCommand(id))`。結果の `Status` を `Labels.Of` で表示に残す(`Accepted` なら到着の時刻も)
 - **`MapView.cs`(`public partial class MapView : Node2D`)**: `_Draw` で描く。**地図単位 → 画素は `画素 = 原点 + 地図単位 × 1/5`**(区画 = 200 px、原点 (40, 80))。定数に単位のコメントを付ける
@@ -207,7 +211,7 @@ public static class Labels
 | 13 | Godot を参照しない | `Visionary.Presentation` のアセンブリの参照に名前が `Godot` で始まるものが無い | `GodotSharp` を参照に足す | |
 | 14 | `Labels` の網羅 | 4 つの列挙の全値で空でない名を返し、同じ列挙の中で重複しない | 列挙に値を足して名を足し忘れる | |
 
-**表に無い保護**: `Visionary.Game` のノードは xUnit で踏まない。**コンパイル(警告 0)と CI の `godot` ジョブの煙試験だけが守る。** 煙試験は通常と同じ `_Ready` → `_Process` → `MapView._Draw` を通る(TDD01 §3.10)。**踏まないのは `delta` をマイクロ秒に直す1行と、クリックの経路(`_UnhandledInput` → `Execute`)である。**
+**表に無い保護**: `Visionary.Game` のノードは xUnit で踏まない。**コンパイル(警告 0)と CI の `godot` ジョブの煙試験だけが守る。** 煙試験は1フレームの `Advance` の数(毎フレーム `Now` を確かめる)と `_Draw` の回数を自分で確かめる。**この検査は `mutator` では測らない**(パイプラインは Godot を叩けない)。フェーズ1 が DONE の後に、`Main` の `_Process` で `loop.Frame` を2回呼ぶ変異を noz72 の Godot で当てて終了コード 1 を確かめる。 煙試験は通常と同じ `_Ready` → `_Process` → `MapView._Draw` を通る(TDD01 §3.10)。**踏まないのは `delta` をマイクロ秒に直す1行と、クリックの経路(`_UnhandledInput` → `Execute`)である。**
 
 ## 配線(規則7)
 
