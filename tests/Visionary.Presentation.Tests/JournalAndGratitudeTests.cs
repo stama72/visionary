@@ -6,7 +6,7 @@ using Visionary.Sim.Time;
 
 namespace Visionary.Presentation.Tests;
 
-/// <summary>W5-09(日誌・表情・効果音)。変異の実測は mutator の報告を待つ。</summary>
+/// <summary>W5-09(日誌・表情・効果音)。「核心」印の変異の実測は mutator が行い、各テストの doc コメントに転記してある。</summary>
 public class JournalAndGratitudeTests
 {
     private const long Seed = 1;
@@ -80,6 +80,12 @@ public class JournalAndGratitudeTests
         Assert.Equal(Gratitude.DeepGratitude, entry.Gratitude);
     }
 
+    /// <summary>
+    /// 核心: 日誌に足す条件から渋々を除く変異。
+    /// 実測(出所: mutator の実測(2026-11-03、HEAD cd7d9d7、Presentation.Tests 90件)、期待との食い違い 0 件):
+    /// <c>Conversation.AppendJournal</c> の日誌に足す条件で渋々(<c>Gratitude.Reluctant</c>)を除く → 赤
+    /// (本テスト1件だけが落ちた)。
+    /// </summary>
     [Fact]
     public void Sell_ReluctantAndGratefulAreAlsoJournaled()
     {
@@ -96,6 +102,12 @@ public class JournalAndGratitudeTests
         Assert.EndsWith("— 感謝された", entry.Text, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// 核心: 日誌に足す条件の <c>Kind == SellToHousehold</c> の絞りを消す変異。
+    /// 実測(出所: mutator の実測(2026-11-03、HEAD cd7d9d7、Presentation.Tests 90件)、期待との食い違い 0 件):
+    /// 同じ条件の <c>Kind == SellToHousehold</c> の絞りを消す → 赤(本テストを含む13件が落ちた)。
+    /// 買いの約定では <c>Gratitude</c> が null なので、多くは例外で落ちていると見られる(未確認)。
+    /// </summary>
     [Fact]
     public void Journal_ExcludesBuysAndRefusals_ThenSellAddsExactlyOne()
     {
