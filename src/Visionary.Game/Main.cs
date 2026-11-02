@@ -34,6 +34,7 @@ public partial class Main : Node2D
     private DistrictPanel _districtPanel = null!;
     private ConversationPanel _conversationPanel = null!;
     private WindowPanel _windowPanel = null!;
+    private JournalPanel _journalPanel = null!;
     private string _lastAction = "(なし)";
 
     public override void _Ready()
@@ -72,6 +73,10 @@ public partial class Main : Node2D
             var layer = new CanvasLayer();
             _label = new Label { Position = new Vector2(680, 80) };
             layer.AddChild(_label);
+
+            _journalPanel = new JournalPanel();
+            _journalPanel.Setup(_session);
+            layer.AddChild(_journalPanel);
 
             _districtPanel = new DistrictPanel { Position = new Vector2(680, 220) };
             _districtPanel.Setup(_session, text => _lastAction = text);
@@ -147,6 +152,7 @@ public partial class Main : Node2D
             _districtPanel.Refresh();
             _conversationPanel.Refresh();
             _windowPanel.Refresh();
+            _journalPanel.Refresh();
             _mapView.QueueRedraw();
         }
         catch (Exception e) when (_smokeTicks != null)

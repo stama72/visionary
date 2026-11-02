@@ -1,6 +1,7 @@
 using System.Globalization;
 using Visionary.Sim;
 using Visionary.Sim.Commands;
+using Visionary.Sim.Time;
 
 namespace Visionary.Presentation;
 
@@ -24,6 +25,13 @@ public static class Notes
 
         return parts.Count == 0 ? "なし" : string.Join("、", parts);
     }
+
+    /// <summary>日誌の1行(GDD05 §2.1)。単価・数量を書かない。「救った」と書かない。</summary>
+    public static string Journal(
+        GameDate date, Occupation occupation, int householdId, NeedReason reason, int itemId, Gratitude gratitude) =>
+        string.Create(
+            CultureInfo.InvariantCulture,
+            $"{date.Year}年 {Labels.Of(date.Season)} {date.DayOfSeason}日 {Labels.Of(occupation)}(世帯 {householdId})の{Labels.Of(reason)}に{Labels.ItemName(itemId)}を売った — {Labels.Of(gratitude)}");
 
     /// <summary>
     /// 売買の結果の地の文。<c>result.Gratitude</c> は読まない。拒否は品目を書かない

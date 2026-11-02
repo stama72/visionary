@@ -22,6 +22,7 @@ public sealed class Conversation
     private readonly Season _season;
     private readonly Tick _openedAt;
     private readonly List<ConversationLine> _lines = [];
+    private Gratitude? _pendingChime;
 
     internal Conversation(
         PlayerSession session, int householdId, int speakerNpcId, Occupation occupation, IReadOnlyList<Need> needs)
@@ -69,6 +70,18 @@ public sealed class Conversation
     /// <summary>追記のみ。</summary>
     public IReadOnlyList<ConversationLine> Lines => _lines;
 
+    /// <summary>話し手の表情の一語。売りの結果(成立・予算超過)だけが変える。</summary>
+    public string Expression { get; private set; } = "ふつう";
+
+    /// <summary>鳴らす効果音の段階を1回だけ返す。保留が無ければ null。</summary>
+    public Gratitude? TakeChime()
+    {
+        var pending = _pendingChime;
+
+        _pendingChime = null;
+        return pending;
+    }
+
     public IReadOnlyList<SellOption> SellOptions()
     {
         var inventory = _session.Host.Query.Player().Inventory;
@@ -107,16 +120,30 @@ public sealed class Conversation
 
         var result = _session.Host.Execute(new SellToHouseholdCommand(HouseholdId, itemId, unitPrice, quantity));
 
+        // DrainEvents を呼ぶのはここだけ。結果を問わず Execute の直後に1回。
+        AppendJournal(_session.Host.DrainEvents());
+
         if (result.Status == CommandStatus.Accepted)
         {
             // 同じ鍵で列を開き直し、これまでに言った台詞の行数だけ引き捨てる(RandomSequence は ref struct で持てない)。
             var random = ReopenAfterSpokenLines();
-            AddSpeech(ref random, LineKind.TradeAccepted, result.Gratitude!.Value, null, itemId, result.Quantity);
+            var gratitude = result.Gratitude!.Value;
+            AddSpeech(ref random, LineKind.TradeAccepted, gratitude, null, itemId, result.Quantity);
+
+            Expression = gratitude switch
+            {
+                Gratitude.Reluctant => "渋い顔",
+                Gratitude.Grateful => "ほっとした顔",
+                Gratitude.DeepGratitude => "晴れやかな顔",
+                _ => throw new ArgumentOutOfRangeException(nameof(result), gratitude, "知らない段階。"),
+            };
+            _pendingChime = gratitude;
         }
         else if (result.Status == CommandStatus.OverBudget)
         {
             var random = ReopenAfterSpokenLines();
             AddSpeech(ref random, LineKind.TradeRefused, null, null, itemId, null);
+            Expression = "首を振る";
         }
 
         _lines.Add(new ConversationLine(null, null, Notes.Trade(PlayerTradeKind.SellToHousehold, itemId, result)));
@@ -136,6 +163,40 @@ public sealed class Conversation
 
         _lines.Add(new ConversationLine(null, null, Notes.Trade(PlayerTradeKind.BuyFromHousehold, itemId, result)));
         return result;
+    }
+
+    private void AppendJournal(IReadOnlyList<DomainEvent> events)
+    {
+        foreach (var e in events)
+        {
+            if (e is not PlayerTradeExecuted { Kind: PlayerTradeKind.SellToHousehold } trade)
+            {
+                continue;
+            }
+
+            NeedReason? reason = null;
+
+            foreach (var need in DisclosedNeeds)
+            {
+                if (need.Id == trade.NeedId)
+                {
+                    reason = need.ReasonCode;
+                    break;
+                }
+            }
+
+            if (reason == null)
+            {
+                throw new InvalidOperationException($"約定の Need #{trade.NeedId} がこの会話で開示した Need に無い。");
+            }
+
+            var gratitude = trade.Gratitude!.Value;
+            var occupation = _session.Host.Query.Households()[trade.CounterpartyId].Occupation;
+            string text = Notes.Journal(
+                GameDate.FromTick(trade.At), occupation, trade.CounterpartyId, reason.Value, trade.ItemId, gratitude);
+
+            _session.AppendJournal(new JournalEntry(trade.At, trade.CounterpartyId, trade.NeedId, gratitude, text));
+        }
     }
 
     private RandomSequence ReopenAfterSpokenLines()

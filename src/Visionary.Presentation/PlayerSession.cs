@@ -1,8 +1,12 @@
 using Visionary.Sim;
 using Visionary.Sim.Commands;
 using Visionary.Sim.Dialogue;
+using Visionary.Sim.Time;
 
 namespace Visionary.Presentation;
+
+/// <summary>日誌の1行。<paramref name="At"/> は約定時刻。</summary>
+public readonly record struct JournalEntry(Tick At, int HouseholdId, int NeedId, Gratitude Gratitude, string Text);
 
 /// <summary>
 /// プレイヤーの操作の窓口(TDD01 §3.10「会話と売買」、GDD05 §1.4・§2.2)。<c>Game</c> は
@@ -16,6 +20,8 @@ public sealed class PlayerSession
 
     // 品目ごとの「この起動で最後に買った単価」。単位: 貨幣/個。0 = 買っていない。添字 = 品目 Id。
     private readonly int[] _lastPurchaseUnitPrice;
+
+    private readonly List<JournalEntry> _journal = [];
 
     public PlayerSession(SimHost host, WorldDefinition definition, TickPump pump, long masterSeed, DialogueCorpus corpus)
     {
@@ -46,6 +52,11 @@ public sealed class PlayerSession
     internal DialogueCorpus Corpus { get; }
 
     internal DialogueMemory Memory { get; }
+
+    /// <summary>日誌。追記のみ・古い順。会話を閉じても消えない(セッションが持つ)。</summary>
+    public IReadOnlyList<JournalEntry> Journal => _journal;
+
+    internal void AppendJournal(JournalEntry entry) => _journal.Add(entry);
 
     public IReadOnlyList<DistrictEntry> Entries()
     {

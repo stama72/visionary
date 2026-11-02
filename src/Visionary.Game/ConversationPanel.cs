@@ -1,5 +1,6 @@
 using Godot;
 using Visionary.Presentation;
+using Visionary.Sim;
 
 namespace Visionary.Game;
 
@@ -17,10 +18,13 @@ public partial class ConversationPanel : PanelContainer
     private PlayerSession _session = null!;
     private Conversation? _shown;
     private VBoxContainer? _content;
+    private readonly AudioStreamPlayer _player = new();
+    private readonly SortedDictionary<Gratitude, AudioStreamWav> _streams = [];
 
     public void Setup(PlayerSession session)
     {
         _session = session;
+        AddChild(_player);
         Position = new Vector2(680, 220);
         CustomMinimumSize = new Vector2(PanelWidth, 0);
         Visible = false;
@@ -56,7 +60,7 @@ public partial class ConversationPanel : PanelContainer
         _content = new VBoxContainer();
         AddChild(_content);
 
-        _content.AddChild(new Label { Text = conversation.Title });
+        _content.AddChild(new Label { Text = $"{conversation.Title} — {conversation.Expression}" });
 
         var scroll = new ScrollContainer { CustomMinimumSize = new Vector2(PanelWidth - 20, LogHeight) };
         var log = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
@@ -88,6 +92,12 @@ public partial class ConversationPanel : PanelContainer
             button.Pressed += () =>
             {
                 conversation.Sell(itemId, (int)price.Value, (int)quantity.Value);
+
+                if (conversation.TakeChime() is Gratitude gratitude)
+                {
+                    PlayChime(gratitude);
+                }
+
                 Rebuild(conversation);
             };
 
@@ -123,6 +133,25 @@ public partial class ConversationPanel : PanelContainer
 
         leave.Pressed += () => _session.Close();
         _content.AddChild(leave);
+    }
+
+    /// <summary>波形は段階ごとに1回だけ作って持ち回す。</summary>
+    private void PlayChime(Gratitude gratitude)
+    {
+        if (!_streams.TryGetValue(gratitude, out var stream))
+        {
+            stream = new AudioStreamWav
+            {
+                Format = AudioStreamWav.FormatEnum.Format16Bits,
+                MixRate = Chime.MixRate,   // Hz
+                Stereo = false,
+                Data = Chime.Pcm16(gratitude),
+            };
+            _streams[gratitude] = stream;
+        }
+
+        _player.Stream = stream;
+        _player.Play();
     }
 
     /// <summary>整数だけの SpinBox。値は呼び出し側が <c>(int)Value</c> で読む。</summary>

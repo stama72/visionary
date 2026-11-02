@@ -56,6 +56,24 @@ public static class Labels
         _ => throw new ArgumentOutOfRangeException(nameof(activity), activity, "名前のない活動。"),
     };
 
+    /// <summary>開示される3つだけ。開示しない理由には字面を与えない(GDD01 §6.1)。</summary>
+    public static string Of(NeedReason reason) => reason switch
+    {
+        NeedReason.ProductionStopped => "材料切れ",
+        NeedReason.ToolsExhausted => "工具切れ",
+        NeedReason.DistantStock => "品切れ",
+        _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, "開示しない理由。"),
+    };
+
+    /// <summary>日誌の段階の言い方(GDD05 §2.1)。</summary>
+    public static string Of(Gratitude gratitude) => gratitude switch
+    {
+        Gratitude.Reluctant => "渋々だった",
+        Gratitude.Grateful => "感謝された",
+        Gratitude.DeepGratitude => "深く感謝された",
+        _ => throw new ArgumentOutOfRangeException(nameof(gratitude), gratitude, "名前のない段階。"),
+    };
+
     public static string Of(CommandStatus status) => status switch
     {
         CommandStatus.Accepted => "受け付けた",
