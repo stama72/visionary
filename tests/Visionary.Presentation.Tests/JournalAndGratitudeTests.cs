@@ -217,6 +217,42 @@ public class JournalAndGratitudeTests
         Assert.Throws<ArgumentOutOfRangeException>(() => Chime.Pcm16((Gratitude)99));
     }
 
+    /// <summary>
+    /// R1(レビュー1巡目 I-a)。seed 1・tick 534 に窓口で鉄鉱石(2)を 1 個買い、世帯 3 の区画へ移って話しかける。
+    /// 開示は #63(ビール、品切れ)・#70(鉄鉱石、材料切れ)・#71(木炭、品切れ)で、売る相手の #70 は先頭でなく、
+    /// 先頭と理由が異なる。先頭の Need の理由を使う・理由を固定する実装を落とす。
+    /// 品目で引く実装は、この筋書きでは品目と Need が 1 対 1 なので落とせない(既知)。
+    /// </summary>
+    [Fact]
+    public void Sell_ReasonIsLookedUpByNeedId_NotFirstNeedOrFixed()
+    {
+        var host = new SimHost(WorldDefinition.M0, Seed);
+        var session = new PlayerSession(host, WorldDefinition.M0, new TickPump(), Seed, DialogueCorpus.M0);
+
+        host.Advance(534);
+
+        var window = session.OpenWindow();
+        Assert.Equal(CommandStatus.Accepted, window.Buy(2, 1).Status);
+        session.Close();
+
+        var move = session.Move(host.Query.Households()[3].DistrictId);
+        Assert.Equal(CommandStatus.Accepted, move!.Status);
+        host.Advance((int)(move.ArrivalAt!.Value.Value - host.Now.Value));
+
+        Assert.Equal(CommandStatus.Accepted, session.Talk(3).Status);
+        var conversation = session.Conversation!;
+
+        Assert.Equal([63, 70, 71], conversation.DisclosedNeeds.Select(n => n.Id).ToArray());
+        Assert.Equal(NeedReason.DistantStock, conversation.DisclosedNeeds[0].ReasonCode);
+        Assert.Equal(NeedReason.ProductionStopped, conversation.DisclosedNeeds[1].ReasonCode);
+
+        Assert.Equal(CommandStatus.Accepted, conversation.Sell(2, 1, 1).Status);
+
+        var entry = Assert.Single(session.Journal);
+        Assert.Equal(70, entry.NeedId);
+        Assert.Contains("の材料切れに", entry.Text, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Journal_DoesNotChangeWorld_SameHashAsDirectExecute()
     {
